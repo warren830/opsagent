@@ -1,0 +1,11 @@
+glossary:
+  ics:
+    full_name: "Inventory Control System"
+    description: "库存管理核心系统，部署在 EKS 上"
+    aliases: ["inventory-system"]
+    aws_accounts: ["123456789012"]
+    services: ["ics-api", "ics-worker"]
+
+  falcon:
+    full_name: "Falcon CI/CD Platform"
+    description: "内部 CI/CD 平台，基于 ArgoCD"

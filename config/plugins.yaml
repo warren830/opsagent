@@ -1,0 +1,24 @@
+plugins:
+  confluence:
+    enabled: true
+    type: mcp
+    command: "npx"
+    args: ["-y", "@anthropic-ai/mcp-remote", "https://mcp.atlassian.com/v1/sse"]
+    env:
+      MCP_HEADERS: "Authorization: Bearer ${CONFLUENCE_TOKEN}"
+
+  jira:
+    enabled: false
+    type: mcp
+    command: "npx"
+    args: ["-y", "@anthropic-ai/mcp-remote", "https://mcp.atlassian.com/v1/sse"]
+    env:
+      MCP_HEADERS: "Authorization: Bearer ${JIRA_TOKEN}"
+
+  github:
+    enabled: false
+    type: mcp
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+cdk.out/
+*.js.map
+*.d.ts
+!bot/src/__tests__/*.test.ts
+.env
+.idea/
+*.zip
+/tmp/

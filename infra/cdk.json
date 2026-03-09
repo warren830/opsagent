@@ -1,0 +1,21 @@
+{
+  "app": "npx ts-node --prefer-ts-exts bin/app.ts",
+  "watch": {
+    "include": ["**"],
+    "exclude": [
+      "README.md",
+      "node_modules",
+      "dist",
+      "cdk.out",
+      "**/*.d.ts",
+      "**/*.js"
+    ]
+  },
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/core:target-partitions": ["aws"],
+    "hubAccountId": "034362076319",
+    "organizationRootOuId": "r-5um4"
+  }
+}

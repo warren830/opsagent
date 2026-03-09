@@ -1,0 +1,14 @@
+node_modules
+bot/node_modules
+bot/dist
+infra/node_modules
+infra/cdk.out
+.git
+.idea
+*.md
+!README.md
+tests
+dist
+.env
+.env.*
+*.log

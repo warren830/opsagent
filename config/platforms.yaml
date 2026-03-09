@@ -1,0 +1,14 @@
+platforms:
+  teams:
+    enabled: true
+    settings:
+      welcome_message: "OpsAgent ready."
+
+  slack:
+    enabled: false
+    settings:
+      allowed_channels: []  # empty = all channels
+
+  feishu:
+    enabled: true
+    settings: {}

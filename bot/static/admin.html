@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsAgent Admin</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242834;
+    --border: #2e3348;
+    --text: #e1e4ed;
+    --text2: #8b90a0;
+    --accent: #6c8cff;
+    --accent-hover: #8aa4ff;
+    --danger: #ff6b6b;
+    --danger-hover: #ff8787;
+    --success: #51cf66;
+    --tag-bg: #2e3348;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    min-height: 100vh;
+  }
+  /* Sidebar */
+  .sidebar {
+    width: 200px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 24px 0;
+    flex-shrink: 0;
+  }
+  .sidebar h1 {
+    font-size: 16px;
+    padding: 0 20px 20px;
+    border-bottom: 1px solid var(--border);
+    color: var(--accent);
+  }
+  .sidebar nav a {
+    display: block;
+    padding: 12px 20px;
+    color: var(--text2);
+    text-decoration: none;
+    font-size: 14px;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+  }
+  .sidebar nav a:hover { color: var(--text); background: var(--surface2); }
+  .sidebar nav a.active {
+    color: var(--accent);
+    border-left-color: var(--accent);
+    background: var(--surface2);
+  }
+  /* Main */
+  .main {
+    flex: 1;
+    padding: 32px 40px;
+    max-width: 960px;
+  }
+  .main h2 {
+    font-size: 20px;
+    margin-bottom: 20px;
+  }
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  /* Buttons */
+  .btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn-ghost { background: transparent; color: var(--text2); }
+  .btn-ghost:hover { color: var(--text); }
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    transition: border-color 0.15s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+  .card-title { font-size: 15px; font-weight: 600; }
+  .card-subtitle { font-size: 13px; color: var(--text2); margin-top: 2px; }
+  .card-desc { font-size: 13px; color: var(--text2); margin-bottom: 8px; }
+  .card-actions { display: flex; gap: 8px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--tag-bg);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text2);
+  }
+  /* Modal */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    width: 480px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .modal h3 { font-size: 16px; margin-bottom: 16px; }
+  .form-group { margin-bottom: 14px; }
+  .form-group label {
+    display: block;
+    font-size: 13px;
+    color: var(--text2);
+    margin-bottom: 4px;
+  }
+  .form-group input, .form-group textarea {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .form-group input:focus, .form-group textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .form-group textarea { resize: vertical; min-height: 60px; }
+  .form-group .hint { font-size: 11px; color: var(--text2); margin-top: 2px; }
+  .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 200;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .toast.show { opacity: 1; }
+  .toast.success { background: var(--success); color: #000; }
+  .toast.error { background: var(--danger); color: #fff; }
+  /* Status badge */
+  .badge-skip {
+    display: inline-block;
+    padding: 1px 6px;
+    background: var(--danger);
+    color: #fff;
+    border-radius: 4px;
+    font-size: 11px;
+    margin-left: 8px;
+  }
+  /* Empty state */
+  .empty {
+    text-align: center;
+    padding: 40px;
+    color: var(--text2);
+    font-size: 14px;
+  }
+  /* Section divider for accounts page */
+  .section-title {
+    font-size: 14px;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 24px 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-title:first-of-type { margin-top: 0; }
+  .defaults-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  .defaults-card .inline-form {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+  .defaults-card .inline-form .form-group { margin-bottom: 0; flex: 1; min-width: 180px; }
+  /* Platform cards */
+  .platform-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: border-color 0.15s;
+  }
+  .platform-card:hover { border-color: var(--accent); }
+  .platform-info { display: flex; align-items: center; gap: 12px; }
+  .platform-icon { font-size: 20px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: var(--surface2); border-radius: 8px; }
+  .platform-name { font-size: 15px; font-weight: 600; text-transform: capitalize; }
+  .platform-status { font-size: 12px; margin-top: 2px; }
+  .platform-status.on { color: var(--success); }
+  .platform-status.off { color: var(--text2); }
+  .badge-on { display:inline-block; padding:1px 6px; background:var(--success); color:#000; border-radius:4px; font-size:11px; margin-left:8px; }
+  .badge-off { display:inline-block; padding:1px 6px; background:var(--tag-bg); color:var(--text2); border-radius:4px; font-size:11px; margin-left:8px; }
+  .settings-kv { font-size:12px; color:var(--text2); margin-top:4px; }
+  .settings-kv span { color:var(--text); }
+  /* Dropzone */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    text-align: center;
+    color: var(--text2);
+    font-size: 14px;
+    margin-bottom: 16px;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+  .dropzone:hover { border-color: var(--accent); color: var(--text); }
+  .dropzone.dragover { border-color: var(--accent); background: rgba(108,140,255,0.08); color: var(--accent); }
+  .upload-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 13px;
+  }
+  .upload-item .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .upload-item .done { color: var(--success); }
+  .upload-item .fail { color: var(--danger); }
+  /* Chat */
+  #tab-chat { display: none; height: calc(100vh - 64px); display: none; flex-direction: column; }
+  #tab-chat.visible { display: flex; }
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: 16px;
+  }
+  .chat-bubble {
+    max-width: 85%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .chat-bubble.user {
+    background: var(--accent);
+    color: #fff;
+    margin-left: auto;
+    border-bottom-right-radius: 4px;
+  }
+  .chat-bubble.bot {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+  .chat-bubble.bot .md-table { font-size: 12px; border-collapse: collapse; margin: 8px 0; width: 100%; }
+  .chat-bubble.bot .md-table th,
+  .chat-bubble.bot .md-table td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+  .chat-bubble.bot .md-table th { background: var(--surface2); font-weight: 600; }
+  .chat-bubble.thinking {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    font-style: italic;
+    border-bottom-left-radius: 4px;
+  }
+  .chat-input-bar {
+    display: flex;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .chat-input-bar textarea {
+    flex: 1;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    min-height: 44px;
+    max-height: 120px;
+  }
+  .chat-input-bar textarea:focus { outline: none; border-color: var(--accent); }
+  .chat-input-bar button {
+    align-self: flex-end;
+    padding: 10px 20px;
+    min-height: 44px;
+  }
+  .chat-input-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h1>OpsAgent</h1>
+  <nav>
+    <a href="#chat" class="active" onclick="switchTab('chat')">Chat</a>
+    <a href="#glossary" onclick="switchTab('glossary')">Glossary</a>
+    <a href="#accounts" onclick="switchTab('accounts')">Accounts</a>
+    <a href="#platforms" onclick="switchTab('platforms')">Platforms</a>
+    <a href="#knowledge" onclick="switchTab('knowledge')">Knowledge</a>
+  </nav>
+</div>
+
+<div class="main">
+  <!-- Chat Tab -->
+  <div id="tab-chat" class="visible">
+    <h2>Chat</h2>
+    <div class="chat-messages" id="chat-messages"></div>
+    <div class="chat-input-bar">
+      <textarea id="chat-input" placeholder="Ask OpsAgent anything..." rows="1"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea>
+      <button class="btn btn-primary" id="chat-send-btn" onclick="sendChat()">Send</button>
+    </div>
+  </div>
+
+  <!-- Glossary Tab -->
+  <div id="tab-glossary" style="display:none">
+    <div class="toolbar">
+      <h2>Glossary</h2>
+      <button class="btn btn-primary" onclick="openGlossaryModal()">+ New Term</button>
+    </div>
+    <div id="glossary-list"></div>
+  </div>
+
+  <!-- Accounts Tab -->
+  <div id="tab-accounts" style="display:none">
+    <h2>AWS Accounts</h2>
+
+    <div class="section-title">Defaults</div>
+    <div class="defaults-card">
+      <div class="inline-form">
+        <div class="form-group">
+          <label>Default Role Name</label>
+          <input id="defaults-role" placeholder="OpsAgentReadOnly">
+        </div>
+        <div class="form-group">
+          <label>Default Regions</label>
+          <input id="defaults-regions" placeholder="us-east-1, us-west-2">
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveDefaults()">Save</button>
+      </div>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Extra Accounts</span>
+      <button class="btn btn-primary btn-sm" onclick="openAccountModal()">+ Add</button>
+    </div>
+    <div id="extra-accounts-list"></div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Overrides</span>
+      <button class="btn btn-primary btn-sm" onclick="openOverrideModal()">+ Add</button>
+    </div>
+    <div id="overrides-list"></div>
+  </div>
+
+  <!-- Platforms Tab -->
+  <div id="tab-platforms" style="display:none">
+    <div class="toolbar">
+      <h2>Platforms</h2>
+      <div style="font-size:12px;color:var(--text2)">Changes require service restart (ECS force-new-deployment)</div>
+    </div>
+    <div id="platforms-list"></div>
+  </div>
+
+  <!-- Knowledge Tab -->
+  <div id="tab-knowledge" style="display:none">
+    <div class="toolbar">
+      <h2>Knowledge Base</h2>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="document.getElementById('k-upload-input').click()">Upload Files</button>
+        <button class="btn btn-primary" onclick="openKnowledgeModal()">+ New File</button>
+      </div>
+    </div>
+    <input type="file" id="k-upload-input" multiple accept=".md,.txt,.yaml,.yml,.json,.sh,.py,.ts,.js,.csv,.xml,.html,.cfg,.ini,.conf,.log,.rst,.toml" style="display:none" onchange="handleFileUpload(this.files)">
+    <div id="k-dropzone" class="dropzone">
+      Drop files here to upload
+    </div>
+    <div id="k-upload-progress" style="display:none;margin-bottom:16px"></div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      Text files stored on EFS. Claude Code can read these during queries.
+    </div>
+    <div id="knowledge-list"></div>
+  </div>
+</div>
+
+<!-- Platform Settings Modal -->
+<div class="modal-overlay" id="platform-modal">
+  <div class="modal">
+    <h3 id="platform-modal-title">Platform Settings</h3>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+      <input type="checkbox" id="p-enabled" style="width:auto">
+      <label for="p-enabled" style="margin:0;color:var(--text)">Enabled</label>
+    </div>
+    <div id="p-settings-fields"></div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('platform-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="savePlatformEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Glossary Modal -->
+<div class="modal-overlay" id="glossary-modal">
+  <div class="modal">
+    <h3 id="glossary-modal-title">New Term</h3>
+    <div class="form-group">
+      <label>Key (short name)</label>
+      <input id="g-key" placeholder="e.g. ics">
+    </div>
+    <div class="form-group">
+      <label>Full Name</label>
+      <input id="g-fullname" placeholder="e.g. Inventory Control System">
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <textarea id="g-desc" placeholder="What is this system/term?"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Aliases</label>
+      <input id="g-aliases" placeholder="comma separated, e.g. inventory-system, inv">
+      <div class="hint">Optional. Comma separated.</div>
+    </div>
+    <div class="form-group">
+      <label>AWS Account IDs</label>
+      <input id="g-accounts" placeholder="comma separated, e.g. 123456789012">
+      <div class="hint">Optional. Comma separated.</div>
+    </div>
+    <div class="form-group">
+      <label>Services</label>
+      <input id="g-services" placeholder="comma separated, e.g. ics-api, ics-worker">
+      <div class="hint">Optional. Comma separated.</div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('glossary-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveGlossaryEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Account Modal -->
+<div class="modal-overlay" id="account-modal">
+  <div class="modal">
+    <h3 id="account-modal-title">Add Extra Account</h3>
+    <div class="form-group">
+      <label>Account ID</label>
+      <input id="a-id" placeholder="e.g. 111111111111" maxlength="12">
+    </div>
+    <div class="form-group">
+      <label>Name</label>
+      <input id="a-name" placeholder="e.g. partner-staging">
+    </div>
+    <div class="form-group">
+      <label>Role Name</label>
+      <input id="a-role" placeholder="Leave empty to use default">
+      <div class="hint">Optional. Overrides the default role for this account.</div>
+    </div>
+    <div class="form-group">
+      <label>Regions</label>
+      <input id="a-regions" placeholder="comma separated, e.g. us-east-1">
+      <div class="hint">Optional. Comma separated. Leave empty to use default.</div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('account-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAccountEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Override Modal -->
+<div class="modal-overlay" id="override-modal">
+  <div class="modal">
+    <h3 id="override-modal-title">Add Override</h3>
+    <div class="form-group">
+      <label>Account ID</label>
+      <input id="o-id" placeholder="e.g. 034362076319" maxlength="12">
+    </div>
+    <div class="form-group">
+      <label>Alias</label>
+      <input id="o-alias" placeholder="e.g. hub-account">
+      <div class="hint">Optional. Human-readable name for this account.</div>
+    </div>
+    <div class="form-group">
+      <label>Role Name Override</label>
+      <input id="o-role" placeholder="Leave empty to use default">
+    </div>
+    <div class="form-group">
+      <label>Regions Override</label>
+      <input id="o-regions" placeholder="comma separated">
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="o-skip" style="width:auto">
+      <label for="o-skip" style="margin:0;color:var(--text)">Skip this account</label>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('override-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveOverrideEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Knowledge File Modal -->
+<div class="modal-overlay" id="knowledge-modal">
+  <div class="modal" style="width:640px;max-height:85vh">
+    <h3 id="knowledge-modal-title">New File</h3>
+    <div class="form-group">
+      <label>Filename</label>
+      <input id="k-filename" placeholder="e.g. runbook-ecs.md">
+      <div class="hint">Use .md extension for markdown files.</div>
+    </div>
+    <div class="form-group">
+      <label>Content</label>
+      <textarea id="k-content" style="min-height:300px;font-family:monospace;font-size:13px" placeholder="# Runbook Title&#10;&#10;Write your knowledge base content here..."></textarea>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('knowledge-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveKnowledgeFile()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────
+let glossary = {};
+let accounts = { extra: [], overrides: {}, defaults: {} };
+let editingGlossaryKey = null;   // null = new, string = editing
+let editingAccountIdx = null;    // null = new, number = editing
+let editingOverrideId = null;    // null = new, string = editing
+
+// ── Tab switching ──────────────────────────────────────────────────
+const allTabs = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge'];
+function switchTab(tab) {
+  allTabs.forEach(t => {
+    const el = document.getElementById('tab-' + t);
+    if (t === 'chat') {
+      el.classList.toggle('visible', t === tab);
+      if (t !== tab) el.style.display = 'none'; else el.style.display = '';
+    } else {
+      el.style.display = t === tab ? '' : 'none';
+    }
+  });
+  document.querySelectorAll('.sidebar nav a').forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + tab);
+  });
+  if (tab === 'chat') document.getElementById('chat-input').focus();
+}
+
+// ── Toast ──────────────────────────────────────────────────────────
+function toast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  setTimeout(() => el.className = 'toast', 2500);
+}
+
+// ── Modal helpers ──────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+// ── CSV helpers ────────────────────────────────────────────────────
+function csvToArray(s) { return s ? s.split(',').map(x => x.trim()).filter(Boolean) : []; }
+function arrayToCsv(a) { return (a || []).join(', '); }
+
+// ── Glossary ───────────────────────────────────────────────────────
+async function loadGlossary() {
+  const res = await fetch('/admin/api/glossary');
+  const data = await res.json();
+  glossary = data.glossary || {};
+  renderGlossary();
+}
+
+function renderGlossary() {
+  const container = document.getElementById('glossary-list');
+  const keys = Object.keys(glossary);
+  if (keys.length === 0) {
+    container.innerHTML = '<div class="empty">No terms yet. Click "+ New Term" to add one.</div>';
+    return;
+  }
+  container.innerHTML = keys.map(key => {
+    const e = glossary[key];
+    const tags = [
+      ...(e.aliases || []).map(a => `<span class="tag">${esc(a)}</span>`),
+      ...(e.services || []).map(s => `<span class="tag">${esc(s)}</span>`),
+      ...(e.aws_accounts || []).map(a => `<span class="tag">${esc(a)}</span>`),
+    ].join('');
+    return `<div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${esc(key)}</div>
+          <div class="card-subtitle">${esc(e.full_name)}</div>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editGlossary('${esc(key)}')">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteGlossary('${esc(key)}')">Delete</button>
+        </div>
+      </div>
+      <div class="card-desc">${esc(e.description || '')}</div>
+      ${tags ? '<div class="tags">' + tags + '</div>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function openGlossaryModal(key) {
+  editingGlossaryKey = key || null;
+  const entry = key ? glossary[key] : {};
+  document.getElementById('glossary-modal-title').textContent = key ? 'Edit Term' : 'New Term';
+  document.getElementById('g-key').value = key || '';
+  document.getElementById('g-key').disabled = !!key;
+  document.getElementById('g-fullname').value = entry.full_name || '';
+  document.getElementById('g-desc').value = entry.description || '';
+  document.getElementById('g-aliases').value = arrayToCsv(entry.aliases);
+  document.getElementById('g-accounts').value = arrayToCsv(entry.aws_accounts);
+  document.getElementById('g-services').value = arrayToCsv(entry.services);
+  openModal('glossary-modal');
+}
+
+function editGlossary(key) { openGlossaryModal(key); }
+
+async function deleteGlossary(key) {
+  if (!confirm(`Delete "${key}"?`)) return;
+  delete glossary[key];
+  await saveFullGlossary();
+}
+
+async function saveGlossaryEntry() {
+  const key = document.getElementById('g-key').value.trim().toLowerCase();
+  if (!key) return toast('Key is required', 'error');
+
+  const entry = {
+    full_name: document.getElementById('g-fullname').value.trim(),
+    description: document.getElementById('g-desc').value.trim(),
+  };
+  const aliases = csvToArray(document.getElementById('g-aliases').value);
+  const accts = csvToArray(document.getElementById('g-accounts').value);
+  const services = csvToArray(document.getElementById('g-services').value);
+  if (aliases.length) entry.aliases = aliases;
+  if (accts.length) entry.aws_accounts = accts;
+  if (services.length) entry.services = services;
+
+  if (editingGlossaryKey && editingGlossaryKey !== key) {
+    delete glossary[editingGlossaryKey];
+  }
+  glossary[key] = entry;
+  await saveFullGlossary();
+  closeModal('glossary-modal');
+}
+
+async function saveFullGlossary() {
+  const res = await fetch('/admin/api/glossary', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ glossary }),
+  });
+  if (res.ok) {
+    toast('Glossary saved');
+    renderGlossary();
+  } else {
+    toast('Failed to save', 'error');
+  }
+}
+
+// ── Accounts ───────────────────────────────────────────────────────
+async function loadAccounts() {
+  const res = await fetch('/admin/api/accounts');
+  const data = await res.json();
+  accounts = data.accounts || { extra: [], overrides: {}, defaults: {} };
+  if (!accounts.extra) accounts.extra = [];
+  if (!accounts.overrides) accounts.overrides = {};
+  if (!accounts.defaults) accounts.defaults = {};
+  renderAccounts();
+}
+
+function renderAccounts() {
+  // Defaults
+  document.getElementById('defaults-role').value = accounts.defaults.role_name || '';
+  document.getElementById('defaults-regions').value = arrayToCsv(accounts.defaults.regions);
+
+  // Extra accounts
+  const extraContainer = document.getElementById('extra-accounts-list');
+  if (accounts.extra.length === 0) {
+    extraContainer.innerHTML = '<div class="empty">No extra accounts configured.</div>';
+  } else {
+    extraContainer.innerHTML = accounts.extra.map((a, i) => {
+      const tags = [];
+      if (a.role_name) tags.push(`<span class="tag">role: ${esc(a.role_name)}</span>`);
+      if (a.regions?.length) tags.push(`<span class="tag">regions: ${esc(a.regions.join(', '))}</span>`);
+      return `<div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">${esc(a.name || a.id)}</div>
+            <div class="card-subtitle">${esc(a.id)}</div>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-ghost btn-sm" onclick="editAccount(${i})">Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteAccount(${i})">Delete</button>
+          </div>
+        </div>
+        ${tags.length ? '<div class="tags">' + tags.join('') + '</div>' : ''}
+      </div>`;
+    }).join('');
+  }
+
+  // Overrides
+  const ovContainer = document.getElementById('overrides-list');
+  const ovEntries = Object.entries(accounts.overrides);
+  if (ovEntries.length === 0) {
+    ovContainer.innerHTML = '<div class="empty">No overrides configured.</div>';
+  } else {
+    ovContainer.innerHTML = ovEntries.map(([id, ov]) => {
+      const tags = [];
+      if (ov.alias) tags.push(`<span class="tag">alias: ${esc(ov.alias)}</span>`);
+      if (ov.role_name) tags.push(`<span class="tag">role: ${esc(ov.role_name)}</span>`);
+      if (ov.regions?.length) tags.push(`<span class="tag">regions: ${esc(ov.regions.join(', '))}</span>`);
+      const skipBadge = ov.skip ? '<span class="badge-skip">SKIP</span>' : '';
+      return `<div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">${esc(id)}${skipBadge}</div>
+            ${ov.alias ? '<div class="card-subtitle">' + esc(ov.alias) + '</div>' : ''}
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-ghost btn-sm" onclick="editOverride('${esc(id)}')">Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteOverride('${esc(id)}')">Delete</button>
+          </div>
+        </div>
+        ${tags.length ? '<div class="tags">' + tags.join('') + '</div>' : ''}
+      </div>`;
+    }).join('');
+  }
+}
+
+async function saveDefaults() {
+  accounts.defaults.role_name = document.getElementById('defaults-role').value.trim() || undefined;
+  const regions = csvToArray(document.getElementById('defaults-regions').value);
+  accounts.defaults.regions = regions.length ? regions : undefined;
+  // Clean up undefined fields
+  if (!accounts.defaults.role_name) delete accounts.defaults.role_name;
+  if (!accounts.defaults.regions) delete accounts.defaults.regions;
+  await saveFullAccounts();
+}
+
+function openAccountModal(idx) {
+  editingAccountIdx = idx !== undefined ? idx : null;
+  const entry = idx !== undefined ? accounts.extra[idx] : {};
+  document.getElementById('account-modal-title').textContent = idx !== undefined ? 'Edit Account' : 'Add Extra Account';
+  document.getElementById('a-id').value = entry.id || '';
+  document.getElementById('a-name').value = entry.name || '';
+  document.getElementById('a-role').value = entry.role_name || '';
+  document.getElementById('a-regions').value = arrayToCsv(entry.regions);
+  openModal('account-modal');
+}
+
+function editAccount(idx) { openAccountModal(idx); }
+
+async function deleteAccount(idx) {
+  const a = accounts.extra[idx];
+  if (!confirm(`Delete account "${a.name || a.id}"?`)) return;
+  accounts.extra.splice(idx, 1);
+  await saveFullAccounts();
+}
+
+async function saveAccountEntry() {
+  const id = document.getElementById('a-id').value.trim();
+  const name = document.getElementById('a-name').value.trim();
+  if (!id) return toast('Account ID is required', 'error');
+  if (!name) return toast('Name is required', 'error');
+
+  const entry = { id, name };
+  const role = document.getElementById('a-role').value.trim();
+  const regions = csvToArray(document.getElementById('a-regions').value);
+  if (role) entry.role_name = role;
+  if (regions.length) entry.regions = regions;
+
+  if (editingAccountIdx !== null) {
+    accounts.extra[editingAccountIdx] = entry;
+  } else {
+    accounts.extra.push(entry);
+  }
+  await saveFullAccounts();
+  closeModal('account-modal');
+}
+
+function openOverrideModal(id) {
+  editingOverrideId = id || null;
+  const entry = id ? accounts.overrides[id] : {};
+  document.getElementById('override-modal-title').textContent = id ? 'Edit Override' : 'Add Override';
+  document.getElementById('o-id').value = id || '';
+  document.getElementById('o-id').disabled = !!id;
+  document.getElementById('o-alias').value = entry.alias || '';
+  document.getElementById('o-role').value = entry.role_name || '';
+  document.getElementById('o-regions').value = arrayToCsv(entry.regions);
+  document.getElementById('o-skip').checked = !!entry.skip;
+  openModal('override-modal');
+}
+
+function editOverride(id) { openOverrideModal(id); }
+
+async function deleteOverride(id) {
+  if (!confirm(`Delete override for "${id}"?`)) return;
+  delete accounts.overrides[id];
+  await saveFullAccounts();
+}
+
+async function saveOverrideEntry() {
+  const id = document.getElementById('o-id').value.trim();
+  if (!id) return toast('Account ID is required', 'error');
+
+  const entry = {};
+  const alias = document.getElementById('o-alias').value.trim();
+  const role = document.getElementById('o-role').value.trim();
+  const regions = csvToArray(document.getElementById('o-regions').value);
+  const skip = document.getElementById('o-skip').checked;
+  if (alias) entry.alias = alias;
+  if (role) entry.role_name = role;
+  if (regions.length) entry.regions = regions;
+  if (skip) entry.skip = true;
+
+  if (editingOverrideId && editingOverrideId !== id) {
+    delete accounts.overrides[editingOverrideId];
+  }
+  accounts.overrides[id] = entry;
+  await saveFullAccounts();
+  closeModal('override-modal');
+}
+
+async function saveFullAccounts() {
+  const res = await fetch('/admin/api/accounts', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accounts }),
+  });
+  if (res.ok) {
+    toast('Accounts saved');
+    renderAccounts();
+  } else {
+    toast('Failed to save', 'error');
+  }
+}
+
+// ── Platforms ──────────────────────────────────────────────────────
+let platforms = {};
+let editingPlatformKey = null;
+
+const platformIcons = { teams: 'T', slack: 'S', feishu: 'F' };
+const platformKnownSettings = {
+  teams: [
+    { key: 'welcome_message', label: 'Welcome Message', type: 'text' },
+  ],
+  slack: [
+    { key: 'allowed_channels', label: 'Allowed Channels (comma separated IDs)', type: 'text' },
+  ],
+  feishu: [],
+};
+
+async function loadPlatforms() {
+  const res = await fetch('/admin/api/platforms');
+  const data = await res.json();
+  platforms = data.platforms || {};
+  // Ensure all known platforms exist
+  ['teams', 'slack', 'feishu'].forEach(p => {
+    if (!platforms[p]) platforms[p] = { enabled: false, settings: {} };
+    if (!platforms[p].settings) platforms[p].settings = {};
+  });
+  renderPlatforms();
+}
+
+function renderPlatforms() {
+  const container = document.getElementById('platforms-list');
+  const keys = Object.keys(platforms);
+  container.innerHTML = keys.map(key => {
+    const p = platforms[key];
+    const badge = p.enabled ? '<span class="badge-on">ON</span>' : '<span class="badge-off">OFF</span>';
+    const icon = platformIcons[key] || key[0].toUpperCase();
+    const settingsEntries = Object.entries(p.settings || {}).filter(([,v]) => {
+      if (Array.isArray(v)) return v.length > 0;
+      return v !== '' && v !== null && v !== undefined;
+    });
+    const settingsHtml = settingsEntries.length > 0
+      ? '<div class="settings-kv">' + settingsEntries.map(([k, v]) => {
+          const display = Array.isArray(v) ? v.join(', ') : String(v);
+          return `${esc(k)}: <span>${esc(display)}</span>`;
+        }).join(' &middot; ') + '</div>'
+      : '';
+    return `<div class="platform-card">
+      <div class="platform-info">
+        <div class="platform-icon">${icon}</div>
+        <div>
+          <div class="platform-name">${esc(key)}${badge}</div>
+          ${settingsHtml}
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="editPlatform('${esc(key)}')">Configure</button>
+    </div>`;
+  }).join('');
+}
+
+function editPlatform(key) {
+  editingPlatformKey = key;
+  const p = platforms[key] || { enabled: false, settings: {} };
+  document.getElementById('platform-modal-title').textContent = key.charAt(0).toUpperCase() + key.slice(1) + ' Settings';
+  document.getElementById('p-enabled').checked = p.enabled;
+
+  // Build settings fields
+  const container = document.getElementById('p-settings-fields');
+  const knownFields = platformKnownSettings[key] || [];
+  // Merge known + any extra settings that already exist
+  const allKeys = new Set(knownFields.map(f => f.key));
+  Object.keys(p.settings || {}).forEach(k => allKeys.add(k));
+
+  let html = '';
+  allKeys.forEach(k => {
+    const known = knownFields.find(f => f.key === k);
+    const label = known ? known.label : k;
+    let val = p.settings[k];
+    if (Array.isArray(val)) val = val.join(', ');
+    val = val || '';
+    html += `<div class="form-group">
+      <label>${esc(label)}</label>
+      <input data-setting-key="${esc(k)}" value="${esc(String(val))}">
+    </div>`;
+  });
+  container.innerHTML = html;
+  openModal('platform-modal');
+}
+
+async function savePlatformEntry() {
+  const key = editingPlatformKey;
+  if (!key) return;
+
+  const enabled = document.getElementById('p-enabled').checked;
+  const settings = {};
+  document.querySelectorAll('#p-settings-fields input[data-setting-key]').forEach(input => {
+    const k = input.getAttribute('data-setting-key');
+    let v = input.value.trim();
+    // Try to parse as array if it looks like a list (contains comma) or if the known field expects it
+    const known = (platformKnownSettings[key] || []).find(f => f.key === k);
+    if (k.includes('channel') || k.includes('regions') || (v.includes(',') && known)) {
+      const arr = v ? v.split(',').map(x => x.trim()).filter(Boolean) : [];
+      settings[k] = arr;
+    } else {
+      if (v) settings[k] = v;
+    }
+  });
+
+  platforms[key] = { enabled, settings };
+
+  const res = await fetch('/admin/api/platforms', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platforms }),
+  });
+  if (res.ok) {
+    toast('Platforms saved. Restart service to apply.');
+    renderPlatforms();
+  } else {
+    toast('Failed to save', 'error');
+  }
+  closeModal('platform-modal');
+}
+
+// ── Chat ───────────────────────────────────────────────────────────
+let chatBusy = false;
+
+function appendBubble(type, text) {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-bubble ' + type;
+  if (type === 'bot') {
+    div.innerHTML = renderMarkdown(text);
+  } else {
+    div.textContent = text;
+  }
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+function renderMarkdown(text) {
+  // Simple markdown: tables, bold, code blocks, inline code
+  let html = esc(text);
+  // Code blocks
+  html = html.replace(/```[\s\S]*?```/g, m => {
+    const code = m.slice(3, -3).replace(/^\w*\n/, '');
+    return '<pre style="background:var(--surface2);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px">' + code + '</pre>';
+  });
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code style="background:var(--surface2);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>');
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Tables
+  html = html.replace(/((?:\|.+\|\n?)+)/g, (match) => {
+    const rows = match.trim().split('\n').filter(r => r.trim());
+    if (rows.length < 2) return match;
+    // Check if 2nd row is separator
+    if (!/^\|[\s\-:|]+\|$/.test(rows[1])) return match;
+    const headers = rows[0].split('|').filter(Boolean).map(c => c.trim());
+    const dataRows = rows.slice(2);
+    let t = '<table class="md-table"><thead><tr>';
+    headers.forEach(h => t += '<th>' + h + '</th>');
+    t += '</tr></thead><tbody>';
+    dataRows.forEach(r => {
+      const cells = r.split('|').filter(Boolean).map(c => c.trim());
+      t += '<tr>';
+      cells.forEach(c => t += '<td>' + c + '</td>');
+      t += '</tr>';
+    });
+    t += '</tbody></table>';
+    return t;
+  });
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+async function sendChat() {
+  if (chatBusy) return;
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+  appendBubble('user', text);
+
+  const thinkingEl = appendBubble('thinking', 'Thinking...');
+  chatBusy = true;
+  document.getElementById('chat-send-btn').disabled = true;
+
+  try {
+    const res = await fetch('/admin/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+    thinkingEl.remove();
+    if (res.ok) {
+      const data = await res.json();
+      appendBubble('bot', data.reply || '(empty response)');
+    } else {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+      appendBubble('bot', 'Error: ' + (err.error || res.statusText));
+    }
+  } catch (e) {
+    thinkingEl.remove();
+    appendBubble('bot', 'Network error: ' + e.message);
+  } finally {
+    chatBusy = false;
+    document.getElementById('chat-send-btn').disabled = false;
+    input.focus();
+  }
+}
+
+// ── Knowledge ──────────────────────────────────────────────────
+let knowledgeFiles = [];
+let editingKnowledgeFile = null; // null = new, string = editing
+
+// Drag & drop setup
+(function setupDropzone() {
+  document.addEventListener('DOMContentLoaded', () => {
+    const dz = document.getElementById('k-dropzone');
+    if (!dz) return;
+    dz.addEventListener('click', () => document.getElementById('k-upload-input').click());
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault();
+      dz.classList.remove('dragover');
+      if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files);
+    });
+  });
+})();
+
+async function handleFileUpload(fileList) {
+  const files = Array.from(fileList);
+  if (!files.length) return;
+
+  const progress = document.getElementById('k-upload-progress');
+  progress.style.display = 'block';
+  progress.innerHTML = files.map((f, i) =>
+    `<div class="upload-item" id="upload-${i}"><div class="spinner"></div> <span>${esc(f.name)}</span></div>`
+  ).join('');
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const itemEl = document.getElementById('upload-' + i);
+    try {
+      const content = await readFileAsText(file);
+      const res = await fetch('/admin/api/knowledge/' + encodeURIComponent(file.name), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      if (res.ok) {
+        itemEl.innerHTML = `<span class="done">&#10003;</span> <span>${esc(file.name)}</span>`;
+      } else {
+        const err = await res.json().catch(() => ({}));
+        itemEl.innerHTML = `<span class="fail">&#10007;</span> <span>${esc(file.name)} - ${esc(err.error || 'Failed')}</span>`;
+      }
+    } catch (e) {
+      itemEl.innerHTML = `<span class="fail">&#10007;</span> <span>${esc(file.name)} - ${esc(e.message)}</span>`;
+    }
+  }
+
+  // Reset file input
+  document.getElementById('k-upload-input').value = '';
+  await loadKnowledge();
+  setTimeout(() => { progress.style.display = 'none'; }, 3000);
+  toast(files.length + ' file(s) uploaded');
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsText(file);
+  });
+}
+
+async function loadKnowledge() {
+  const res = await fetch('/admin/api/knowledge');
+  const data = await res.json();
+  knowledgeFiles = data.files || [];
+  renderKnowledge();
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function renderKnowledge() {
+  const container = document.getElementById('knowledge-list');
+  if (knowledgeFiles.length === 0) {
+    container.innerHTML = '<div class="empty">No knowledge files yet. Click "+ New File" to create one.</div>';
+    return;
+  }
+  container.innerHTML = knowledgeFiles.map(f => {
+    const modified = new Date(f.modified).toLocaleString();
+    return `<div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${esc(f.name)}</div>
+          <div class="card-subtitle">${formatSize(f.size)} &middot; ${esc(modified)}</div>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editKnowledgeFile('${esc(f.name)}')">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteKnowledgeFile('${esc(f.name)}')">Delete</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openKnowledgeModal(filename) {
+  editingKnowledgeFile = filename || null;
+  document.getElementById('knowledge-modal-title').textContent = filename ? 'Edit File' : 'New File';
+  document.getElementById('k-filename').value = filename || '';
+  document.getElementById('k-filename').disabled = !!filename;
+  document.getElementById('k-content').value = '';
+  openModal('knowledge-modal');
+}
+
+async function editKnowledgeFile(filename) {
+  const res = await fetch('/admin/api/knowledge/' + encodeURIComponent(filename));
+  if (!res.ok) return toast('Failed to load file', 'error');
+  const data = await res.json();
+  editingKnowledgeFile = filename;
+  document.getElementById('knowledge-modal-title').textContent = 'Edit File';
+  document.getElementById('k-filename').value = filename;
+  document.getElementById('k-filename').disabled = true;
+  document.getElementById('k-content').value = data.content || '';
+  openModal('knowledge-modal');
+}
+
+async function saveKnowledgeFile() {
+  const filename = document.getElementById('k-filename').value.trim();
+  if (!filename) return toast('Filename is required', 'error');
+  const content = document.getElementById('k-content').value;
+
+  const res = await fetch('/admin/api/knowledge/' + encodeURIComponent(filename), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (res.ok) {
+    toast('File saved');
+    closeModal('knowledge-modal');
+    await loadKnowledge();
+  } else {
+    const err = await res.json().catch(() => ({}));
+    toast(err.error || 'Failed to save', 'error');
+  }
+}
+
+async function deleteKnowledgeFile(filename) {
+  if (!confirm(`Delete "${filename}"?`)) return;
+  const res = await fetch('/admin/api/knowledge/' + encodeURIComponent(filename), { method: 'DELETE' });
+  if (res.ok) {
+    toast('File deleted');
+    await loadKnowledge();
+  } else {
+    toast('Failed to delete', 'error');
+  }
+}
+
+// ── Util ───────────────────────────────────────────────────────────
+function esc(s) {
+  const div = document.createElement('div');
+  div.textContent = String(s);
+  return div.innerHTML;
+}
+
+// ── Init ───────────────────────────────────────────────────────────
+loadGlossary();
+loadAccounts();
+loadPlatforms();
+loadKnowledge();
+</script>
+</body>
+</html>

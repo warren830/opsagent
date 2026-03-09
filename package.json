@@ -1,0 +1,28 @@
+{
+  "name": "opsagent",
+  "version": "0.1.0",
+  "description": "OpsAgent - AI-powered operations agent for AWS infrastructure management",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "jest --config tests/jest.config.ts",
+    "test:e2e": "cd bot && npm run build && cd .. && npx playwright test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "yaml": "^2.4.0"
+  }
+}

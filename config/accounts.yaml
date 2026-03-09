@@ -1,0 +1,16 @@
+accounts:
+  extra:
+    - id: "111111111111"
+      name: "partner-staging"
+      role_name: "OpsAgentPartnerRole"
+      regions: ["us-east-1"]
+
+  overrides:
+    "034362076319":
+      alias: "hub-account"
+    "999999999999":
+      skip: true
+
+  defaults:
+    role_name: "OpsAgentReadOnly"
+    regions: ["us-east-1"]
