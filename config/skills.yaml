@@ -1,0 +1,28 @@
+skills:
+  - name: "ECS Troubleshooting"
+    description: "ECS 服务故障排查流程"
+    enabled: true
+    instructions: |
+      当用户询问 ECS 相关问题时:
+      1. 先用 aws ecs describe-services 检查 service 状态
+      2. 用 aws ecs describe-tasks 查看 task 停止原因
+      3. 用 aws logs tail 查看 CloudWatch 日志
+      4. 用 aws elbv2 describe-target-health 检查负载均衡健康状态
+
+  - name: "Cost Analysis"
+    description: "AWS 费用分析"
+    enabled: false
+    instructions: |
+      使用 aws ce get-cost-and-usage 分析费用。
+      默认查询最近 30 天，按 service 分组展示。
+      大额费用项单独高亮提醒。
+
+  - name: "Security Audit"
+    description: "安全合规检查"
+    enabled: false
+    instructions: |
+      检查安全相关配置:
+      - S3 bucket 公开访问状态
+      - Security Group 是否有 0.0.0.0/0 入站规则
+      - IAM 用户是否启用 MFA
+      - 过期的 SSL 证书

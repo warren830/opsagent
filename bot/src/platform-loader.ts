@@ -4,7 +4,8 @@ import * as yaml from 'js-yaml';
 
 export interface PlatformSettings {
   enabled: boolean;
-  settings: Record<string, any>;
+  credentials?: Record<string, string>;
+  settings?: Record<string, any>;
 }
 
 export interface PlatformsConfig {
@@ -19,14 +20,8 @@ export function loadPlatforms(configPath: string): PlatformsConfig {
   const absolutePath = path.resolve(configPath);
 
   if (!fs.existsSync(absolutePath)) {
-    console.warn(`[platform-loader] Config file not found: ${absolutePath}, using defaults`);
-    return {
-      platforms: {
-        teams: { enabled: true, settings: {} },
-        slack: { enabled: false, settings: {} },
-        feishu: { enabled: false, settings: {} },
-      },
-    };
+    console.warn(`[platform-loader] Config file not found: ${absolutePath}, no platforms configured`);
+    return { platforms: {} };
   }
 
   try {
@@ -59,4 +54,11 @@ export function isPlatformEnabled(config: PlatformsConfig, platform: string): bo
  */
 export function getPlatformSettings(config: PlatformsConfig, platform: string): Record<string, any> {
   return config.platforms[platform]?.settings || {};
+}
+
+/**
+ * Get credentials for a specific platform.
+ */
+export function getPlatformCredentials(config: PlatformsConfig, platform: string): Record<string, string> {
+  return config.platforms[platform]?.credentials || {};
 }

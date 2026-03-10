@@ -351,6 +351,7 @@
     <a href="#accounts" onclick="switchTab('accounts')">Accounts</a>
     <a href="#platforms" onclick="switchTab('platforms')">Platforms</a>
     <a href="#knowledge" onclick="switchTab('knowledge')">Knowledge</a>
+    <a href="#skills" onclick="switchTab('skills')">Skills</a>
   </nav>
 </div>
 
@@ -405,13 +406,22 @@
       <button class="btn btn-primary btn-sm" onclick="openOverrideModal()">+ Add</button>
     </div>
     <div id="overrides-list"></div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Multi-Cloud Accounts</span>
+      <button class="btn btn-primary btn-sm" onclick="openCloudModal()">+ Add</button>
+    </div>
+    <div id="cloud-accounts-list"></div>
   </div>
 
   <!-- Platforms Tab -->
   <div id="tab-platforms" style="display:none">
     <div class="toolbar">
-      <h2>Platforms</h2>
-      <div style="font-size:12px;color:var(--text2)">Changes require service restart (ECS force-new-deployment)</div>
+      <h2>Platform Integrations</h2>
+      <button class="btn btn-primary" onclick="openPlatformModal()">+ Add Integration</button>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      Configure IM platform connections. Credentials are stored in config. Changes require service restart.
     </div>
     <div id="platforms-list"></div>
   </div>
@@ -435,16 +445,95 @@
     </div>
     <div id="knowledge-list"></div>
   </div>
+
+  <!-- Skills Tab -->
+  <div id="tab-skills" style="display:none">
+    <div class="toolbar">
+      <h2>Skills</h2>
+      <button class="btn btn-primary" onclick="openSkillModal()">+ New Skill</button>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      Custom instructions injected into Claude Code's system prompt. Enabled skills guide Claude's behavior during queries.
+    </div>
+    <div id="skills-list"></div>
+  </div>
+</div>
+
+<!-- Skill Modal -->
+<div class="modal-overlay" id="skill-modal">
+  <div class="modal" style="width:600px">
+    <h3 id="skill-modal-title">New Skill</h3>
+    <div class="form-group">
+      <label>Name</label>
+      <input id="sk-name" placeholder="e.g. ECS Troubleshooting">
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <input id="sk-desc" placeholder="Brief description of what this skill does">
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="sk-enabled" style="width:auto" checked>
+      <label for="sk-enabled" style="margin:0;color:var(--text)">Enabled</label>
+    </div>
+    <div class="form-group">
+      <label>Instructions</label>
+      <textarea id="sk-instructions" style="min-height:200px;font-family:monospace;font-size:13px" placeholder="Write instructions for Claude Code..."></textarea>
+      <div class="hint">These instructions are injected into the system prompt when the skill is enabled.</div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('skill-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSkillEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cloud Account Modal -->
+<div class="modal-overlay" id="cloud-modal">
+  <div class="modal">
+    <h3 id="cloud-modal-title">Add Cloud Account</h3>
+    <div class="form-group">
+      <label>Cloud Provider</label>
+      <select id="c-provider" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px">
+        <option value="alicloud">Alibaba Cloud</option>
+        <option value="azure">Azure</option>
+        <option value="gcp">GCP</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Account Name</label>
+      <input id="c-name" placeholder="e.g. production">
+    </div>
+    <div class="form-group">
+      <label>Region</label>
+      <input id="c-region" placeholder="e.g. cn-hangzhou">
+    </div>
+    <div id="c-extra-fields"></div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('cloud-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCloudAccount()">Save</button>
+    </div>
+  </div>
 </div>
 
 <!-- Platform Settings Modal -->
 <div class="modal-overlay" id="platform-modal">
-  <div class="modal">
-    <h3 id="platform-modal-title">Platform Settings</h3>
-    <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
-      <input type="checkbox" id="p-enabled" style="width:auto">
+  <div class="modal" style="width:540px">
+    <h3 id="platform-modal-title">Add Integration</h3>
+    <div class="form-group">
+      <label>Platform Type</label>
+      <select id="p-type" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px" onchange="updatePlatformFields()">
+        <option value="teams">Microsoft Teams</option>
+        <option value="slack">Slack</option>
+        <option value="feishu">Feishu / Lark</option>
+      </select>
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="p-enabled" style="width:auto" checked>
       <label for="p-enabled" style="margin:0;color:var(--text)">Enabled</label>
     </div>
+    <div style="font-size:13px;color:var(--text2);margin:12px 0 8px;border-bottom:1px solid var(--border);padding-bottom:6px">Credentials</div>
+    <div id="p-credentials-fields"></div>
+    <div style="font-size:13px;color:var(--text2);margin:12px 0 8px;border-bottom:1px solid var(--border);padding-bottom:6px">Settings</div>
     <div id="p-settings-fields"></div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal('platform-modal')">Cancel</button>
@@ -583,7 +672,7 @@ let editingAccountIdx = null;    // null = new, number = editing
 let editingOverrideId = null;    // null = new, string = editing
 
 // ── Tab switching ──────────────────────────────────────────────────
-const allTabs = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge'];
+const allTabs = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills'];
 function switchTab(tab) {
   allTabs.forEach(t => {
     const el = document.getElementById('tab-' + t);
@@ -718,10 +807,11 @@ async function saveFullGlossary() {
 async function loadAccounts() {
   const res = await fetch('/admin/api/accounts');
   const data = await res.json();
-  accounts = data.accounts || { extra: [], overrides: {}, defaults: {} };
+  accounts = data.accounts || { extra: [], overrides: {}, defaults: {}, clouds: {} };
   if (!accounts.extra) accounts.extra = [];
   if (!accounts.overrides) accounts.overrides = {};
   if (!accounts.defaults) accounts.defaults = {};
+  if (!accounts.clouds) accounts.clouds = {};
   renderAccounts();
 }
 
@@ -781,6 +871,40 @@ function renderAccounts() {
         ${tags.length ? '<div class="tags">' + tags.join('') + '</div>' : ''}
       </div>`;
     }).join('');
+  }
+
+  // Multi-Cloud accounts
+  const cloudContainer = document.getElementById('cloud-accounts-list');
+  const cloudProviders = Object.keys(accounts.clouds || {});
+  if (cloudProviders.length === 0 || cloudProviders.every(p => (accounts.clouds[p] || []).length === 0)) {
+    cloudContainer.innerHTML = '<div class="empty">No multi-cloud accounts configured. Click "+ Add" to add one.</div>';
+  } else {
+    let cloudHtml = '';
+    cloudProviders.forEach(provider => {
+      const list = accounts.clouds[provider] || [];
+      list.forEach((acct, i) => {
+        const providerLabel = { alicloud: 'Alibaba Cloud', azure: 'Azure', gcp: 'GCP' }[provider] || provider;
+        const tags = [];
+        tags.push(`<span class="tag">${esc(providerLabel)}</span>`);
+        if (acct.region) tags.push(`<span class="tag">${esc(acct.region)}</span>`);
+        if (acct.subscription_id) tags.push(`<span class="tag">sub: ${esc(acct.subscription_id)}</span>`);
+        if (acct.project_id) tags.push(`<span class="tag">project: ${esc(acct.project_id)}</span>`);
+        cloudHtml += `<div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">${esc(acct.name)}</div>
+              <div class="card-subtitle">${esc(providerLabel)} &middot; ${esc(acct.region || 'no region')}</div>
+            </div>
+            <div class="card-actions">
+              <button class="btn btn-ghost btn-sm" onclick="editCloudAccount('${esc(provider)}',${i})">Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteCloudAccount('${esc(provider)}',${i})">Delete</button>
+            </div>
+          </div>
+          ${tags.length ? '<div class="tags">' + tags.join('') + '</div>' : ''}
+        </div>`;
+      });
+    });
+    cloudContainer.innerHTML = cloudHtml;
   }
 }
 
@@ -896,109 +1020,197 @@ async function saveFullAccounts() {
 let platforms = {};
 let editingPlatformKey = null;
 
-const platformIcons = { teams: 'T', slack: 'S', feishu: 'F' };
-const platformKnownSettings = {
-  teams: [
-    { key: 'welcome_message', label: 'Welcome Message', type: 'text' },
-  ],
-  slack: [
-    { key: 'allowed_channels', label: 'Allowed Channels (comma separated IDs)', type: 'text' },
-  ],
-  feishu: [],
+const platformMeta = {
+  teams: {
+    label: 'Microsoft Teams',
+    icon: 'T',
+    credentials: [
+      { key: 'app_id', label: 'App ID', placeholder: 'Microsoft App ID' },
+      { key: 'app_password', label: 'App Password', placeholder: 'Microsoft App Password', secret: true },
+    ],
+    settings: [
+      { key: 'welcome_message', label: 'Welcome Message', placeholder: 'OpsAgent ready.' },
+    ],
+    webhook: '/api/messages/teams',
+  },
+  slack: {
+    label: 'Slack',
+    icon: 'S',
+    credentials: [
+      { key: 'bot_token', label: 'Bot Token', placeholder: 'xoxb-...', secret: true },
+      { key: 'signing_secret', label: 'Signing Secret', placeholder: 'Slack signing secret', secret: true },
+    ],
+    settings: [
+      { key: 'allowed_channels', label: 'Allowed Channels', placeholder: 'Comma separated channel IDs (empty = all)', array: true },
+    ],
+    webhook: '/api/messages/slack',
+  },
+  feishu: {
+    label: 'Feishu / Lark',
+    icon: 'F',
+    credentials: [
+      { key: 'app_id', label: 'App ID', placeholder: 'Feishu App ID' },
+      { key: 'app_secret', label: 'App Secret', placeholder: 'Feishu App Secret', secret: true },
+      { key: 'verification_token', label: 'Verification Token', placeholder: 'Event verification token' },
+    ],
+    settings: [],
+    webhook: '/api/messages/feishu',
+  },
 };
 
 async function loadPlatforms() {
   const res = await fetch('/admin/api/platforms');
   const data = await res.json();
   platforms = data.platforms || {};
-  // Ensure all known platforms exist
-  ['teams', 'slack', 'feishu'].forEach(p => {
-    if (!platforms[p]) platforms[p] = { enabled: false, settings: {} };
-    if (!platforms[p].settings) platforms[p].settings = {};
-  });
   renderPlatforms();
 }
 
 function renderPlatforms() {
   const container = document.getElementById('platforms-list');
   const keys = Object.keys(platforms);
+  if (keys.length === 0) {
+    container.innerHTML = '<div class="empty">No platform integrations configured. Click "+ Add Integration" to connect an IM platform.</div>';
+    return;
+  }
   container.innerHTML = keys.map(key => {
     const p = platforms[key];
+    const meta = platformMeta[key] || { label: key, icon: key[0].toUpperCase(), credentials: [], settings: [], webhook: '' };
     const badge = p.enabled ? '<span class="badge-on">ON</span>' : '<span class="badge-off">OFF</span>';
-    const icon = platformIcons[key] || key[0].toUpperCase();
-    const settingsEntries = Object.entries(p.settings || {}).filter(([,v]) => {
-      if (Array.isArray(v)) return v.length > 0;
-      return v !== '' && v !== null && v !== undefined;
-    });
-    const settingsHtml = settingsEntries.length > 0
-      ? '<div class="settings-kv">' + settingsEntries.map(([k, v]) => {
-          const display = Array.isArray(v) ? v.join(', ') : String(v);
-          return `${esc(k)}: <span>${esc(display)}</span>`;
-        }).join(' &middot; ') + '</div>'
-      : '';
-    return `<div class="platform-card">
-      <div class="platform-info">
-        <div class="platform-icon">${icon}</div>
-        <div>
-          <div class="platform-name">${esc(key)}${badge}</div>
-          ${settingsHtml}
+    const hasCredentials = Object.values(p.credentials || {}).some(v => v);
+    const credStatus = hasCredentials
+      ? '<span style="color:var(--success);font-size:12px">credentials configured</span>'
+      : '<span style="color:var(--danger);font-size:12px">no credentials</span>';
+    const webhookHint = meta.webhook ? `<span style="font-size:12px;color:var(--text2)">Webhook: <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">${esc(meta.webhook)}</code></span>` : '';
+    return `<div class="platform-card" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div class="platform-info">
+          <div class="platform-icon">${meta.icon}</div>
+          <div>
+            <div class="platform-name">${esc(meta.label)}${badge}</div>
+            <div style="display:flex;gap:12px;margin-top:2px">${credStatus} ${webhookHint}</div>
+          </div>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editPlatform('${esc(key)}')">Configure</button>
+          <button class="btn btn-danger btn-sm" onclick="deletePlatform('${esc(key)}')">Remove</button>
         </div>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="editPlatform('${esc(key)}')">Configure</button>
     </div>`;
   }).join('');
 }
 
-function editPlatform(key) {
-  editingPlatformKey = key;
-  const p = platforms[key] || { enabled: false, settings: {} };
-  document.getElementById('platform-modal-title').textContent = key.charAt(0).toUpperCase() + key.slice(1) + ' Settings';
-  document.getElementById('p-enabled').checked = p.enabled;
+function updatePlatformFields() {
+  const type = document.getElementById('p-type').value;
+  const meta = platformMeta[type] || { credentials: [], settings: [] };
 
-  // Build settings fields
-  const container = document.getElementById('p-settings-fields');
-  const knownFields = platformKnownSettings[key] || [];
-  // Merge known + any extra settings that already exist
-  const allKeys = new Set(knownFields.map(f => f.key));
-  Object.keys(p.settings || {}).forEach(k => allKeys.add(k));
+  // Credentials
+  const credsContainer = document.getElementById('p-credentials-fields');
+  credsContainer.innerHTML = meta.credentials.map(f =>
+    `<div class="form-group">
+      <label>${esc(f.label)}</label>
+      <input id="p-cred-${f.key}" type="${f.secret ? 'password' : 'text'}" placeholder="${esc(f.placeholder || '')}">
+      ${f.secret ? '<div class="hint">Stored in config on EFS. Env vars also supported as fallback.</div>' : ''}
+    </div>`
+  ).join('');
 
-  let html = '';
-  allKeys.forEach(k => {
-    const known = knownFields.find(f => f.key === k);
-    const label = known ? known.label : k;
-    let val = p.settings[k];
-    if (Array.isArray(val)) val = val.join(', ');
-    val = val || '';
-    html += `<div class="form-group">
-      <label>${esc(label)}</label>
-      <input data-setting-key="${esc(k)}" value="${esc(String(val))}">
-    </div>`;
-  });
-  container.innerHTML = html;
+  // Settings
+  const settingsContainer = document.getElementById('p-settings-fields');
+  if (meta.settings.length === 0) {
+    settingsContainer.innerHTML = '<div style="font-size:13px;color:var(--text2)">No additional settings for this platform.</div>';
+  } else {
+    settingsContainer.innerHTML = meta.settings.map(f =>
+      `<div class="form-group">
+        <label>${esc(f.label)}</label>
+        <input id="p-set-${f.key}" placeholder="${esc(f.placeholder || '')}">
+      </div>`
+    ).join('');
+  }
+}
+
+function openPlatformModal(key) {
+  editingPlatformKey = key || null;
+  const isEdit = !!key;
+  const entry = isEdit ? platforms[key] : null;
+  const type = isEdit ? key : 'teams';
+
+  document.getElementById('platform-modal-title').textContent = isEdit ? 'Configure ' + (platformMeta[key]?.label || key) : 'Add Integration';
+  document.getElementById('p-type').value = type;
+  document.getElementById('p-type').disabled = isEdit;
+  document.getElementById('p-enabled').checked = entry ? !!entry.enabled : true;
+
+  updatePlatformFields();
+
+  // Fill values if editing
+  if (isEdit && entry) {
+    const meta = platformMeta[key] || { credentials: [], settings: [] };
+    meta.credentials.forEach(f => {
+      const el = document.getElementById('p-cred-' + f.key);
+      if (el && entry.credentials?.[f.key]) el.value = entry.credentials[f.key];
+    });
+    meta.settings.forEach(f => {
+      const el = document.getElementById('p-set-' + f.key);
+      if (el && entry.settings?.[f.key] !== undefined) {
+        const v = entry.settings[f.key];
+        el.value = Array.isArray(v) ? v.join(', ') : String(v);
+      }
+    });
+  }
+
   openModal('platform-modal');
 }
 
+function editPlatform(key) { openPlatformModal(key); }
+
+async function deletePlatform(key) {
+  const label = platformMeta[key]?.label || key;
+  if (!confirm(`Remove ${label} integration?`)) return;
+  delete platforms[key];
+  await saveFullPlatforms();
+}
+
 async function savePlatformEntry() {
-  const key = editingPlatformKey;
-  if (!key) return;
+  const type = document.getElementById('p-type').value;
+  const meta = platformMeta[type] || { credentials: [], settings: [] };
+
+  if (!editingPlatformKey && platforms[type]) {
+    return toast(`${meta.label || type} is already configured. Edit the existing one instead.`, 'error');
+  }
 
   const enabled = document.getElementById('p-enabled').checked;
-  const settings = {};
-  document.querySelectorAll('#p-settings-fields input[data-setting-key]').forEach(input => {
-    const k = input.getAttribute('data-setting-key');
-    let v = input.value.trim();
-    // Try to parse as array if it looks like a list (contains comma) or if the known field expects it
-    const known = (platformKnownSettings[key] || []).find(f => f.key === k);
-    if (k.includes('channel') || k.includes('regions') || (v.includes(',') && known)) {
-      const arr = v ? v.split(',').map(x => x.trim()).filter(Boolean) : [];
-      settings[k] = arr;
-    } else {
-      if (v) settings[k] = v;
+
+  const credentials = {};
+  meta.credentials.forEach(f => {
+    const el = document.getElementById('p-cred-' + f.key);
+    if (el) {
+      const v = el.value.trim();
+      if (v) credentials[f.key] = v;
+      // Preserve existing value if password field is empty during edit
+      else if (editingPlatformKey && platforms[editingPlatformKey]?.credentials?.[f.key]) {
+        credentials[f.key] = platforms[editingPlatformKey].credentials[f.key];
+      }
     }
   });
 
-  platforms[key] = { enabled, settings };
+  const settings = {};
+  meta.settings.forEach(f => {
+    const el = document.getElementById('p-set-' + f.key);
+    if (el) {
+      const v = el.value.trim();
+      if (f.array) {
+        const arr = v ? v.split(',').map(x => x.trim()).filter(Boolean) : [];
+        if (arr.length) settings[f.key] = arr;
+      } else {
+        if (v) settings[f.key] = v;
+      }
+    }
+  });
 
+  platforms[type] = { enabled, credentials, settings };
+  await saveFullPlatforms();
+  closeModal('platform-modal');
+}
+
+async function saveFullPlatforms() {
   const res = await fetch('/admin/api/platforms', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -1010,7 +1222,6 @@ async function savePlatformEntry() {
   } else {
     toast('Failed to save', 'error');
   }
-  closeModal('platform-modal');
 }
 
 // ── Chat ───────────────────────────────────────────────────────────
@@ -1260,6 +1471,203 @@ async function deleteKnowledgeFile(filename) {
   }
 }
 
+// ── Cloud Accounts ────────────────────────────────────────────────
+let editingCloudProvider = null;
+let editingCloudIdx = null;
+
+const cloudProviderFields = {
+  alicloud: [
+    { key: 'access_key_env', label: 'Access Key Env Var', placeholder: 'e.g. ALICLOUD_PROD_AK' },
+    { key: 'secret_key_env', label: 'Secret Key Env Var', placeholder: 'e.g. ALICLOUD_PROD_SK' },
+  ],
+  azure: [
+    { key: 'subscription_id', label: 'Subscription ID', placeholder: 'e.g. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' },
+    { key: 'tenant_id', label: 'Tenant ID', placeholder: 'Optional' },
+  ],
+  gcp: [
+    { key: 'project_id', label: 'Project ID', placeholder: 'e.g. my-project-123' },
+  ],
+};
+
+function updateCloudExtraFields() {
+  const provider = document.getElementById('c-provider').value;
+  const container = document.getElementById('c-extra-fields');
+  const fields = cloudProviderFields[provider] || [];
+  container.innerHTML = fields.map(f =>
+    `<div class="form-group">
+      <label>${esc(f.label)}</label>
+      <input id="c-${f.key}" placeholder="${esc(f.placeholder)}">
+    </div>`
+  ).join('');
+}
+
+function openCloudModal(provider, idx) {
+  editingCloudProvider = (provider && idx !== undefined) ? provider : null;
+  editingCloudIdx = idx !== undefined ? idx : null;
+  const isEdit = editingCloudProvider !== null;
+  const entry = isEdit ? (accounts.clouds[provider] || [])[idx] || {} : {};
+
+  document.getElementById('cloud-modal-title').textContent = isEdit ? 'Edit Cloud Account' : 'Add Cloud Account';
+  document.getElementById('c-provider').value = isEdit ? provider : 'alicloud';
+  document.getElementById('c-provider').disabled = isEdit;
+  document.getElementById('c-name').value = entry.name || '';
+  document.getElementById('c-region').value = entry.region || '';
+
+  updateCloudExtraFields();
+
+  // Fill extra fields if editing
+  if (isEdit) {
+    const fields = cloudProviderFields[provider] || [];
+    fields.forEach(f => {
+      const el = document.getElementById('c-' + f.key);
+      if (el && entry[f.key]) el.value = entry[f.key];
+    });
+  }
+
+  openModal('cloud-modal');
+}
+
+function editCloudAccount(provider, idx) { openCloudModal(provider, idx); }
+
+async function deleteCloudAccount(provider, idx) {
+  const acct = (accounts.clouds[provider] || [])[idx];
+  if (!acct || !confirm(`Delete cloud account "${acct.name}"?`)) return;
+  accounts.clouds[provider].splice(idx, 1);
+  if (accounts.clouds[provider].length === 0) delete accounts.clouds[provider];
+  await saveFullAccounts();
+}
+
+async function saveCloudAccount() {
+  const provider = document.getElementById('c-provider').value;
+  const name = document.getElementById('c-name').value.trim();
+  const region = document.getElementById('c-region').value.trim();
+  if (!name) return toast('Name is required', 'error');
+  if (!region) return toast('Region is required', 'error');
+
+  const entry = { name, region };
+  const fields = cloudProviderFields[provider] || [];
+  fields.forEach(f => {
+    const el = document.getElementById('c-' + f.key);
+    if (el) {
+      const v = el.value.trim();
+      if (v) entry[f.key] = v;
+    }
+  });
+
+  if (!accounts.clouds) accounts.clouds = {};
+  if (!accounts.clouds[provider]) accounts.clouds[provider] = [];
+
+  if (editingCloudProvider !== null && editingCloudIdx !== null) {
+    accounts.clouds[editingCloudProvider][editingCloudIdx] = entry;
+  } else {
+    accounts.clouds[provider].push(entry);
+  }
+
+  await saveFullAccounts();
+  closeModal('cloud-modal');
+}
+
+// ── Skills ────────────────────────────────────────────────────────
+let skills = [];
+let editingSkillIdx = null;
+
+async function loadSkills() {
+  const res = await fetch('/admin/api/skills');
+  const data = await res.json();
+  skills = data.skills || [];
+  renderSkills();
+}
+
+function renderSkills() {
+  const container = document.getElementById('skills-list');
+  if (skills.length === 0) {
+    container.innerHTML = '<div class="empty">No skills configured. Click "+ New Skill" to add one.</div>';
+    return;
+  }
+  container.innerHTML = skills.map((s, i) => {
+    const badge = s.enabled ? '<span class="badge-on">ON</span>' : '<span class="badge-off">OFF</span>';
+    const preview = (s.instructions || '').substring(0, 120).replace(/\n/g, ' ');
+    return `<div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${esc(s.name)}${badge}</div>
+          <div class="card-subtitle">${esc(s.description || '')}</div>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="toggleSkill(${i})">${s.enabled ? 'Disable' : 'Enable'}</button>
+          <button class="btn btn-ghost btn-sm" onclick="editSkill(${i})">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteSkill(${i})">Delete</button>
+        </div>
+      </div>
+      <div class="card-desc" style="font-family:monospace;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(preview)}${preview.length >= 120 ? '...' : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+function openSkillModal(idx) {
+  editingSkillIdx = idx !== undefined ? idx : null;
+  const isEdit = editingSkillIdx !== null;
+  const entry = isEdit ? skills[idx] : {};
+
+  document.getElementById('skill-modal-title').textContent = isEdit ? 'Edit Skill' : 'New Skill';
+  document.getElementById('sk-name').value = entry.name || '';
+  document.getElementById('sk-desc').value = entry.description || '';
+  document.getElementById('sk-enabled').checked = isEdit ? !!entry.enabled : true;
+  document.getElementById('sk-instructions').value = entry.instructions || '';
+  openModal('skill-modal');
+}
+
+function editSkill(idx) { openSkillModal(idx); }
+
+async function toggleSkill(idx) {
+  skills[idx].enabled = !skills[idx].enabled;
+  await saveFullSkills();
+}
+
+async function deleteSkill(idx) {
+  const s = skills[idx];
+  if (!confirm(`Delete skill "${s.name}"?`)) return;
+  skills.splice(idx, 1);
+  await saveFullSkills();
+}
+
+async function saveSkillEntry() {
+  const name = document.getElementById('sk-name').value.trim();
+  if (!name) return toast('Name is required', 'error');
+  const instructions = document.getElementById('sk-instructions').value.trim();
+  if (!instructions) return toast('Instructions are required', 'error');
+
+  const entry = {
+    name,
+    description: document.getElementById('sk-desc').value.trim(),
+    enabled: document.getElementById('sk-enabled').checked,
+    instructions,
+  };
+
+  if (editingSkillIdx !== null) {
+    skills[editingSkillIdx] = entry;
+  } else {
+    skills.push(entry);
+  }
+
+  await saveFullSkills();
+  closeModal('skill-modal');
+}
+
+async function saveFullSkills() {
+  const res = await fetch('/admin/api/skills', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ skills }),
+  });
+  if (res.ok) {
+    toast('Skills saved');
+    renderSkills();
+  } else {
+    toast('Failed to save', 'error');
+  }
+}
+
 // ── Util ───────────────────────────────────────────────────────────
 function esc(s) {
   const div = document.createElement('div');
@@ -1272,6 +1680,10 @@ loadGlossary();
 loadAccounts();
 loadPlatforms();
 loadKnowledge();
+loadSkills();
+
+// Wire up cloud provider change to update extra fields
+document.getElementById('c-provider').addEventListener('change', updateCloudExtraFields);
 </script>
 </body>
 </html>

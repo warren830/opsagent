@@ -3,14 +3,18 @@ import * as path from 'path';
 import { loadPlugins, generateMcpConfig } from './plugin-loader';
 import { loadGlossary, generateGlossaryKnowledge } from './glossary-loader';
 import { loadAccounts, generateAccountsKnowledge } from './accounts-loader';
+import { loadSkills, generateSkillsPrompt } from './skills-loader';
 
 const CLAUDE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes idle -> expire session
 
-const BASE_SYSTEM_PROMPT = `你是 OpsAgent，一个基础设施查询助手。
-使用 aws cli、kubectl 等工具查询 AWS 资源。
+const BASE_SYSTEM_PROMPT = `你是 OpsAgent，一个多云基础设施查询助手。
+支持 AWS、阿里云、Azure、GCP 等多云平台。
+使用 aws cli 查询 AWS 资源，使用 aliyun cli 查询阿里云资源，使用 az cli 查询 Azure 资源，使用 gcloud 查询 GCP 资源。
+使用 kubectl 查询 Kubernetes 集群。
 使用 MCP 工具查询 Confluence 文档、Jira 工单等外部数据源。
-跨账号查询时使用 ./scripts/foreach-account.sh 自动遍历所有 Organizations 账号。
+AWS 跨账号查询时使用 ./scripts/foreach-account.sh 自动遍历所有 Organizations 账号。
+阿里云多账号查询时使用 aliyun configure 切换 profile。
 knowledge/ 目录包含公司的知识库文件（runbook、架构文档等），遇到不确定的问题时先用 Grep 在该目录搜索相关内容，再用 Read 读取匹配的文件。
 始终返回结构化、易读的 Markdown 表格结果。`;
 
@@ -20,6 +24,7 @@ export interface ClaudeClientOptions {
   mcpConfigPath: string;
   glossaryConfigPath?: string;
   accountsConfigPath?: string;
+  skillsConfigPath?: string;
   knowledgeDir?: string;
   timeoutMs?: number;
 }
@@ -35,6 +40,7 @@ export class ClaudeClient {
   private readonly mcpConfigPath: string;
   private readonly glossaryConfigPath: string;
   private readonly accountsConfigPath: string;
+  private readonly skillsConfigPath: string;
   private readonly knowledgeDir: string;
   private readonly timeoutMs: number;
 
@@ -47,6 +53,7 @@ export class ClaudeClient {
     this.mcpConfigPath = options.mcpConfigPath;
     this.glossaryConfigPath = options.glossaryConfigPath ?? path.join(this.workDir, 'config/glossary.yaml');
     this.accountsConfigPath = options.accountsConfigPath ?? path.join(this.workDir, 'config/accounts.yaml');
+    this.skillsConfigPath = options.skillsConfigPath ?? path.join(this.workDir, 'config/skills.yaml');
     this.knowledgeDir = options.knowledgeDir ?? path.join(this.workDir, 'knowledge');
     this.timeoutMs = options.timeoutMs ?? CLAUDE_TIMEOUT_MS;
   }
@@ -72,9 +79,20 @@ export class ClaudeClient {
       const summary = generateAccountsKnowledge(accounts, this.knowledgeDir);
       if (summary) {
         parts.push('');
-        parts.push('## 已配置的 AWS 账号');
+        parts.push('## 已配置的云账号');
         parts.push(summary);
         parts.push('完整账号详情见 knowledge/accounts.md 文件。');
+      }
+    }
+
+    // Skills
+    const skillsConfig = loadSkills(this.skillsConfigPath);
+    if (skillsConfig) {
+      const skillsPrompt = generateSkillsPrompt(skillsConfig);
+      if (skillsPrompt) {
+        parts.push('');
+        parts.push('## 技能指引');
+        parts.push(skillsPrompt);
       }
     }
 

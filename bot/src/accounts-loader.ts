@@ -21,31 +21,29 @@ export interface AccountDefaults {
   regions?: string[];
 }
 
+export interface CloudAccount {
+  name: string;
+  region?: string;
+  [key: string]: any;  // provider-specific fields
+}
+
 export interface AccountsConfig {
   accounts: {
     extra?: ExtraAccount[];
     overrides?: Record<string, AccountOverride>;
     defaults?: AccountDefaults;
+    clouds?: Record<string, CloudAccount[]>;
   };
 }
 
-/**
- * Load accounts config from a YAML file.
- * Returns null if the file doesn't exist or is empty.
- */
 export function loadAccounts(configPath: string): AccountsConfig | null {
   const absolutePath = path.resolve(configPath);
-
-  if (!fs.existsSync(absolutePath)) {
-    return null;
-  }
+  if (!fs.existsSync(absolutePath)) return null;
 
   try {
     const content = fs.readFileSync(absolutePath, 'utf-8');
     const config = yaml.load(content) as AccountsConfig;
-    if (!config || !config.accounts) {
-      return null;
-    }
+    if (!config || !config.accounts) return null;
     return config;
   } catch (err) {
     console.warn(`[accounts-loader] Failed to load accounts config: ${(err as Error).message}`);
@@ -53,29 +51,22 @@ export function loadAccounts(configPath: string): AccountsConfig | null {
   }
 }
 
-/**
- * Generate accounts knowledge file and return a summary for the system prompt.
- */
 export function generateAccountsKnowledge(config: AccountsConfig, knowledgeDir: string): string | null {
   const { accounts } = config;
-  const mdLines: string[] = ['# AWS Account Directory', ''];
+  const mdLines: string[] = ['# Account Directory', ''];
 
-  // Defaults
+  // AWS Defaults
   if (accounts.defaults) {
-    mdLines.push('## Defaults');
-    if (accounts.defaults.role_name) {
-      mdLines.push(`- Default role: \`${accounts.defaults.role_name}\``);
-    }
-    if (accounts.defaults.regions?.length) {
-      mdLines.push(`- Default regions: ${accounts.defaults.regions.join(', ')}`);
-    }
+    mdLines.push('## AWS Defaults');
+    if (accounts.defaults.role_name) mdLines.push(`- Default role: \`${accounts.defaults.role_name}\``);
+    if (accounts.defaults.regions?.length) mdLines.push(`- Default regions: ${accounts.defaults.regions.join(', ')}`);
     mdLines.push('');
   }
 
-  // Extra accounts
+  // AWS Extra accounts
   const extraAccounts = accounts.extra || [];
   if (extraAccounts.length > 0) {
-    mdLines.push('## Extra Accounts');
+    mdLines.push('## AWS Extra Accounts');
     mdLines.push('');
     mdLines.push('| Account ID | Name | Role | Regions |');
     mdLines.push('|------------|------|------|---------|');
@@ -87,10 +78,10 @@ export function generateAccountsKnowledge(config: AccountsConfig, knowledgeDir: 
     mdLines.push('');
   }
 
-  // Overrides
+  // AWS Overrides
   const overrides = accounts.overrides ? Object.entries(accounts.overrides) : [];
   if (overrides.length > 0) {
-    mdLines.push('## Account Overrides');
+    mdLines.push('## AWS Account Overrides');
     mdLines.push('');
     mdLines.push('| Account ID | Alias | Skip | Role Override | Regions Override |');
     mdLines.push('|------------|-------|------|---------------|------------------|');
@@ -100,7 +91,26 @@ export function generateAccountsKnowledge(config: AccountsConfig, knowledgeDir: 
     mdLines.push('');
   }
 
-  const hasContent = extraAccounts.length > 0 || overrides.length > 0;
+  // Multi-cloud accounts
+  const clouds = accounts.clouds || {};
+  for (const [provider, cloudAccounts] of Object.entries(clouds)) {
+    if (!cloudAccounts || cloudAccounts.length === 0) continue;
+    const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+    mdLines.push(`## ${providerName} Accounts`);
+    mdLines.push('');
+    for (const acct of cloudAccounts) {
+      mdLines.push(`### ${acct.name}`);
+      for (const [k, v] of Object.entries(acct)) {
+        if (k === 'name') continue;
+        // Don't expose env var names in knowledge file
+        if (k.endsWith('_env')) continue;
+        mdLines.push(`- ${k}: ${v}`);
+      }
+      mdLines.push('');
+    }
+  }
+
+  const hasContent = extraAccounts.length > 0 || overrides.length > 0 || Object.keys(clouds).length > 0;
   if (!hasContent) return null;
 
   if (!fs.existsSync(knowledgeDir)) {
@@ -112,11 +122,14 @@ export function generateAccountsKnowledge(config: AccountsConfig, knowledgeDir: 
   // Generate concise summary for system prompt
   const summaryLines: string[] = [];
   for (const acct of extraAccounts) {
-    summaryLines.push(`- **${acct.name}** (${acct.id})`);
+    summaryLines.push(`- **${acct.name}** (AWS ${acct.id})`);
   }
   for (const [id, override] of overrides) {
-    if (override.alias) {
-      summaryLines.push(`- **${override.alias}** (${id})`);
+    if (override.alias) summaryLines.push(`- **${override.alias}** (AWS ${id})`);
+  }
+  for (const [provider, cloudAccounts] of Object.entries(clouds)) {
+    for (const acct of cloudAccounts || []) {
+      summaryLines.push(`- **${acct.name}** (${provider}${acct.region ? ' ' + acct.region : ''})`);
     }
   }
   return summaryLines.join('\n');

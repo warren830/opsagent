@@ -10,6 +10,10 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
     && install kubectl /usr/local/bin/kubectl && rm kubectl
 
+# Alibaba Cloud CLI
+RUN curl -Lo aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz \
+    && tar xzf aliyun-cli.tgz && mv aliyun /usr/local/bin/ && rm -f aliyun-cli.tgz
+
 # Claude Code CLI (uses Bedrock as backend)
 RUN npm install -g @anthropic-ai/claude-code
 

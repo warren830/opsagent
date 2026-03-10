@@ -8,7 +8,6 @@ Destroy the OpsAgent deployment. THIS IS A DESTRUCTIVE OPERATION.
 - ALB (webhook URLs will stop working)
 - VPC, Subnets, NAT Gateway
 - CloudWatch Log Group
-- Secrets Manager secret
 - IAM Roles (TaskRole, ExecutionRole)
 - ECR repository and all images (managed by CDK)
 - CodeBuild project

@@ -15,7 +15,6 @@
   ┌──────────┐           │            └─ EFS /app/knowledge    │
   │ Admin UI │──http────-│──▶ ALB /admin                      │
   └──────────┘           │                                     │
-                         │  Secrets Manager (凭证)             │
                          │  CloudWatch Logs (/ecs/opsagent)   │
                          │  ECR (opsagent:latest)             │
                          └──────────┬──────────────────────────┘
@@ -66,7 +65,7 @@ opsagent/
 ├── infra/                        # CDK 基础设施
 │   ├── bin/app.ts                # CDK App 入口
 │   └── lib/
-│       ├── ops-agent-stack.ts    # 主 Stack (VPC/ECS/ALB/EFS/IAM/Secrets)
+│       ├── ops-agent-stack.ts    # 主 Stack (VPC/ECS/ALB/EFS/IAM)
 │       └── member-role-stack.ts  # StackSet: 成员账号 ReadOnly Role
 ├── Dockerfile
 └── DEPLOYMENT.md                 # 本文件
@@ -111,23 +110,10 @@ npx cdk deploy MemberRoleStack \
   --require-approval never
 ```
 
-### 4.2 配置凭证
+### 4.2 配置平台凭证
 
-```bash
-# 写入 Secrets Manager (按需替换值)
-aws secretsmanager put-secret-value \
-  --secret-id opsagent/bot-secrets \
-  --secret-string '{
-    "MICROSOFT_APP_ID": "",
-    "MICROSOFT_APP_PASSWORD": "",
-    "SLACK_BOT_TOKEN": "",
-    "SLACK_SIGNING_SECRET": "",
-    "FEISHU_APP_ID": "cli_xxxx",
-    "FEISHU_APP_SECRET": "xxxx",
-    "FEISHU_VERIFICATION_TOKEN": "",
-    "CONFLUENCE_TOKEN": ""
-  }'
-```
+平台凭证通过 Admin UI 或直接编辑 `config/platforms.yaml` 管理，不再使用 Secrets Manager。
+部署完成后访问 `http://<ALB>/admin` → Platforms 标签页，添加所需的 IM 平台集成并填入 credentials。
 
 ### 4.3 构建并推送镜像
 
@@ -197,7 +183,6 @@ open http://$ALB/admin
 | OpsAgentEfs | EFS | 加密, 知识库持久存储, RETAIN 策略 |
 | OpsAgentTaskRole | IAM Role | ReadOnlyAccess + AssumeRole + Bedrock + EFS |
 | OpsAgentExecutionRole | IAM Role | ECS 执行角色 (拉镜像/写日志) |
-| OpsAgentSecrets | Secrets Manager | 各平台凭证 |
 | /ecs/opsagent | CloudWatch Log Group | 30 天保留 |
 
 ### IAM 权限矩阵 (TaskRole)
@@ -207,30 +192,40 @@ open http://$ALB/admin
 | ReadOnlyAccess | Hub 账号所有服务 | 查询 AWS 资源 |
 | sts:AssumeRole | arn:aws:iam::*:role/OpsAgentReadOnly | 跨账号查询 |
 | bedrock:InvokeModel* | 所有 Bedrock 模型 | Claude Code 调用 LLM |
-| elasticfilesystem:Client* | OpsAgentEfs | 知识库读写 |
-| secretsmanager:GetSecretValue | opsagent/bot-secrets | 读取平台凭证 |
+| elasticfilesystem:Client* | OpsAgentEfs | 知识库及配置读写 |
 
 ## 6. 配置管理
 
-### 6.1 平台开关 (config/platforms.yaml)
+### 6.1 平台集成 (config/platforms.yaml)
+
+通过 Admin UI → Platform Integrations 添加平台，填入 credentials 和 settings。也可直接编辑配置文件：
 
 ```yaml
 platforms:
   teams:
     enabled: true
+    credentials:
+      app_id: "your-microsoft-app-id"
+      app_password: "your-microsoft-app-password"
     settings:
       welcome_message: "OpsAgent ready."
   slack:
-    enabled: false
+    enabled: true
+    credentials:
+      bot_token: "xoxb-..."
+      signing_secret: "your-signing-secret"
     settings:
       allowed_channels: []   # 空 = 所有 channel
   feishu:
     enabled: true
+    credentials:
+      app_id: "cli_xxxx"
+      app_secret: "xxxx"
+      verification_token: "xxxx"
     settings: {}
 ```
 
-修改后需要重建镜像并重新部署 (平台注册在启动时完成)。
-也可通过 Admin UI → Platforms Tab 修改，但需 ECS force-new-deployment 生效。
+修改后需 ECS force-new-deployment 生效（平台注册在启动时完成）。
 
 ### 6.2 公司术语 (config/glossary.yaml)
 
@@ -400,7 +395,6 @@ cd infra && npx cdk deploy OpsAgentStack --require-approval never
 | ECS Cluster | opsagent-cluster |
 | ECR | 034362076319.dkr.ecr.us-east-1.amazonaws.com/opsagent |
 | EFS | fs-032b95050399865fe |
-| Secrets | arn:aws:secretsmanager:us-east-1:034362076319:secret:opsagent/bot-secrets-7caZ45 |
 | Log Group | /ecs/opsagent |
 | LLM | Claude Opus 4.6 via Bedrock |
 | Task Spec | 4 vCPU / 8 GB Memory |

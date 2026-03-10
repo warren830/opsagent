@@ -6,7 +6,6 @@ import * as efs from 'aws-cdk-lib/aws-efs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as codebuild from 'aws-cdk-lib/aws-codebuild';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
@@ -37,25 +36,6 @@ export class OpsAgentStack extends cdk.Stack {
           cidrMask: 24,
         },
       ],
-    });
-
-    // Secrets Manager for bot and plugin credentials
-    const botSecrets = new secretsmanager.Secret(this, 'OpsAgentSecrets', {
-      secretName: 'opsagent/bot-secrets',
-      description: 'OpsAgent bot credentials for all platforms',
-      generateSecretString: {
-        secretStringTemplate: JSON.stringify({
-          MICROSOFT_APP_ID: '',
-          MICROSOFT_APP_PASSWORD: '',
-          CONFLUENCE_TOKEN: '',
-          SLACK_BOT_TOKEN: '',
-          SLACK_SIGNING_SECRET: '',
-          FEISHU_APP_ID: '',
-          FEISHU_APP_SECRET: '',
-          FEISHU_VERIFICATION_TOKEN: '',
-        }),
-        generateStringKey: '_placeholder',
-      },
     });
 
     // CloudWatch Log Group
@@ -123,8 +103,6 @@ export class OpsAgentStack extends cdk.Stack {
       ],
     }));
 
-    botSecrets.grantRead(taskRole);
-
     this.taskRoleArn = taskRole.roleArn;
 
     // Task Execution Role
@@ -134,8 +112,6 @@ export class OpsAgentStack extends cdk.Stack {
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonECSTaskExecutionRolePolicy'),
       ],
     });
-
-    botSecrets.grantRead(executionRole);
 
     // Fargate Task Definition
     const taskDef = new ecs.FargateTaskDefinition(this, 'OpsAgentTaskDef', {
@@ -243,20 +219,6 @@ export class OpsAgentStack extends cdk.Stack {
         ANTHROPIC_DEFAULT_HAIKU_MODEL: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
         DISABLE_AUTOUPDATER: '1',
       },
-      secrets: {
-        // Teams
-        MICROSOFT_APP_ID: ecs.Secret.fromSecretsManager(botSecrets, 'MICROSOFT_APP_ID'),
-        MICROSOFT_APP_PASSWORD: ecs.Secret.fromSecretsManager(botSecrets, 'MICROSOFT_APP_PASSWORD'),
-        // Slack
-        SLACK_BOT_TOKEN: ecs.Secret.fromSecretsManager(botSecrets, 'SLACK_BOT_TOKEN'),
-        SLACK_SIGNING_SECRET: ecs.Secret.fromSecretsManager(botSecrets, 'SLACK_SIGNING_SECRET'),
-        // Feishu
-        FEISHU_APP_ID: ecs.Secret.fromSecretsManager(botSecrets, 'FEISHU_APP_ID'),
-        FEISHU_APP_SECRET: ecs.Secret.fromSecretsManager(botSecrets, 'FEISHU_APP_SECRET'),
-        FEISHU_VERIFICATION_TOKEN: ecs.Secret.fromSecretsManager(botSecrets, 'FEISHU_VERIFICATION_TOKEN'),
-        // Plugins
-        CONFLUENCE_TOKEN: ecs.Secret.fromSecretsManager(botSecrets, 'CONFLUENCE_TOKEN'),
-      },
       healthCheck: {
         command: ['CMD-SHELL', 'curl -f http://localhost:3978/health || exit 1'],
         interval: cdk.Duration.seconds(30),
@@ -347,11 +309,6 @@ export class OpsAgentStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ClusterName', {
       value: cluster.clusterName,
       description: 'ECS Cluster name',
-    });
-
-    new cdk.CfnOutput(this, 'SecretArn', {
-      value: botSecrets.secretArn,
-      description: 'Secrets Manager ARN for bot credentials',
     });
 
     new cdk.CfnOutput(this, 'LogGroupName', {

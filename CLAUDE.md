@@ -11,7 +11,7 @@ Admin UI → ALB /admin → Config CRUD + Knowledge Base (EFS)
 
 Key components:
 - **bot/**: Node.js HTTP server with platform adapters
-- **infra/**: AWS CDK stacks (VPC, ECS, ALB, EFS, IAM, Secrets)
+- **infra/**: AWS CDK stacks (VPC, ECS, ALB, EFS, IAM)
 - **config/**: YAML configs (platforms, glossary, accounts, plugins)
 - **knowledge/**: Knowledge base files on EFS, Claude Code searches with Grep/Read
 - **scripts/**: Cross-account query helpers (foreach-account.sh)
@@ -26,7 +26,7 @@ Key components:
 ## CDK Stacks
 
 ### OpsAgentStack (main)
-Deploys: VPC (2 AZ, 1 NAT), ECS Cluster, Fargate Service (4C/8G), ALB, EFS, IAM Roles, Secrets Manager, CloudWatch Logs, ECR Repository, CodeBuild Project, S3 Source Bucket.
+Deploys: VPC (2 AZ, 1 NAT), ECS Cluster, Fargate Service (4C/8G), ALB, EFS, IAM Roles, CloudWatch Logs, ECR Repository, CodeBuild Project, S3 Source Bucket.
 
 ```bash
 cd infra && npx cdk deploy OpsAgentStack --require-approval never
@@ -61,17 +61,9 @@ aws ecs update-service --cluster opsagent-cluster --service $SERVICE --force-new
 aws ecs wait services-stable --cluster opsagent-cluster --services $SERVICE --region $REGION
 ```
 
-## Secrets Manager
-
-Secret name: `opsagent/bot-secrets`. Keys:
-- `MICROSOFT_APP_ID`, `MICROSOFT_APP_PASSWORD` (Teams)
-- `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` (Slack)
-- `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, `FEISHU_VERIFICATION_TOKEN` (Feishu)
-- `CONFLUENCE_TOKEN` (MCP plugin)
-
 ## Config Files
 
-- `config/platforms.yaml` - enable/disable IM platforms (requires redeploy)
+- `config/platforms.yaml` - IM platform integrations with credentials (requires redeploy)
 - `config/glossary.yaml` - company terminology (injected into Claude system prompt)
 - `config/accounts.yaml` - extra AWS accounts + overrides (for non-Org accounts)
 - `config/plugins.yaml` - MCP plugins (Confluence, Jira, GitHub)
@@ -103,6 +95,6 @@ aws ecs execute-command --cluster opsagent-cluster --task $TASK --container opsa
 - After CodeBuild pushes new image, always do force-new-deployment on ECS
 - After CDK deploy that changes task definition, always do force-new-deployment
 - Wait for `services-stable` before declaring deployment complete
-- Never modify Secrets Manager values without asking user first
+- Platform credentials are stored in `config/platforms.yaml` on EFS, managed via Admin UI — no Secrets Manager
 - The Dockerfile creates a non-root user `opsagent`, initializes a git repo, and sets safe.directory - do not change this
 - When building with Docker locally (e.g. for testing), use `--provenance=false` to avoid manifest list issues with ECR

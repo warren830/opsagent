@@ -7,6 +7,7 @@ export interface AdminApiOptions {
   glossaryConfigPath: string;
   accountsConfigPath: string;
   platformsConfigPath: string;
+  skillsConfigPath: string;
   knowledgeDir: string;
 }
 
@@ -14,6 +15,7 @@ export class AdminApi {
   private readonly glossaryPath: string;
   private readonly accountsPath: string;
   private readonly platformsPath: string;
+  private readonly skillsPath: string;
   private readonly knowledgeDir: string;
   private authWarningLogged = false;
 
@@ -21,6 +23,7 @@ export class AdminApi {
     this.glossaryPath = path.resolve(options.glossaryConfigPath);
     this.accountsPath = path.resolve(options.accountsConfigPath);
     this.platformsPath = path.resolve(options.platformsConfigPath);
+    this.skillsPath = path.resolve(options.skillsConfigPath);
     this.knowledgeDir = path.resolve(options.knowledgeDir);
   }
 
@@ -70,6 +73,11 @@ export class AdminApi {
     if (urlPath === '/admin/api/platforms') {
       if (req.method === 'GET') return this.getPlatforms(res);
       if (req.method === 'PUT') return this.putPlatforms(res, body);
+    }
+
+    if (urlPath === '/admin/api/skills') {
+      if (req.method === 'GET') return this.getSkills(res);
+      if (req.method === 'PUT') return this.putSkills(res, body);
     }
 
     // Knowledge base file management
@@ -136,6 +144,25 @@ export class AdminApi {
     }
     this.writeYaml(this.platformsPath, { platforms: body.platforms });
     this.jsonResponse(res, 200, { ok: true });
+    return true;
+  }
+
+  // ── Skills ──────────────────────────────────────────────────────
+
+  private getSkills(res: http.ServerResponse): boolean {
+    const data = this.readYaml(this.skillsPath);
+    const skills = data?.skills || [];
+    this.jsonResponse(res, 200, { skills });
+    return true;
+  }
+
+  private putSkills(res: http.ServerResponse, body: any): boolean {
+    if (!body || !Array.isArray(body.skills)) {
+      this.jsonResponse(res, 400, { error: 'Request body must contain a "skills" array' });
+      return true;
+    }
+    this.writeYaml(this.skillsPath, { skills: body.skills });
+    this.jsonResponse(res, 200, { ok: true, count: body.skills.length });
     return true;
   }
 

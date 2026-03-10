@@ -1,14 +1,19 @@
+# Platform integrations - add/remove via Admin UI or edit this file directly.
+# Credentials can be set here or via environment variables (env vars take lower priority).
+# Changes require service restart (ECS force-new-deployment).
 platforms:
   teams:
     enabled: true
+    credentials:
+      app_id: ""
+      app_password: ""
     settings:
       welcome_message: "OpsAgent ready."
 
-  slack:
-    enabled: false
-    settings:
-      allowed_channels: []  # empty = all channels
-
   feishu:
     enabled: true
+    credentials:
+      app_id: ""
+      app_secret: ""
+      verification_token: ""
     settings: {}

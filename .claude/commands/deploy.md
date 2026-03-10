@@ -14,28 +14,32 @@ Report the results to the user. If credentials are not available, stop and ask t
 1. `cd infra && npm install`
 2. Check if CDK is bootstrapped: `npx cdk bootstrap aws://$ACCOUNT_ID/$REGION`
 3. Deploy the main stack: `npx cdk deploy OpsAgentStack --require-approval never`
-   - This creates: VPC, ECS, ALB, EFS, IAM, Secrets, ECR, CodeBuild, S3 Source Bucket
-4. Capture outputs: ALB DNS, EFS ID, Secret ARN, Cluster Name, CodeBuild Project, Source Bucket
+   - This creates: VPC, ECS, ALB, EFS, IAM, ECR, CodeBuild, S3 Source Bucket
+4. Capture outputs: ALB DNS, EFS ID, Cluster Name, CodeBuild Project, Source Bucket
 5. Report all outputs to the user
 
-## Step 3: Configure Secrets
+## Step 3: Configure Platforms
 
 Ask the user which IM platforms they want to enable and collect their credentials:
-- **Teams**: MICROSOFT_APP_ID, MICROSOFT_APP_PASSWORD
-- **Slack**: SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET
-- **Feishu**: FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_VERIFICATION_TOKEN
-- **Confluence**: CONFLUENCE_TOKEN (optional)
+- **Teams**: App ID, App Password
+- **Slack**: Bot Token, Signing Secret
+- **Feishu**: App ID, App Secret, Verification Token
 
-Then write to Secrets Manager:
-```bash
-aws secretsmanager put-secret-value --secret-id opsagent/bot-secrets --secret-string '<json>'
+Update `config/platforms.yaml` with the credentials and enable the chosen platforms. Example:
+```yaml
+platforms:
+  slack:
+    enabled: true
+    credentials:
+      bot_token: "xoxb-..."
+      signing_secret: "..."
+    settings:
+      allowed_channels: []
 ```
 
-## Step 4: Update Platform Config
+Alternatively, tell the user they can configure platforms later via Admin UI → Platform Integrations.
 
-Based on user's platform choices, update `config/platforms.yaml` to enable/disable the correct platforms.
-
-## Step 5: Build Docker Image via CodeBuild
+## Step 4: Build Docker Image via CodeBuild
 
 No local Docker required. Package source and trigger CodeBuild:
 
@@ -67,7 +71,7 @@ if [ "$STATUS" != "SUCCEEDED" ]; then
 fi
 ```
 
-## Step 6: Start Service & Verify
+## Step 5: Start Service & Verify
 
 ```bash
 SERVICE=$(aws ecs list-services --cluster opsagent-cluster --query 'serviceArns[0]' --output text --region $REGION)
@@ -81,13 +85,14 @@ ALB=$(aws cloudformation describe-stacks --stack-name OpsAgentStack --query 'Sta
 curl -s http://$ALB/health
 ```
 
-## Step 7: Report
+## Step 6: Report
 
 Provide the user with:
 - Health check URL: `http://<ALB>/health`
 - Admin UI URL: `http://<ALB>/admin`
 - Webhook URLs for each enabled platform: `http://<ALB>/api/messages/{teams,slack,feishu}`
 - Remind them to configure webhook URLs in their IM platform developer console
+- Remind them they can manage platforms, glossary, skills, and knowledge base via Admin UI
 
 ## Optional: Deploy Member Account Roles
 

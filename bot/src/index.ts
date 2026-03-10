@@ -8,7 +8,7 @@ import { FeishuAdapter } from './adapters/feishu';
 import { MessageHandler } from './message-handler';
 import { ClaudeClient } from './claude-client';
 import { AuditLogger } from './audit-logger';
-import { loadPlatforms, isPlatformEnabled, getPlatformSettings } from './platform-loader';
+import { loadPlatforms, isPlatformEnabled, getPlatformSettings, getPlatformCredentials } from './platform-loader';
 import { AdminApi } from './admin-api';
 
 const PORT = parseInt(process.env.PORT || '3978', 10);
@@ -18,6 +18,7 @@ const MCP_CONFIG = process.env.MCP_CONFIG || path.join(WORK_DIR, 'config/mcp.jso
 const PLATFORMS_CONFIG = process.env.PLATFORMS_CONFIG || path.join(WORK_DIR, 'config/platforms.yaml');
 const GLOSSARY_CONFIG = process.env.GLOSSARY_CONFIG || path.join(WORK_DIR, 'config/glossary.yaml');
 const ACCOUNTS_CONFIG = process.env.ACCOUNTS_CONFIG || path.join(WORK_DIR, 'config/accounts.yaml');
+const SKILLS_CONFIG = process.env.SKILLS_CONFIG || path.join(WORK_DIR, 'config/skills.yaml');
 const KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || path.join(WORK_DIR, 'knowledge');
 const STATIC_DIR = path.join(__dirname, '../static');
 
@@ -35,6 +36,7 @@ const adminApi = new AdminApi({
   glossaryConfigPath: GLOSSARY_CONFIG,
   accountsConfigPath: ACCOUNTS_CONFIG,
   platformsConfigPath: PLATFORMS_CONFIG,
+  skillsConfigPath: SKILLS_CONFIG,
   knowledgeDir: KNOWLEDGE_DIR,
 });
 
@@ -46,47 +48,40 @@ const adapters = new Map<string, PlatformAdapter>();
 
 // Teams
 if (isPlatformEnabled(platformsConfig, 'teams')) {
-  const teamsAppId = process.env.MICROSOFT_APP_ID || '';
-  const teamsAppPassword = process.env.MICROSOFT_APP_PASSWORD || '';
-  adapters.set('teams', new TeamsAdapter({ appId: teamsAppId, appPassword: teamsAppPassword }));
-  if (teamsAppId) {
-    console.log('[index] Teams adapter enabled');
-  } else {
-    console.log('[index] Teams adapter registered (no credentials, running without auth)');
-  }
+  const creds = getPlatformCredentials(platformsConfig, 'teams');
+  adapters.set('teams', new TeamsAdapter({ appId: creds.app_id || '', appPassword: creds.app_password || '' }));
+  console.log(`[index] Teams adapter enabled${creds.app_id ? '' : ' (no credentials)'}`);
 }
 
 // Slack
 if (isPlatformEnabled(platformsConfig, 'slack')) {
-  const slackBotToken = process.env.SLACK_BOT_TOKEN || '';
-  const slackSigningSecret = process.env.SLACK_SIGNING_SECRET || '';
-  if (slackBotToken && slackSigningSecret) {
-    const settings = getPlatformSettings(platformsConfig, 'slack');
-    const allowedChannels: string[] = settings.allowed_channels || [];
+  const creds = getPlatformCredentials(platformsConfig, 'slack');
+  const settings = getPlatformSettings(platformsConfig, 'slack');
+  if (creds.bot_token && creds.signing_secret) {
+    const allowedChannels: string[] = settings?.allowed_channels || [];
     adapters.set('slack', new SlackAdapter({
-      botToken: slackBotToken,
-      signingSecret: slackSigningSecret,
+      botToken: creds.bot_token,
+      signingSecret: creds.signing_secret,
       allowedChannels: allowedChannels.length > 0 ? allowedChannels : undefined,
     }));
     console.log('[index] Slack adapter enabled');
   } else {
-    console.log('[index] Slack platform enabled in config but missing credentials (SLACK_BOT_TOKEN / SLACK_SIGNING_SECRET)');
+    console.log('[index] Slack platform enabled but missing credentials (bot_token / signing_secret)');
   }
 }
 
 // Feishu
 if (isPlatformEnabled(platformsConfig, 'feishu')) {
-  const feishuAppId = process.env.FEISHU_APP_ID || '';
-  const feishuAppSecret = process.env.FEISHU_APP_SECRET || '';
-  if (feishuAppId && feishuAppSecret) {
+  const creds = getPlatformCredentials(platformsConfig, 'feishu');
+  if (creds.app_id && creds.app_secret) {
     adapters.set('feishu', new FeishuAdapter({
-      appId: feishuAppId,
-      appSecret: feishuAppSecret,
-      verificationToken: process.env.FEISHU_VERIFICATION_TOKEN || '',
+      appId: creds.app_id,
+      appSecret: creds.app_secret,
+      verificationToken: creds.verification_token || '',
     }));
     console.log('[index] Feishu adapter enabled');
   } else {
-    console.log('[index] Feishu platform enabled in config but missing credentials (FEISHU_APP_ID / FEISHU_APP_SECRET)');
+    console.log('[index] Feishu platform enabled but missing credentials (app_id / app_secret)');
   }
 }
 

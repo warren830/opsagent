@@ -56,6 +56,7 @@ describe('AdminApi authentication', () => {
       glossaryConfigPath: path.join(tmpDir, 'glossary.yaml'),
       accountsConfigPath: path.join(tmpDir, 'accounts.yaml'),
       platformsConfigPath: path.join(tmpDir, 'platforms.yaml'),
+      skillsConfigPath: path.join(tmpDir, 'skills.yaml'),
       knowledgeDir: path.join(tmpDir, 'knowledge'),
     });
   });
@@ -111,6 +112,7 @@ describe('AdminApi CORS', () => {
       glossaryConfigPath: path.join(tmpDir, 'glossary.yaml'),
       accountsConfigPath: path.join(tmpDir, 'accounts.yaml'),
       platformsConfigPath: path.join(tmpDir, 'platforms.yaml'),
+      skillsConfigPath: path.join(tmpDir, 'skills.yaml'),
       knowledgeDir: path.join(tmpDir, 'knowledge'),
     });
   });
@@ -148,6 +150,7 @@ describe('AdminApi path traversal protection', () => {
       glossaryConfigPath: path.join(tmpDir, 'glossary.yaml'),
       accountsConfigPath: path.join(tmpDir, 'accounts.yaml'),
       platformsConfigPath: path.join(tmpDir, 'platforms.yaml'),
+      skillsConfigPath: path.join(tmpDir, 'skills.yaml'),
       knowledgeDir: path.join(tmpDir, 'knowledge'),
     });
   });
