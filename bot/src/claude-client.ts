@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 import { loadPlugins, generateMcpConfig } from './plugin-loader';
 import { loadGlossary, generateGlossaryKnowledge } from './glossary-loader';
@@ -58,7 +59,11 @@ export class ClaudeClient {
     this.timeoutMs = options.timeoutMs ?? CLAUDE_TIMEOUT_MS;
   }
 
-  private buildSystemPrompt(): string {
+  /**
+   * Generate CLAUDE.md in workDir — Claude Code reads this natively.
+   * Also generates knowledge files (glossary.md, accounts.md, skills/*.md).
+   */
+  private generateClaudeMd(): void {
     const parts: string[] = [BASE_SYSTEM_PROMPT];
 
     // Glossary summary
@@ -85,10 +90,10 @@ export class ClaudeClient {
       }
     }
 
-    // Skills
+    // Skills (progressive: index only, full instructions in knowledge/skills/)
     const skillsConfig = loadSkills(this.skillsConfigPath);
     if (skillsConfig) {
-      const skillsPrompt = generateSkillsPrompt(skillsConfig);
+      const skillsPrompt = generateSkillsPrompt(skillsConfig, this.knowledgeDir);
       if (skillsPrompt) {
         parts.push('');
         parts.push('## 技能指引');
@@ -96,7 +101,9 @@ export class ClaudeClient {
       }
     }
 
-    return parts.join('\n');
+    const claudeMdPath = path.join(this.workDir, 'CLAUDE.md');
+    fs.writeFileSync(claudeMdPath, parts.join('\n'), 'utf-8');
+    console.log(`[claude-client] Generated CLAUDE.md (${parts.join('\n').length} bytes)`);
   }
 
   private getSessionKey(platform: string, userId: string): string {
@@ -133,8 +140,8 @@ export class ClaudeClient {
     const plugins = loadPlugins(this.pluginsConfigPath);
     generateMcpConfig(plugins, this.mcpConfigPath);
 
-    // Build dynamic system prompt (also generates knowledge files)
-    const systemPrompt = this.buildSystemPrompt();
+    // Generate CLAUDE.md + knowledge files (Claude Code reads CLAUDE.md natively)
+    this.generateClaudeMd();
 
     // Check for existing session
     const existingSessionId = this.getSession(platform, userId);
@@ -152,8 +159,6 @@ export class ClaudeClient {
       args.push('--resume', existingSessionId);
       console.log(`[claude-client] Resuming session ${existingSessionId} for ${platform}:${userId}`);
     } else {
-      // Only set system prompt for new sessions
-      args.push('--system-prompt', systemPrompt);
       console.log(`[claude-client] Starting new session for ${platform}:${userId}`);
     }
 

@@ -12,10 +12,16 @@ OpsAgent manages multiple AWS accounts across organizations. Account discovery i
 
 ### K8s / EKS Clusters
 
-- Use `aws eks list-clusters` to enumerate EKS clusters per account/region
+- Use `aws eks list-clusters --region us-east-1` to enumerate EKS clusters
 - Use `aws eks describe-cluster --name <cluster>` for cluster details
-- For workload queries, use `kubectl` with the appropriate kubeconfig context
+- **IMPORTANT**: Before using kubectl, you MUST configure kubeconfig first:
+  ```
+  aws eks update-kubeconfig --name <cluster-name> --region us-east-1
+  ```
+- To query multiple clusters, run update-kubeconfig for each cluster (it adds contexts) then use `kubectl --context <context>` or switch with `kubectl config use-context <context>`
+- Context naming convention: `arn:aws:eks:us-east-1:034362076319:cluster/<cluster-name>`
 - Common checks: node status, pod health, deployment rollout status, HPA metrics
+- To query all clusters, first list them, then loop through each one
 
 ### ECR (Container Registry)
 
