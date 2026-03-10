@@ -88,6 +88,18 @@ export class OpsAgentStack extends cdk.Stack {
       resources: ['arn:aws:iam::*:role/OpsAgentReadOnly'],
     }));
 
+    // EKS: allow API access and describe clusters
+    taskRole.addToPolicy(new iam.PolicyStatement({
+      sid: 'EksAccess',
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'eks:DescribeCluster',
+        'eks:ListClusters',
+        'eks:AccessKubernetesApi',
+      ],
+      resources: ['*'],
+    }));
+
     taskRole.addToPolicy(new iam.PolicyStatement({
       sid: 'BedrockAccess',
       effect: iam.Effect.ALLOW,
