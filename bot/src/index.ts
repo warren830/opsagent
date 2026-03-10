@@ -126,10 +126,18 @@ async function handlePlatformMessage(
   res: http.ServerResponse,
   body: any,
 ): Promise<void> {
+  // Handle Feishu/Slack URL verification regardless of adapter registration,
+  // so webhook URL can be configured before credentials are fully set up.
+  if (body?.type === 'url_verification' && body.challenge) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ challenge: body.challenge }));
+    return;
+  }
+
   const adapter = adapters.get(platform);
   if (!adapter) {
-    res.writeHead(404);
-    res.end(`Platform "${platform}" is not configured`);
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Platform "${platform}" is not configured` }));
     return;
   }
 
