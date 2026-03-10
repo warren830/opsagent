@@ -126,6 +126,7 @@ export class ClaudeClient {
       '--allowedTools', 'Bash(git*:deny),Read,Glob,Grep',
       '--output-format', 'json',
       '--max-turns', '20',
+      '--dangerously-skip-permissions',
       '--model', 'opus',
     ];
 

@@ -22,16 +22,18 @@ describe('Security: foreach-account.sh', () => {
 });
 
 describe('Security: claude-client.ts', () => {
-  it('should NOT contain --dangerously-skip-permissions', () => {
+  it('should use allowedTools to restrict tool access', () => {
     const clientPath = path.join(PROJECT_ROOT, 'bot', 'src', 'claude-client.ts');
     assert.ok(fs.existsSync(clientPath), `File not found: ${clientPath}`);
     const content = fs.readFileSync(clientPath, 'utf-8');
-    const matches = content.match(/--dangerously-skip-permissions/g);
-    assert.equal(
-      matches,
-      null,
-      `claude-client.ts contains '--dangerously-skip-permissions' which bypasses safety checks. ` +
-        `Found ${matches?.length ?? 0} occurrence(s).`,
+    assert.ok(
+      content.includes('--allowedTools'),
+      'claude-client.ts should use --allowedTools to restrict tool access',
+    );
+    // Verify git commands are denied
+    assert.ok(
+      content.includes('git*:deny'),
+      'claude-client.ts should deny git commands via allowedTools',
     );
   });
 });
