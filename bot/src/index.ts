@@ -13,20 +13,45 @@ import { AdminApi } from './admin-api';
 
 const PORT = parseInt(process.env.PORT || '3978', 10);
 const WORK_DIR = process.env.WORK_DIR || path.resolve(__dirname, '../..');
-const PLUGINS_CONFIG = process.env.PLUGINS_CONFIG || path.join(WORK_DIR, 'config/plugins.yaml');
-const MCP_CONFIG = process.env.MCP_CONFIG || path.join(WORK_DIR, 'config/mcp.json');
-const PLATFORMS_CONFIG = process.env.PLATFORMS_CONFIG || path.join(WORK_DIR, 'config/platforms.yaml');
-const GLOSSARY_CONFIG = process.env.GLOSSARY_CONFIG || path.join(WORK_DIR, 'config/glossary.yaml');
-const ACCOUNTS_CONFIG = process.env.ACCOUNTS_CONFIG || path.join(WORK_DIR, 'config/accounts.yaml');
-const SKILLS_CONFIG = process.env.SKILLS_CONFIG || path.join(WORK_DIR, 'config/skills.yaml');
 const KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || path.join(WORK_DIR, 'knowledge');
 const STATIC_DIR = path.join(__dirname, '../static');
+
+// Admin-editable configs are stored on EFS (knowledge/_config/) so they persist across deploys.
+// On first boot, seed from bundled config/ in the image.
+const CONFIG_DIR = path.join(KNOWLEDGE_DIR, '_config');
+const BUNDLED_CONFIG_DIR = path.join(WORK_DIR, 'config');
+
+function seedConfig(filename: string): string {
+  const efsPath = path.join(CONFIG_DIR, filename);
+  if (!fs.existsSync(CONFIG_DIR)) {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(efsPath)) {
+    const bundled = path.join(BUNDLED_CONFIG_DIR, filename);
+    if (fs.existsSync(bundled)) {
+      fs.copyFileSync(bundled, efsPath);
+      console.log(`[index] Seeded config: ${filename}`);
+    }
+  }
+  return efsPath;
+}
+
+const PLUGINS_CONFIG = process.env.PLUGINS_CONFIG || path.join(WORK_DIR, 'config/plugins.yaml');
+const MCP_CONFIG = process.env.MCP_CONFIG || path.join(WORK_DIR, 'config/mcp.json');
+const PLATFORMS_CONFIG = process.env.PLATFORMS_CONFIG || seedConfig('platforms.yaml');
+const GLOSSARY_CONFIG = process.env.GLOSSARY_CONFIG || seedConfig('glossary.yaml');
+const ACCOUNTS_CONFIG = process.env.ACCOUNTS_CONFIG || seedConfig('accounts.yaml');
+const SKILLS_CONFIG = process.env.SKILLS_CONFIG || seedConfig('skills.yaml');
 
 // Core components
 const claudeClient = new ClaudeClient({
   workDir: WORK_DIR,
   pluginsConfigPath: PLUGINS_CONFIG,
   mcpConfigPath: MCP_CONFIG,
+  glossaryConfigPath: GLOSSARY_CONFIG,
+  accountsConfigPath: ACCOUNTS_CONFIG,
+  skillsConfigPath: SKILLS_CONFIG,
+  knowledgeDir: KNOWLEDGE_DIR,
 });
 const auditLogger = new AuditLogger();
 const messageHandler = new MessageHandler(claudeClient, auditLogger);
