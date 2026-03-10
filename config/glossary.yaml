@@ -1,11 +1,53 @@
 glossary:
   ics:
     full_name: "Inventory Control System"
-    description: "库存管理核心系统，部署在 EKS 上"
-    aliases: ["inventory-system"]
-    aws_accounts: ["123456789012"]
-    services: ["ics-api", "ics-worker"]
+    description: "库存管理核心系统，部署在 EKS ecommerce-prod 集群的 shop-backend namespace"
+    aliases: ["inventory-system", "product-catalog"]
+    aws_accounts: ["034362076319"]
+    services: ["product-catalog", "shopping-cart"]
 
   falcon:
     full_name: "Falcon CI/CD Platform"
     description: "内部 CI/CD 平台，基于 ArgoCD"
+
+  cbs:
+    full_name: "Core Banking System"
+    description: "核心银行系统，正在从 Oracle/大机迁移到 EKS legacy-migration 集群"
+    aliases: ["core-banking", "banking-core"]
+    aws_accounts: ["034362076319"]
+    services: ["account-service", "transaction-service", "loan-service"]
+
+  datalake:
+    full_name: "Data Lake Platform"
+    description: "数据湖平台，运行在 EKS data-platform 集群，包含 Kafka/Flink/Spark/Airflow"
+    aliases: ["data-platform", "data-lake", "数据平台"]
+    aws_accounts: ["034362076319"]
+    services: ["kafka-connect", "flink-jobmanager", "spark-operator", "airflow-scheduler"]
+
+  aml:
+    full_name: "Anti-Money Laundering System"
+    description: "反洗钱监控系统，部署在 legacy-migration 集群的 compliance namespace"
+    aliases: ["反洗钱", "anti-money-laundering"]
+    aws_accounts: ["034362076319"]
+    services: ["aml-scanner", "kyc-service"]
+
+  storefront:
+    full_name: "E-Commerce Storefront"
+    description: "电商门户网站，部署在 ecommerce-prod 集群，前端 shop-frontend / 后端 shop-backend"
+    aliases: ["商城", "电商", "webshop"]
+    aws_accounts: ["034362076319"]
+    services: ["web-storefront", "mobile-bff", "api-gateway"]
+
+  pci-zone:
+    full_name: "PCI-DSS Compliance Zone"
+    description: "支付卡行业数据安全标准区域，ecommerce-prod 集群的 payment namespace，有独立网络隔离"
+    aliases: ["payment-zone", "支付区"]
+    aws_accounts: ["034362076319"]
+    services: ["payment-gateway"]
+
+  fraud-engine:
+    full_name: "Fraud Detection Engine"
+    description: "欺诈检测引擎，基于 ML 模型，部署在 data-platform 集群的 ml-serving namespace"
+    aliases: ["风控引擎", "fraud-detection"]
+    aws_accounts: ["034362076319"]
+    services: ["fraud-detection", "recommendation-model"]
