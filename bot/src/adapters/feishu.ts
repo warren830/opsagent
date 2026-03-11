@@ -100,16 +100,16 @@ export class FeishuAdapter implements PlatformAdapter {
     const token = await this.getTenantAccessToken();
 
     const payload = JSON.stringify({
-      receive_id: ctx.chatId,
-      msg_type: 'text',
       content: JSON.stringify({ text }),
+      msg_type: 'text',
     });
 
+    // Use reply API which works without bot being a chat member
     return new Promise((resolve, reject) => {
       const req = https.request(
         {
           hostname: 'open.feishu.cn',
-          path: '/open-apis/im/v1/messages?receive_id_type=chat_id',
+          path: `/open-apis/im/v1/messages/${ctx.messageId}/reply`,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
@@ -123,7 +123,7 @@ export class FeishuAdapter implements PlatformAdapter {
             try {
               const result = JSON.parse(data);
               if (result.code !== 0) {
-                console.error(`[feishu] Send message error: ${result.msg}`);
+                console.error(`[feishu] Send message error code=${result.code}: ${result.msg}`);
                 reject(new Error(`Feishu API error: ${result.msg}`));
               } else {
                 resolve();
