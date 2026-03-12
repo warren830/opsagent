@@ -8,3 +8,6 @@ cdk.out/
 .idea/
 *.zip
 /tmp/
+knowledge/index.md
+knowledge/glossary.md
+knowledge/accounts.md

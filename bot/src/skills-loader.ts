@@ -30,16 +30,15 @@ export function loadSkills(configPath: string): SkillsConfig | null {
 
 /**
  * Progressive skill loading (Claude Code style):
- * 1. Write each enabled skill's full instructions to knowledge/skills/<slug>.md
+ * 1. Write each enabled skill's full instructions to skills/<slug>.md
  * 2. Return a concise index for the system prompt (name + description only)
  * 3. Claude decides which skill to Read based on the user's query
  */
-export function generateSkillsPrompt(config: SkillsConfig, knowledgeDir: string): string | null {
+export function generateSkillsPrompt(config: SkillsConfig, skillsDir: string): string | null {
   const enabled = config.skills.filter(s => s.enabled);
   if (enabled.length === 0) return null;
 
-  // Ensure knowledge/skills/ directory exists
-  const skillsDir = path.join(knowledgeDir, 'skills');
+  // Ensure skills/ directory exists
   if (!fs.existsSync(skillsDir)) {
     fs.mkdirSync(skillsDir, { recursive: true });
   }
@@ -67,7 +66,7 @@ export function generateSkillsPrompt(config: SkillsConfig, knowledgeDir: string)
     ].join('\n');
     fs.writeFileSync(path.join(skillsDir, `${slug}.md`), content, 'utf-8');
   }
-  console.log(`[skills-loader] Generated ${enabled.length} skill files in knowledge/skills/`);
+  console.log(`[skills-loader] Generated ${enabled.length} skill files in skills/`);
 
   // Return index-only summary for system prompt
   const lines = [
@@ -76,7 +75,7 @@ export function generateSkillsPrompt(config: SkillsConfig, knowledgeDir: string)
   ];
   for (const skill of enabled) {
     const slug = slugify(skill.name);
-    lines.push(`- **${skill.name}** — ${skill.description} → \`knowledge/skills/${slug}.md\``);
+    lines.push(`- **${skill.name}** — ${skill.description} → \`skills/${slug}.md\``);
   }
   return lines.join('\n');
 }
