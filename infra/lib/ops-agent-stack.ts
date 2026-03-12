@@ -157,7 +157,7 @@ export class OpsAgentStack extends cdk.Stack {
 
     // S3 bucket for CodeBuild source uploads
     const sourceBucket = new s3.Bucket(this, 'OpsAgentSourceBucket', {
-      bucketName: `opsagent-source-${cdk.Stack.of(this).account}`,
+      bucketName: `opsagent-source-${cdk.Stack.of(this).account}-${cdk.Stack.of(this).region}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
       lifecycleRules: [{ expiration: cdk.Duration.days(7) }],

@@ -90,7 +90,7 @@ aws ecs execute-command --cluster opsagent-cluster --task $TASK --container opsa
 - ECR repository is managed by CDK (auto-generated name, do not create manually)
 - ECS cluster name is `opsagent-cluster`
 - CodeBuild project name is `opsagent-build`
-- Source bucket name is `opsagent-source-{accountId}`
+- Source bucket name is `opsagent-source-{accountId}-{region}`
 - Use CodeBuild for image builds — do NOT build Docker images locally
 - After CodeBuild pushes new image, always do force-new-deployment on ECS
 - After CDK deploy that changes task definition, always do force-new-deployment
