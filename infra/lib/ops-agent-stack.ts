@@ -303,8 +303,11 @@ export class OpsAgentStack extends cdk.Stack {
     });
 
     // Restrict ALB security group to CloudFront managed prefix list only
+    const cfPrefixList = ec2.PrefixList.fromLookup(this, 'CloudFrontPrefixList', {
+      prefixListName: 'com.amazonaws.global.cloudfront.origin-facing',
+    });
     alb.connections.securityGroups[0].addIngressRule(
-      ec2.Peer.prefixList('pl-3b927c52'), // com.amazonaws.global.cloudfront.origin-facing (us-east-1)
+      ec2.Peer.prefixList(cfPrefixList.prefixListId),
       ec2.Port.tcp(80),
       'Allow traffic from CloudFront only',
     );
