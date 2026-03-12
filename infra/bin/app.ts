@@ -14,10 +14,14 @@ if (!hubAccountId) {
   console.warn('WARNING: hubAccountId not set. Pass via -c hubAccountId=<id> or HUB_ACCOUNT_ID env var.');
 }
 
+const targetRegion = app.node.tryGetContext('region')
+  || process.env.CDK_DEFAULT_REGION
+  || 'us-east-1';
+
 const opsAgentStack = new OpsAgentStack(app, 'OpsAgentStack', {
   env: {
     account: hubAccountId || undefined,
-    region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
+    region: targetRegion,
   },
   hubAccountId,
 });
@@ -25,7 +29,7 @@ const opsAgentStack = new OpsAgentStack(app, 'OpsAgentStack', {
 new MemberRoleStack(app, 'MemberRoleStack', {
   env: {
     account: hubAccountId || undefined,
-    region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
+    region: targetRegion,
   },
   hubAccountId,
   taskRoleArn: opsAgentStack.taskRoleArn,
