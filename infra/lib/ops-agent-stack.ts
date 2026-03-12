@@ -272,11 +272,12 @@ export class OpsAgentStack extends cdk.Stack {
       loadBalancerName: 'opsagent-alb',
     });
 
-    // Fargate Service
+    // Fargate Service (initialDesiredCount=0 for first deploy to new region with empty ECR)
+    const initialDesiredCount = this.node.tryGetContext('initialDesiredCount');
     const service = new ecs.FargateService(this, 'OpsAgentService', {
       cluster,
       taskDefinition: taskDef,
-      desiredCount: 1,
+      desiredCount: initialDesiredCount !== undefined ? Number(initialDesiredCount) : 1,
       assignPublicIp: false,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       enableExecuteCommand: true,
