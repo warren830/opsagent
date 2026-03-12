@@ -374,7 +374,7 @@
       <input type="file" id="chat-file-input" multiple style="display:none" onchange="handleChatFiles(this.files)">
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('chat-file-input').click()" title="Attach file" style="font-size:18px;padding:4px 8px;min-width:auto">+</button>
       <textarea id="chat-input" placeholder="Ask OpsAgent anything... (paste image or drag file)" rows="1"
-        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();sendChat()}"
         onpaste="handleChatPaste(event)"></textarea>
       <button class="btn btn-primary" id="chat-send-btn" onclick="sendChat()">Send</button>
     </div>
