@@ -103,6 +103,10 @@ export class SlackAdapter implements PlatformAdapter {
     return crypto.timingSafeEqual(Buffer.from(mySignature), Buffer.from(signature));
   }
 
+  async sendToChannel(channelId: string, text: string): Promise<void> {
+    await this.postMessage(channelId, text);
+  }
+
   private postMessage(channel: string, text: string, threadTs?: string): Promise<void> {
     const payload = JSON.stringify({
       channel,

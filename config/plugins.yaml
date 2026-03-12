@@ -8,7 +8,7 @@ plugins:
       MCP_HEADERS: "Authorization: Bearer ${CONFLUENCE_TOKEN}"
 
   jira:
-    enabled: false
+    enabled: true
     type: mcp
     command: "npx"
     args: ["-y", "@anthropic-ai/mcp-remote", "https://mcp.atlassian.com/v1/sse"]

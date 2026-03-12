@@ -26,3 +26,19 @@ skills:
       - Security Group 是否有 0.0.0.0/0 入站规则
       - IAM 用户是否启用 MFA
       - 过期的 SSL 证书
+
+  - name: "Jira Integration"
+    description: "Jira 工单创建和查询标准流程"
+    enabled: true
+    instructions: |
+      当用户要求创建 Jira 工单时:
+      1. 收集信息: 标题、描述、优先级、关联服务
+      2. 使用 MCP Jira 工具创建工单
+      3. 返回工单链接
+
+      当巡检发现异常需要自动建单时:
+      - 项目: OPS
+      - 类型: Bug
+      - 优先级: 根据严重程度 (P1=Highest, P2=High, P3=Medium)
+      - 标题格式: [OpsAgent] {异常描述}
+      - 描述: 包含异常详情、影响范围、检测时间

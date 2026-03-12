@@ -10,6 +10,7 @@ import { ClaudeClient } from './claude-client';
 import { AuditLogger } from './audit-logger';
 import { loadPlatforms, isPlatformEnabled, getPlatformSettings, getPlatformCredentials } from './platform-loader';
 import { AdminApi } from './admin-api';
+import { SchedulerManager } from './scheduler';
 
 const PORT = parseInt(process.env.PORT || '3978', 10);
 const WORK_DIR = process.env.WORK_DIR || path.resolve(__dirname, '../..');
@@ -36,12 +37,13 @@ function seedConfig(filename: string): string {
   return efsPath;
 }
 
-const PLUGINS_CONFIG = process.env.PLUGINS_CONFIG || path.join(WORK_DIR, 'config/plugins.yaml');
+const PLUGINS_CONFIG = process.env.PLUGINS_CONFIG || seedConfig('plugins.yaml');
 const MCP_CONFIG = process.env.MCP_CONFIG || path.join(WORK_DIR, 'config/mcp.json');
 const PLATFORMS_CONFIG = process.env.PLATFORMS_CONFIG || seedConfig('platforms.yaml');
 const GLOSSARY_CONFIG = process.env.GLOSSARY_CONFIG || seedConfig('glossary.yaml');
 const ACCOUNTS_CONFIG = process.env.ACCOUNTS_CONFIG || seedConfig('accounts.yaml');
 const SKILLS_CONFIG = process.env.SKILLS_CONFIG || seedConfig('skills.yaml');
+const SCHEDULED_JOBS_CONFIG = process.env.SCHEDULED_JOBS_CONFIG || seedConfig('scheduled-jobs.yaml');
 
 // Core components
 const claudeClient = new ClaudeClient({
@@ -56,14 +58,11 @@ const claudeClient = new ClaudeClient({
 const auditLogger = new AuditLogger();
 const messageHandler = new MessageHandler(claudeClient, auditLogger);
 
-// Admin API
-const adminApi = new AdminApi({
-  glossaryConfigPath: GLOSSARY_CONFIG,
-  accountsConfigPath: ACCOUNTS_CONFIG,
-  platformsConfigPath: PLATFORMS_CONFIG,
-  skillsConfigPath: SKILLS_CONFIG,
-  knowledgeDir: KNOWLEDGE_DIR,
-});
+// Scheduler (initialized after adapters are created below)
+let scheduler: SchedulerManager;
+
+// Admin API (initialized after adapters are created below)
+let adminApi: AdminApi;
 
 // Load platform configuration
 const platformsConfig = loadPlatforms(PLATFORMS_CONFIG);
@@ -109,6 +108,22 @@ if (isPlatformEnabled(platformsConfig, 'feishu')) {
     console.log('[index] Feishu platform enabled but missing credentials (app_id / app_secret)');
   }
 }
+
+// Initialize scheduler
+scheduler = new SchedulerManager(adapters, claudeClient, SCHEDULED_JOBS_CONFIG);
+scheduler.start();
+
+// Initialize Admin API
+adminApi = new AdminApi({
+  glossaryConfigPath: GLOSSARY_CONFIG,
+  accountsConfigPath: ACCOUNTS_CONFIG,
+  platformsConfigPath: PLATFORMS_CONFIG,
+  skillsConfigPath: SKILLS_CONFIG,
+  knowledgeDir: KNOWLEDGE_DIR,
+  scheduledJobsConfigPath: SCHEDULED_JOBS_CONFIG,
+  pluginsConfigPath: PLUGINS_CONFIG,
+  onScheduledJobsChanged: () => scheduler.reload(),
+});
 
 // HTTP request body parser
 function parseBody(req: http.IncomingMessage): Promise<string> {
@@ -202,7 +217,25 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(rawBody); } catch { /* no body needed for DELETE */ }
       }
     }
-    // Chat endpoint
+    // File upload endpoint for admin chat (multipart-like: raw binary with headers)
+    if (url === '/admin/api/upload' && req.method === 'POST') {
+      const fileName = decodeURIComponent(req.headers['x-file-name'] as string || 'upload');
+      const dir = path.join('/tmp/opsagent-uploads', `admin-${Date.now()}`);
+      fs.mkdirSync(dir, { recursive: true });
+      const filePath = path.join(dir, fileName);
+
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        fs.writeFileSync(filePath, Buffer.concat(chunks));
+        console.log(`[index] Admin upload: ${fileName} -> ${filePath}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ filePath, fileName }));
+      });
+      return;
+    }
+
+    // Chat endpoint (non-streaming, kept for backward compatibility)
     if (url === '/admin/api/chat' && req.method === 'POST') {
       if (!body?.message) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -219,6 +252,64 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
       }
+      return;
+    }
+
+    // Chat endpoint (streaming via SSE) — supports both POST and GET
+    if (url.startsWith('/admin/api/chat/stream') && (req.method === 'POST' || req.method === 'GET')) {
+      let message: string | undefined;
+
+      let files: string | undefined;
+
+      if (req.method === 'GET') {
+        // GET: message in query param (for EventSource)
+        const parsedUrl = new URL(url, `http://${req.headers.host}`);
+        message = parsedUrl.searchParams.get('message') || undefined;
+        files = parsedUrl.searchParams.get('files') || undefined;
+      } else {
+        message = body?.message;
+        files = body?.files;
+      }
+
+      // Inject file paths into query if present
+      if (files && message) {
+        try {
+          const fileList = JSON.parse(files) as Array<{ filePath: string; fileName: string }>;
+          if (fileList.length > 0) {
+            const desc = fileList.map(f => `- ${f.fileName}: ${f.filePath}`).join('\n');
+            message += `\n\n用户附带了以下文件，请用 Read 工具查看并分析:\n${desc}`;
+          }
+        } catch { /* ignore bad JSON */ }
+      }
+
+      if (!message) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '"message" parameter is required' }));
+        return;
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+
+      const sendSSE = (event: string, data: unknown) => {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      };
+
+      console.log(`[index] Admin chat stream: ${message.substring(0, 100)}`);
+
+      try {
+        for await (const chunk of claudeClient.queryStream(message, 'admin', 'admin')) {
+          sendSSE(chunk.type, chunk);
+        }
+      } catch (err: any) {
+        console.error(`[index] Admin chat stream error: ${err.message}`);
+        sendSSE('error', { error: err.message });
+      }
+      res.end();
       return;
     }
 

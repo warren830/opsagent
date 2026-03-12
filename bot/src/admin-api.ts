@@ -9,6 +9,9 @@ export interface AdminApiOptions {
   platformsConfigPath: string;
   skillsConfigPath: string;
   knowledgeDir: string;
+  scheduledJobsConfigPath?: string;
+  pluginsConfigPath?: string;
+  onScheduledJobsChanged?: () => void;
 }
 
 export class AdminApi {
@@ -17,6 +20,9 @@ export class AdminApi {
   private readonly platformsPath: string;
   private readonly skillsPath: string;
   private readonly knowledgeDir: string;
+  private readonly scheduledJobsPath?: string;
+  private readonly pluginsPath?: string;
+  private readonly onScheduledJobsChanged?: () => void;
   private authWarningLogged = false;
 
   constructor(options: AdminApiOptions) {
@@ -25,6 +31,9 @@ export class AdminApi {
     this.platformsPath = path.resolve(options.platformsConfigPath);
     this.skillsPath = path.resolve(options.skillsConfigPath);
     this.knowledgeDir = path.resolve(options.knowledgeDir);
+    if (options.scheduledJobsConfigPath) this.scheduledJobsPath = path.resolve(options.scheduledJobsConfigPath);
+    if (options.pluginsConfigPath) this.pluginsPath = path.resolve(options.pluginsConfigPath);
+    this.onScheduledJobsChanged = options.onScheduledJobsChanged;
   }
 
   async handleRequest(
@@ -78,6 +87,16 @@ export class AdminApi {
     if (urlPath === '/admin/api/skills') {
       if (req.method === 'GET') return this.getSkills(res);
       if (req.method === 'PUT') return this.putSkills(res, body);
+    }
+
+    if (urlPath === '/admin/api/scheduled-jobs' && this.scheduledJobsPath) {
+      if (req.method === 'GET') return this.getScheduledJobs(res);
+      if (req.method === 'PUT') return this.putScheduledJobs(res, body);
+    }
+
+    if (urlPath === '/admin/api/plugins' && this.pluginsPath) {
+      if (req.method === 'GET') return this.getPlugins(res);
+      if (req.method === 'PUT') return this.putPlugins(res, body);
     }
 
     // Knowledge base file management
@@ -234,6 +253,45 @@ export class AdminApi {
       return true;
     }
     fs.unlinkSync(filePath);
+    this.jsonResponse(res, 200, { ok: true });
+    return true;
+  }
+
+  // ── Scheduled Jobs ──────────────────────────────────────────────
+
+  private getScheduledJobs(res: http.ServerResponse): boolean {
+    const data = this.readYaml(this.scheduledJobsPath!);
+    const scheduled_jobs = data?.scheduled_jobs || [];
+    this.jsonResponse(res, 200, { scheduled_jobs });
+    return true;
+  }
+
+  private putScheduledJobs(res: http.ServerResponse, body: any): boolean {
+    if (!body || !Array.isArray(body.scheduled_jobs)) {
+      this.jsonResponse(res, 400, { error: 'Request body must contain a "scheduled_jobs" array' });
+      return true;
+    }
+    this.writeYaml(this.scheduledJobsPath!, { scheduled_jobs: body.scheduled_jobs });
+    this.jsonResponse(res, 200, { ok: true, count: body.scheduled_jobs.length });
+    if (this.onScheduledJobsChanged) this.onScheduledJobsChanged();
+    return true;
+  }
+
+  // ── Plugins ────────────────────────────────────────────────────
+
+  private getPlugins(res: http.ServerResponse): boolean {
+    const data = this.readYaml(this.pluginsPath!);
+    const plugins = data?.plugins || {};
+    this.jsonResponse(res, 200, { plugins });
+    return true;
+  }
+
+  private putPlugins(res: http.ServerResponse, body: any): boolean {
+    if (!body || typeof body.plugins !== 'object') {
+      this.jsonResponse(res, 400, { error: 'Request body must contain a "plugins" object' });
+      return true;
+    }
+    this.writeYaml(this.pluginsPath!, { plugins: body.plugins });
     this.jsonResponse(res, 200, { ok: true });
     return true;
   }

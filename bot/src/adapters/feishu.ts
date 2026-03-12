@@ -1,7 +1,11 @@
 import * as http from 'http';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import * as https from 'https';
-import { PlatformAdapter, PlatformMessage } from './types';
+import * as path from 'path';
+import { MessageAttachment, PlatformAdapter, PlatformMessage } from './types';
+
+const UPLOAD_DIR = '/tmp/opsagent-uploads';
 
 export interface FeishuAdapterOptions {
   appId: string;
@@ -54,7 +58,15 @@ export class FeishuAdapter implements PlatformAdapter {
     }
 
     const message = event.message;
-    if (!message || message.message_type !== 'text') {
+    if (!message) {
+      res.writeHead(200);
+      res.end();
+      return null;
+    }
+
+    const msgType = message.message_type;
+    const supportedTypes = ['text', 'image', 'file'];
+    if (!supportedTypes.includes(msgType)) {
       res.writeHead(200);
       res.end();
       return null;
@@ -64,19 +76,64 @@ export class FeishuAdapter implements PlatformAdapter {
     res.writeHead(200);
     res.end();
 
-    // Parse text content (Feishu wraps text in JSON: {"text":"actual message"})
     let text = '';
-    try {
-      const content = JSON.parse(message.content);
-      text = content.text || '';
-    } catch {
-      text = message.content || '';
+    const attachments: MessageAttachment[] = [];
+
+    if (msgType === 'text') {
+      // Parse text content (Feishu wraps text in JSON: {"text":"actual message"})
+      try {
+        const content = JSON.parse(message.content);
+        text = content.text || '';
+      } catch {
+        text = message.content || '';
+      }
+      // Strip @mentions (format: @_user_xxx)
+      text = text.replace(/@_user_\w+/g, '').trim();
+      if (!text) return null;
+    } else if (msgType === 'image') {
+      // Image: {"image_key":"img_xxx"}
+      try {
+        const content = JSON.parse(message.content);
+        const imageKey = content.image_key;
+        if (imageKey) {
+          const filePath = await this.downloadFeishuResource(message.message_id, imageKey, 'image');
+          if (filePath) {
+            attachments.push({ filePath, fileName: path.basename(filePath), mimeType: 'image/png' });
+            text = '(用户发送了一张图片)';
+          }
+        }
+      } catch (e) {
+        console.error(`[feishu] Failed to process image: ${(e as Error).message}`);
+        return null;
+      }
+    } else if (msgType === 'file') {
+      // File: {"file_key":"file_xxx","file_name":"xxx.pdf"}
+      try {
+        const content = JSON.parse(message.content);
+        const fileKey = content.file_key;
+        const fileName = content.file_name || 'unknown';
+        if (fileKey) {
+          const filePath = await this.downloadFeishuResource(message.message_id, fileKey, 'file');
+          if (filePath) {
+            // Rename to original filename
+            const finalPath = path.join(path.dirname(filePath), fileName);
+            fs.renameSync(filePath, finalPath);
+            const ext = path.extname(fileName).toLowerCase();
+            const mimeMap: Record<string, string> = {
+              '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg',
+              '.jpeg': 'image/jpeg', '.txt': 'text/plain', '.csv': 'text/csv',
+              '.json': 'application/json', '.yaml': 'text/yaml', '.yml': 'text/yaml',
+              '.md': 'text/markdown', '.log': 'text/plain', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            };
+            attachments.push({ filePath: finalPath, fileName, mimeType: mimeMap[ext] || 'application/octet-stream' });
+            text = `(用户发送了文件: ${fileName})`;
+          }
+        }
+      } catch (e) {
+        console.error(`[feishu] Failed to process file: ${(e as Error).message}`);
+        return null;
+      }
     }
-
-    // Strip @mentions (format: @_user_xxx)
-    text = text.replace(/@_user_\w+/g, '').trim();
-
-    if (!text) return null;
 
     return {
       text,
@@ -88,6 +145,7 @@ export class FeishuAdapter implements PlatformAdapter {
         chatId: message.chat_id,
         messageId: message.message_id,
       },
+      attachments: attachments.length > 0 ? attachments : undefined,
     };
   }
 
@@ -100,8 +158,8 @@ export class FeishuAdapter implements PlatformAdapter {
     const token = await this.getTenantAccessToken();
 
     const payload = JSON.stringify({
-      content: JSON.stringify({ text }),
-      msg_type: 'text',
+      content: this.buildCardContent(text),
+      msg_type: 'interactive',
     });
 
     // Use reply API which works without bot being a chat member
@@ -124,6 +182,243 @@ export class FeishuAdapter implements PlatformAdapter {
               const result = JSON.parse(data);
               if (result.code !== 0) {
                 console.error(`[feishu] Send message error code=${result.code}: ${result.msg}`);
+                reject(new Error(`Feishu API error: ${result.msg}`));
+              } else {
+                resolve();
+              }
+            } catch (e) {
+              reject(e);
+            }
+          });
+        },
+      );
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+  }
+
+  async updateReply(msg: PlatformMessage, text: string, messageId?: string): Promise<string> {
+    const ctx = msg.replyContext as { chatId: string; messageId: string };
+
+    if (!messageId) {
+      // First call: send a new reply and return its message_id
+      return this.sendFeishuReplyAndGetId(ctx.messageId, text);
+    }
+
+    // Subsequent calls: PATCH existing message
+    await this.patchFeishuMessage(messageId, text);
+    return messageId;
+  }
+
+  /**
+   * Download an image or file from Feishu message resources API.
+   * Returns local file path or null on failure.
+   */
+  private async downloadFeishuResource(messageId: string, fileKey: string, type: 'image' | 'file'): Promise<string | null> {
+    const token = await this.getTenantAccessToken();
+    const dir = path.join(UPLOAD_DIR, `feishu-${Date.now()}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const ext = type === 'image' ? '.png' : '';
+    const filePath = path.join(dir, `${fileKey}${ext}`);
+
+    return new Promise((resolve) => {
+      const req = https.request(
+        {
+          hostname: 'open.feishu.cn',
+          path: `/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=${type}`,
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+        (res) => {
+          if (res.statusCode !== 200) {
+            console.error(`[feishu] Download resource failed: status ${res.statusCode}`);
+            res.resume();
+            resolve(null);
+            return;
+          }
+          const ws = fs.createWriteStream(filePath);
+          res.pipe(ws);
+          ws.on('finish', () => {
+            console.log(`[feishu] Downloaded ${type} to ${filePath}`);
+            resolve(filePath);
+          });
+          ws.on('error', (err) => {
+            console.error(`[feishu] Write file error: ${err.message}`);
+            resolve(null);
+          });
+        },
+      );
+      req.on('error', (err) => {
+        console.error(`[feishu] Download request error: ${err.message}`);
+        resolve(null);
+      });
+      req.end();
+    });
+  }
+
+  /**
+   * Convert markdown tables to code blocks since Feishu card markdown
+   * does not support table syntax. Preserves alignment in monospace.
+   */
+  private convertTablesToCodeBlocks(text: string): string {
+    const lines = text.split('\n');
+    const result: string[] = [];
+    let tableLines: string[] = [];
+    let inTable = false;
+
+    const flushTable = () => {
+      if (tableLines.length > 0) {
+        result.push('```');
+        result.push(...tableLines);
+        result.push('```');
+        tableLines = [];
+      }
+      inTable = false;
+    };
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // A table row starts and ends with | (or starts with |)
+      const isTableRow = /^\|.+\|$/.test(trimmed);
+      // Separator row: |---|---|
+      const isSeparator = /^\|[\s\-:|]+\|$/.test(trimmed);
+
+      if (isTableRow || isSeparator) {
+        if (!inTable) inTable = true;
+        tableLines.push(line);
+      } else {
+        if (inTable) flushTable();
+        result.push(line);
+      }
+    }
+    if (inTable) flushTable();
+
+    return result.join('\n');
+  }
+
+  /** Build interactive card JSON for streaming updates (PATCHable) */
+  private buildCardContent(text: string): string {
+    const processed = this.convertTablesToCodeBlocks(text);
+    return JSON.stringify({
+      config: { wide_screen_mode: true },
+      elements: [{ tag: 'markdown', content: processed }],
+    });
+  }
+
+  private async sendFeishuReplyAndGetId(replyToMessageId: string, text: string): Promise<string> {
+    const token = await this.getTenantAccessToken();
+
+    // Use interactive card so we can PATCH it later
+    const payload = JSON.stringify({
+      content: this.buildCardContent(text),
+      msg_type: 'interactive',
+    });
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname: 'open.feishu.cn',
+          path: `/open-apis/im/v1/messages/${replyToMessageId}/reply`,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            Authorization: `Bearer ${token}`,
+          },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try {
+              const result = JSON.parse(data);
+              if (result.code !== 0) {
+                reject(new Error(`Feishu API error: ${result.msg}`));
+              } else {
+                resolve(result.data?.message_id || '');
+              }
+            } catch (e) {
+              reject(e);
+            }
+          });
+        },
+      );
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+  }
+
+  private async patchFeishuMessage(messageId: string, text: string): Promise<void> {
+    const token = await this.getTenantAccessToken();
+
+    const payload = JSON.stringify({
+      content: this.buildCardContent(text),
+    });
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname: 'open.feishu.cn',
+          path: `/open-apis/im/v1/messages/${messageId}`,
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            Authorization: `Bearer ${token}`,
+          },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try {
+              const result = JSON.parse(data);
+              if (result.code !== 0) {
+                console.error(`[feishu] patchMessage error code=${result.code}: ${result.msg}`);
+              }
+              resolve();
+            } catch {
+              resolve(); // best-effort PATCH
+            }
+          });
+        },
+      );
+      req.on('error', () => resolve()); // best-effort
+      req.write(payload);
+      req.end();
+    });
+  }
+
+  async sendToChannel(channelId: string, text: string): Promise<void> {
+    const token = await this.getTenantAccessToken();
+
+    const payload = JSON.stringify({
+      receive_id: channelId,
+      content: this.buildCardContent(text),
+      msg_type: 'interactive',
+    });
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname: 'open.feishu.cn',
+          path: '/open-apis/im/v1/messages?receive_id_type=chat_id',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            Authorization: `Bearer ${token}`,
+          },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try {
+              const result = JSON.parse(data);
+              if (result.code !== 0) {
+                console.error(`[feishu] sendToChannel error code=${result.code}: ${result.msg}`);
                 reject(new Error(`Feishu API error: ${result.msg}`));
               } else {
                 resolve();

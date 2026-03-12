@@ -359,6 +359,8 @@
     <a href="#platforms" onclick="switchTab('platforms')">Platforms</a>
     <a href="#knowledge" onclick="switchTab('knowledge')">Knowledge</a>
     <a href="#skills" onclick="switchTab('skills')">Skills</a>
+    <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
+    <a href="#plugins" onclick="switchTab('plugins')">Plugins</a>
   </nav>
 </div>
 
@@ -367,9 +369,13 @@
   <div id="tab-chat" class="visible">
     <h2>Chat</h2>
     <div class="chat-messages" id="chat-messages"></div>
+    <div id="chat-attachments" style="display:none;padding:4px 12px;font-size:12px;color:var(--text2);background:var(--surface2);border-radius:6px 6px 0 0;margin:0 0 -1px 0"></div>
     <div class="chat-input-bar">
-      <textarea id="chat-input" placeholder="Ask OpsAgent anything..." rows="1"
-        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea>
+      <input type="file" id="chat-file-input" multiple style="display:none" onchange="handleChatFiles(this.files)">
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('chat-file-input').click()" title="Attach file" style="font-size:18px;padding:4px 8px;min-width:auto">+</button>
+      <textarea id="chat-input" placeholder="Ask OpsAgent anything... (paste image or drag file)" rows="1"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"
+        onpaste="handleChatPaste(event)"></textarea>
       <button class="btn btn-primary" id="chat-send-btn" onclick="sendChat()">Send</button>
     </div>
   </div>
@@ -464,6 +470,29 @@
     </div>
     <div id="skills-list"></div>
   </div>
+
+  <!-- Scheduled Jobs Tab -->
+  <div id="tab-scheduled-jobs" style="display:none">
+    <div class="toolbar">
+      <h2>Scheduled Jobs</h2>
+      <button class="btn btn-primary" onclick="openJobModal()">+ New Job</button>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      Cron-based scheduled queries. Results are sent to configured IM channels. Enable a job to activate it.
+    </div>
+    <div id="jobs-list"></div>
+  </div>
+
+  <!-- Plugins Tab -->
+  <div id="tab-plugins" style="display:none">
+    <div class="toolbar">
+      <h2>Plugins</h2>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      MCP plugins extend Claude's capabilities. Configure tokens and enable/disable plugins here.
+    </div>
+    <div id="plugins-list"></div>
+  </div>
 </div>
 
 <!-- Skill Modal -->
@@ -490,6 +519,69 @@
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal('skill-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveSkillEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Scheduled Job Modal -->
+<div class="modal-overlay" id="job-modal">
+  <div class="modal" style="width:600px">
+    <h3 id="job-modal-title">New Scheduled Job</h3>
+    <div class="form-group">
+      <label>Name</label>
+      <input id="j-name" placeholder="e.g. Daily Health Report">
+    </div>
+    <div class="form-group">
+      <label>Cron Expression</label>
+      <input id="j-cron" placeholder="e.g. 0 9 * * 1-5 (weekdays at 9:00)">
+      <div class="hint">Standard cron: minute hour day month weekday</div>
+    </div>
+    <div class="form-group">
+      <label>Timezone</label>
+      <input id="j-timezone" placeholder="e.g. Asia/Shanghai (default: UTC)">
+    </div>
+    <div class="form-group">
+      <label>Query</label>
+      <textarea id="j-query" style="min-height:120px;font-family:monospace;font-size:13px" placeholder="The query to send to Claude..."></textarea>
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:16px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="j-enabled" style="width:auto" checked>
+        <label for="j-enabled" style="margin:0;color:var(--text)">Enabled</label>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="j-auto-jira" style="width:auto">
+        <label for="j-auto-jira" style="margin:0;color:var(--text)">Auto Jira</label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Targets (one per line: platform,channel)</label>
+      <textarea id="j-targets" style="min-height:60px;font-family:monospace;font-size:13px" placeholder="slack,C0123456789&#10;feishu,oc_xxxxxxxxxxxx"></textarea>
+      <div class="hint">Format: platform,channelId (e.g. slack,C0123456789)</div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('job-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveJobEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Plugin Modal -->
+<div class="modal-overlay" id="plugin-modal">
+  <div class="modal" style="width:500px">
+    <h3 id="plugin-modal-title">Configure Plugin</h3>
+    <div class="form-group">
+      <label>Plugin Name</label>
+      <input id="pl-name" disabled>
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="pl-enabled" style="width:auto">
+      <label for="pl-enabled" style="margin:0;color:var(--text)">Enabled</label>
+    </div>
+    <div id="pl-env-fields"></div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('plugin-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="savePluginEntry()">Save</button>
     </div>
   </div>
 </div>
@@ -679,7 +771,7 @@ let editingAccountIdx = null;    // null = new, number = editing
 let editingOverrideId = null;    // null = new, string = editing
 
 // ── Tab switching ──────────────────────────────────────────────────
-const allTabs = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills'];
+const allTabs = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins'];
 function switchTab(tab) {
   allTabs.forEach(t => {
     const el = document.getElementById('tab-' + t);
@@ -1285,6 +1377,65 @@ function renderMarkdown(text) {
   return html;
 }
 
+let activeEventSource = null;
+let chatPendingFiles = []; // [{filePath, fileName}]
+
+async function uploadChatFile(file) {
+  const res = await fetch('/admin/api/upload', {
+    method: 'POST',
+    headers: { 'X-File-Name': encodeURIComponent(file.name) },
+    body: file,
+  });
+  if (!res.ok) throw new Error('Upload failed');
+  return res.json(); // {filePath, fileName}
+}
+
+function renderChatAttachments() {
+  const el = document.getElementById('chat-attachments');
+  if (chatPendingFiles.length === 0) {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'block';
+  el.innerHTML = chatPendingFiles.map((f, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--surface);padding:2px 8px;border-radius:4px;margin:2px">${esc(f.fileName)} <span style="cursor:pointer;color:var(--danger)" onclick="removeChatFile(${i})">&times;</span></span>`
+  ).join(' ');
+}
+
+function removeChatFile(idx) {
+  chatPendingFiles.splice(idx, 1);
+  renderChatAttachments();
+}
+
+async function handleChatFiles(fileList) {
+  for (const file of Array.from(fileList)) {
+    try {
+      const result = await uploadChatFile(file);
+      chatPendingFiles.push(result);
+    } catch (e) {
+      toast('Failed to upload ' + file.name, 'error');
+    }
+  }
+  renderChatAttachments();
+  document.getElementById('chat-file-input').value = '';
+}
+
+function handleChatPaste(e) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  const files = [];
+  for (const item of items) {
+    if (item.kind === 'file') {
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  }
+  if (files.length > 0) {
+    e.preventDefault();
+    handleChatFiles(files);
+  }
+}
+
 async function sendChat() {
   if (chatBusy) return;
   const input = document.getElementById('chat-input');
@@ -1299,24 +1450,106 @@ async function sendChat() {
   chatBusy = true;
   document.getElementById('chat-send-btn').disabled = true;
 
-  try {
-    const res = await fetch('/admin/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text }),
-    });
-    thinkingEl.remove();
-    if (res.ok) {
-      const data = await res.json();
-      appendBubble('bot', data.reply || '(empty response)');
-    } else {
-      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
-      appendBubble('bot', 'Error: ' + (err.error || res.statusText));
+  // Create bot bubble for progressive updates
+  const botEl = appendBubble('bot', '');
+  botEl.style.display = 'none'; // hidden until first text arrives
+  const container = document.getElementById('chat-messages');
+  let accumulated = '';
+  let statusText = '';
+
+  // Use EventSource for SSE streaming
+  let url = '/admin/api/chat/stream?message=' + encodeURIComponent(text);
+  if (chatPendingFiles.length > 0) {
+    url += '&files=' + encodeURIComponent(JSON.stringify(chatPendingFiles));
+    chatPendingFiles = [];
+    renderChatAttachments();
+  }
+  const es = new EventSource(url);
+  activeEventSource = es;
+
+  function updateDisplay() {
+    if (accumulated) {
+      thinkingEl.style.display = 'none';
+      botEl.style.display = '';
+      botEl.innerHTML = renderMarkdown(accumulated + ' \u258D');
+    } else if (statusText) {
+      thinkingEl.textContent = statusText;
     }
-  } catch (e) {
+    container.scrollTop = container.scrollHeight;
+  }
+
+  es.addEventListener('init', () => {
+    statusText = 'Connected, processing...';
+    updateDisplay();
+  });
+
+  es.addEventListener('thinking', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      statusText = 'Thinking... (turn ' + (data.turn || 0) + ')';
+      updateDisplay();
+    } catch {}
+  });
+
+  es.addEventListener('text', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.content) {
+        accumulated += data.content;
+        updateDisplay();
+      }
+    } catch {}
+  });
+
+  es.addEventListener('tool_use', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      statusText = data.content || 'Using tool...';
+      if (!accumulated) {
+        updateDisplay();
+      } else {
+        // Show tool use status below accumulated text
+        botEl.innerHTML = renderMarkdown(accumulated + '\n\n_' + esc(statusText) + '..._');
+        container.scrollTop = container.scrollHeight;
+      }
+    } catch {}
+  });
+
+  es.addEventListener('done', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.content) accumulated = data.content;
+    } catch {}
+    finish();
+  });
+
+  es.addEventListener('error', (e) => {
+    // EventSource error can be reconnect or actual error
+    if (es.readyState === EventSource.CLOSED || (e.data)) {
+      try {
+        const data = JSON.parse(e.data);
+        accumulated = 'Error: ' + (data.error || 'Unknown error');
+      } catch {
+        if (!accumulated) accumulated = 'Connection error';
+      }
+      finish();
+    }
+  });
+
+  es.onerror = () => {
+    // EventSource auto-reconnect or final close
+    if (es.readyState === EventSource.CLOSED) {
+      finish();
+    }
+  };
+
+  function finish() {
+    es.close();
+    activeEventSource = null;
     thinkingEl.remove();
-    appendBubble('bot', 'Network error: ' + e.message);
-  } finally {
+    botEl.style.display = '';
+    botEl.innerHTML = renderMarkdown(accumulated || '(empty response)');
+    container.scrollTop = container.scrollHeight;
     chatBusy = false;
     document.getElementById('chat-send-btn').disabled = false;
     input.focus();
@@ -1679,6 +1912,250 @@ async function saveFullSkills() {
   }
 }
 
+// ── Scheduled Jobs ────────────────────────────────────────────────
+let scheduledJobs = [];
+let editingJobIdx = null;
+
+async function loadScheduledJobs() {
+  const res = await fetch('/admin/api/scheduled-jobs');
+  const data = await res.json();
+  scheduledJobs = data.scheduled_jobs || [];
+  renderScheduledJobs();
+}
+
+function renderScheduledJobs() {
+  const container = document.getElementById('jobs-list');
+  if (scheduledJobs.length === 0) {
+    container.innerHTML = '<div class="empty">No scheduled jobs configured. Click "+ New Job" to add one.</div>';
+    return;
+  }
+  container.innerHTML = scheduledJobs.map((j, i) => {
+    const targetTags = (j.targets || []).map(t =>
+      `<span class="tag">${esc(t.platform)}:${esc(t.channel)}</span>`
+    ).join('');
+    const jiraBadge = j.auto_jira ? '<span class="tag" style="background:var(--accent);color:white">Jira</span>' : '';
+    return `<div class="card">
+      <div class="card-header">
+        <div style="display:flex;align-items:center;gap:12px">
+          <label class="toggle">
+            <input type="checkbox" ${j.enabled ? 'checked' : ''} onchange="toggleJob(${i})">
+            <span class="slider"></span>
+          </label>
+          <div>
+            <div class="card-title">${esc(j.name)}</div>
+            <div class="card-subtitle"><code style="background:var(--surface2);padding:1px 4px;border-radius:3px;font-size:12px">${esc(j.cron)}</code> &middot; ${esc(j.timezone || 'UTC')}</div>
+          </div>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editJob(${i})">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteJob(${i})">Delete</button>
+        </div>
+      </div>
+      <div class="card-desc" style="font-family:monospace;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc((j.query || '').substring(0, 120))}${(j.query || '').length > 120 ? '...' : ''}</div>
+      <div class="tags" style="margin-top:6px">${targetTags}${jiraBadge}</div>
+    </div>`;
+  }).join('');
+}
+
+function openJobModal(idx) {
+  editingJobIdx = idx !== undefined ? idx : null;
+  const isEdit = editingJobIdx !== null;
+  const entry = isEdit ? scheduledJobs[idx] : {};
+
+  document.getElementById('job-modal-title').textContent = isEdit ? 'Edit Job' : 'New Scheduled Job';
+  document.getElementById('j-name').value = entry.name || '';
+  document.getElementById('j-cron').value = entry.cron || '';
+  document.getElementById('j-timezone').value = entry.timezone || '';
+  document.getElementById('j-query').value = entry.query || '';
+  document.getElementById('j-enabled').checked = isEdit ? !!entry.enabled : true;
+  document.getElementById('j-auto-jira').checked = !!entry.auto_jira;
+  document.getElementById('j-targets').value = (entry.targets || []).map(t => t.platform + ',' + t.channel).join('\n');
+  openModal('job-modal');
+}
+
+function editJob(idx) { openJobModal(idx); }
+
+async function toggleJob(idx) {
+  scheduledJobs[idx].enabled = !scheduledJobs[idx].enabled;
+  await saveFullScheduledJobs();
+}
+
+async function deleteJob(idx) {
+  const j = scheduledJobs[idx];
+  if (!confirm(`Delete job "${j.name}"?`)) return;
+  scheduledJobs.splice(idx, 1);
+  await saveFullScheduledJobs();
+}
+
+async function saveJobEntry() {
+  const name = document.getElementById('j-name').value.trim();
+  if (!name) return toast('Name is required', 'error');
+  const cronExpr = document.getElementById('j-cron').value.trim();
+  if (!cronExpr) return toast('Cron expression is required', 'error');
+  const query = document.getElementById('j-query').value.trim();
+  if (!query) return toast('Query is required', 'error');
+
+  const targetsRaw = document.getElementById('j-targets').value.trim();
+  const targets = targetsRaw ? targetsRaw.split('\n').map(line => {
+    const parts = line.trim().split(',');
+    return { platform: parts[0]?.trim() || '', channel: parts.slice(1).join(',').trim() };
+  }).filter(t => t.platform && t.channel) : [];
+
+  const entry = {
+    name,
+    enabled: document.getElementById('j-enabled').checked,
+    cron: cronExpr,
+    timezone: document.getElementById('j-timezone').value.trim() || undefined,
+    query,
+    auto_jira: document.getElementById('j-auto-jira').checked || undefined,
+    targets,
+  };
+  // Clean undefined fields
+  if (!entry.timezone) delete entry.timezone;
+  if (!entry.auto_jira) delete entry.auto_jira;
+
+  if (editingJobIdx !== null) {
+    scheduledJobs[editingJobIdx] = entry;
+  } else {
+    scheduledJobs.push(entry);
+  }
+
+  await saveFullScheduledJobs();
+  closeModal('job-modal');
+}
+
+async function saveFullScheduledJobs() {
+  const res = await fetch('/admin/api/scheduled-jobs', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scheduled_jobs: scheduledJobs }),
+  });
+  if (res.ok) {
+    toast('Scheduled jobs saved & reloaded');
+    renderScheduledJobs();
+  } else {
+    toast('Failed to save', 'error');
+  }
+}
+
+// ── Plugins ──────────────────────────────────────────────────────
+let plugins = {};
+let editingPluginKey = null;
+
+async function loadPlugins() {
+  const res = await fetch('/admin/api/plugins');
+  const data = await res.json();
+  plugins = data.plugins || {};
+  renderPlugins();
+}
+
+function renderPlugins() {
+  const container = document.getElementById('plugins-list');
+  const keys = Object.keys(plugins);
+  if (keys.length === 0) {
+    container.innerHTML = '<div class="empty">No plugins configured.</div>';
+    return;
+  }
+  container.innerHTML = keys.map(key => {
+    const p = plugins[key];
+    const badge = p.enabled ? '<span class="badge-on">ON</span>' : '<span class="badge-off">OFF</span>';
+    const typeBadge = `<span class="tag">${esc(p.type || 'mcp')}</span>`;
+    const envKeys = Object.keys(p.env || {});
+    const hasTokens = envKeys.some(k => {
+      const v = p.env[k];
+      return v && !v.includes('${');
+    });
+    const tokenStatus = hasTokens
+      ? '<span style="color:var(--success);font-size:12px">token configured</span>'
+      : '<span style="color:var(--text2);font-size:12px">token not set</span>';
+    return `<div class="card">
+      <div class="card-header">
+        <div style="display:flex;align-items:center;gap:12px">
+          <label class="toggle">
+            <input type="checkbox" ${p.enabled ? 'checked' : ''} onchange="togglePlugin('${esc(key)}')">
+            <span class="slider"></span>
+          </label>
+          <div>
+            <div class="card-title">${esc(key)}${badge}</div>
+            <div class="card-subtitle">${typeBadge} ${tokenStatus}</div>
+          </div>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editPlugin('${esc(key)}')">Configure</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function togglePlugin(key) {
+  plugins[key].enabled = !plugins[key].enabled;
+  await saveFullPlugins();
+}
+
+function editPlugin(key) {
+  editingPluginKey = key;
+  const p = plugins[key];
+  document.getElementById('plugin-modal-title').textContent = 'Configure ' + key;
+  document.getElementById('pl-name').value = key;
+  document.getElementById('pl-enabled').checked = !!p.enabled;
+
+  const envContainer = document.getElementById('pl-env-fields');
+  const envKeys = Object.keys(p.env || {});
+  if (envKeys.length === 0) {
+    envContainer.innerHTML = '<div style="font-size:13px;color:var(--text2)">No environment variables for this plugin.</div>';
+  } else {
+    envContainer.innerHTML = envKeys.map(k => {
+      const v = p.env[k];
+      // Extract label from env key
+      const isToken = k.toLowerCase().includes('token') || k.toLowerCase().includes('secret') || k.toLowerCase().includes('key');
+      const currentVal = v && !v.includes('${') ? v : '';
+      return `<div class="form-group">
+        <label>${esc(k)}</label>
+        <input id="pl-env-${esc(k)}" type="${isToken ? 'password' : 'text'}" value="${esc(currentVal)}" placeholder="${esc(v)}">
+        ${isToken ? '<div class="hint">Leave empty to keep placeholder variable reference.</div>' : ''}
+      </div>`;
+    }).join('');
+  }
+
+  openModal('plugin-modal');
+}
+
+async function savePluginEntry() {
+  const key = editingPluginKey;
+  if (!key) return;
+  plugins[key].enabled = document.getElementById('pl-enabled').checked;
+
+  const envKeys = Object.keys(plugins[key].env || {});
+  envKeys.forEach(k => {
+    const el = document.getElementById('pl-env-' + k);
+    if (el) {
+      const v = el.value.trim();
+      if (v) {
+        plugins[key].env[k] = v;
+      }
+      // If empty, keep original placeholder
+    }
+  });
+
+  await saveFullPlugins();
+  closeModal('plugin-modal');
+}
+
+async function saveFullPlugins() {
+  const res = await fetch('/admin/api/plugins', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plugins }),
+  });
+  if (res.ok) {
+    toast('Plugins saved');
+    renderPlugins();
+  } else {
+    toast('Failed to save', 'error');
+  }
+}
+
 // ── Util ───────────────────────────────────────────────────────────
 function esc(s) {
   const div = document.createElement('div');
@@ -1692,6 +2169,8 @@ loadAccounts();
 loadPlatforms();
 loadKnowledge();
 loadSkills();
+loadScheduledJobs();
+loadPlugins();
 
 // Wire up cloud provider change to update extra fields
 document.getElementById('c-provider').addEventListener('change', updateCloudExtraFields);

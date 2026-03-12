@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { loadPlugins, generateMcpConfig } from './plugin-loader';
@@ -28,6 +28,15 @@ export interface ClaudeClientOptions {
   skillsConfigPath?: string;
   knowledgeDir?: string;
   timeoutMs?: number;
+}
+
+export interface StreamChunk {
+  type: 'init' | 'thinking' | 'text' | 'tool_use' | 'done';
+  content: string;
+  sessionId?: string | null;
+  turn?: number;
+  toolName?: string;
+  durationMs?: number;
 }
 
 interface SessionEntry {
@@ -135,16 +144,15 @@ export class ClaudeClient {
     if (entry) entry.lastActiveAt = Date.now();
   }
 
-  async query(userMessage: string, platform: string = '', userId: string = ''): Promise<string> {
-    // Load and apply plugin configuration before each query
+  private prepareQuery(platform: string, userId: string): string | null {
     const plugins = loadPlugins(this.pluginsConfigPath);
     generateMcpConfig(plugins, this.mcpConfigPath);
-
-    // Generate CLAUDE.md + knowledge files (Claude Code reads CLAUDE.md natively)
     this.generateClaudeMd();
+    return this.getSession(platform, userId);
+  }
 
-    // Check for existing session
-    const existingSessionId = this.getSession(platform, userId);
+  async query(userMessage: string, platform: string = '', userId: string = ''): Promise<string> {
+    const existingSessionId = this.prepareQuery(platform, userId);
 
     const args = [
       '-p', userMessage,
@@ -218,6 +226,164 @@ export class ClaudeClient {
 
     console.log(`[claude-client] Query completed, response length: ${text.length}`);
     return text;
+  }
+
+  /**
+   * Streaming query — returns an AsyncGenerator of StreamChunk.
+   * Uses --output-format stream-json --verbose.
+   */
+  async *queryStream(
+    userMessage: string,
+    platform: string = '',
+    userId: string = '',
+  ): AsyncGenerator<StreamChunk> {
+    const existingSessionId = this.prepareQuery(platform, userId);
+
+    const args = [
+      '-p', userMessage,
+      '--allowedTools', 'Bash(git*:deny),Read,Glob,Grep',
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--max-turns', '20',
+      '--dangerously-skip-permissions',
+      '--model', 'opus',
+    ];
+
+    if (existingSessionId) {
+      args.push('--resume', existingSessionId);
+    }
+
+    console.log(`[claude-client] Stream query: ${userMessage.substring(0, 100)}...`);
+
+    const child = spawn('claude', args, {
+      cwd: this.workDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, CLAUDE_CODE_USE_BEDROCK: '1' },
+    });
+
+    let stderr = '';
+    let sessionId: string | null = null;
+    let fullText = '';
+    let buffer = '';
+    let turn = 0;
+
+    child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      console.error(`[claude-client] Stream timed out, PID: ${child.pid}`);
+    }, this.timeoutMs);
+
+    const chunks = this.childStdoutIterator(child);
+
+    try {
+      for await (const raw of chunks) {
+        buffer += raw;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+
+            if (event.type === 'system' && event.subtype === 'init') {
+              sessionId = event.session_id || null;
+              yield { type: 'init', content: '', sessionId, turn: 0 };
+            } else if (event.type === 'assistant' && event.message?.content) {
+              for (const block of event.message.content) {
+                if (block.type === 'thinking' && block.thinking) {
+                  yield { type: 'thinking', content: block.thinking.substring(0, 200), turn };
+                } else if (block.type === 'text' && block.text) {
+                  fullText += block.text;
+                  yield { type: 'text', content: block.text, turn };
+                } else if (block.type === 'tool_use') {
+                  yield {
+                    type: 'tool_use',
+                    content: `Using ${block.name}`,
+                    toolName: block.name,
+                    turn,
+                  };
+                }
+              }
+              turn++;
+            } else if (event.type === 'result') {
+              sessionId = event.session_id || sessionId;
+              const durationMs = event.duration_ms || 0;
+              if (event.result && !fullText) {
+                fullText = typeof event.result === 'string'
+                  ? event.result
+                  : JSON.stringify(event.result);
+                yield { type: 'text', content: fullText, turn };
+              }
+              if (sessionId && platform && userId) {
+                this.setSession(platform, userId, sessionId);
+              } else if (platform && userId) {
+                this.touchSession(platform, userId);
+              }
+              yield { type: 'done', content: fullText, sessionId, turn, durationMs };
+              console.log(`[claude-client] Stream completed, length: ${fullText.length}, turns: ${turn}`);
+            }
+          } catch {
+            // Non-JSON line, skip
+          }
+        }
+      }
+
+      // Process remaining buffer
+      if (buffer.trim()) {
+        try {
+          const event = JSON.parse(buffer);
+          if (event.type === 'result') {
+            sessionId = event.session_id || sessionId;
+            if (event.result && !fullText) {
+              fullText = typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
+            }
+            if (sessionId && platform && userId) {
+              this.setSession(platform, userId, sessionId);
+            }
+            yield { type: 'done', content: fullText, sessionId, turn, durationMs: event.duration_ms || 0 };
+          }
+        } catch { /* ignore */ }
+      }
+    } finally {
+      clearTimeout(timer);
+      if (!child.killed) child.kill('SIGTERM');
+    }
+  }
+
+  /**
+   * Async iterator over child process stdout chunks.
+   */
+  private async *childStdoutIterator(child: ChildProcess): AsyncGenerator<string> {
+    const buffer: string[] = [];
+    let resolve: (() => void) | null = null;
+    let done = false;
+
+    child.stdout!.on('data', (data: Buffer) => {
+      buffer.push(data.toString());
+      if (resolve) { resolve(); resolve = null; }
+    });
+
+    child.on('close', () => {
+      done = true;
+      if (resolve) { resolve(); resolve = null; }
+    });
+
+    child.on('error', () => {
+      done = true;
+      if (resolve) { resolve(); resolve = null; }
+    });
+
+    while (true) {
+      if (buffer.length > 0) {
+        yield buffer.shift()!;
+      } else if (done) {
+        break;
+      } else {
+        await new Promise<void>(r => { resolve = r; });
+      }
+    }
   }
 
   private parseJsonOutput(raw: string): { text: string; sessionId: string | null } {

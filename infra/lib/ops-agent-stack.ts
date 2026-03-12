@@ -8,6 +8,8 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as codebuild from 'aws-cdk-lib/aws-codebuild';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import { Construct } from 'constructs';
 
 export interface OpsAgentStackProps extends cdk.StackProps {
@@ -280,10 +282,11 @@ export class OpsAgentStack extends cdk.Stack {
       enableExecuteCommand: true,
     });
 
-    // ALB Target Group & Listener
+    // ALB Target Group & Listener (open: false — traffic restricted to CloudFront)
     const listener = alb.addListener('HttpListener', {
       port: 80,
       protocol: elbv2.ApplicationProtocol.HTTP,
+      open: false,
     });
 
     listener.addTargets('OpsAgentTarget', {
@@ -299,16 +302,42 @@ export class OpsAgentStack extends cdk.Stack {
       },
     });
 
+    // Restrict ALB security group to CloudFront managed prefix list only
+    alb.connections.securityGroups[0].addIngressRule(
+      ec2.Peer.prefixList('pl-3b927c52'), // com.amazonaws.global.cloudfront.origin-facing (us-east-1)
+      ec2.Port.tcp(80),
+      'Allow traffic from CloudFront only',
+    );
+
     // Allow ALB to reach ECS tasks
     service.connections.allowFrom(alb, ec2.Port.tcp(3978), 'ALB to ECS');
 
     // Allow ECS tasks to access EFS (NFS port 2049)
     fileSystem.connections.allowDefaultPortFrom(service, 'ECS to EFS');
 
+    // CloudFront distribution in front of ALB
+    const distribution = new cloudfront.Distribution(this, 'OpsAgentCF', {
+      comment: 'OpsAgent - CloudFront in front of ALB',
+      defaultBehavior: {
+        origin: new origins.HttpOrigin(alb.loadBalancerDnsName, {
+          protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+        }),
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+        cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+        originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      },
+    });
+
     // Outputs
+    new cdk.CfnOutput(this, 'CloudFrontDomain', {
+      value: distribution.distributionDomainName,
+      description: 'CloudFront domain — use this for webhook URLs and Admin UI',
+    });
+
     new cdk.CfnOutput(this, 'AlbDnsName', {
       value: alb.loadBalancerDnsName,
-      description: 'ALB DNS name for Teams Bot webhook endpoint',
+      description: 'ALB DNS name (restricted to CloudFront only)',
       exportName: 'OpsAgentAlbDns',
     });
 

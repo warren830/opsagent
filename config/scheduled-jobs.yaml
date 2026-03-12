@@ -1,0 +1,12 @@
+scheduled_jobs:
+  - name: "Daily Health Report"
+    enabled: false
+    cron: "0 9 * * 1-5"
+    timezone: "Asia/Shanghai"
+    query: "生成每日巡检报告：集群状态、Pending pods、即将过期证书、关键服务健康"
+    auto_jira: false
+    targets:
+      - platform: slack
+        channel: "C0123456789"
+      - platform: feishu
+        channel: "oc_xxxxxxxxxxxx"
