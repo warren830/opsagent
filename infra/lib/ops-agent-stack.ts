@@ -72,7 +72,7 @@ export class OpsAgentStack extends cdk.Stack {
 
     // IAM Task Role
     const taskRole = new iam.Role(this, 'OpsAgentTaskRole', {
-      roleName: 'OpsAgentTaskRole',
+      roleName: `OpsAgentTaskRole-${cdk.Stack.of(this).region}`,
       assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
       description: 'ECS Task Role for OpsAgent - allows cross-account access via Organizations',
     });
