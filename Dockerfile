@@ -23,6 +23,8 @@ WORKDIR /app
 COPY config/ ./config/
 COPY scripts/ ./scripts/
 COPY knowledge/ ./knowledge/
+# Keep a copy of static knowledge files — EFS mount will overlay knowledge/
+RUN cp -r ./knowledge/ ./knowledge-defaults/
 
 # Install all deps (including devDependencies for tsc), build, then prune
 COPY bot/package.json bot/package-lock.json* ./bot/
@@ -46,4 +48,5 @@ EXPOSE 3978
 
 HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3978/health || exit 1
 
-CMD ["node", "bot/dist/index.js"]
+# On startup: sync static knowledge files to EFS (skip existing to preserve user edits)
+CMD cp -n ./knowledge-defaults/* ./knowledge/ 2>/dev/null; node bot/dist/index.js
