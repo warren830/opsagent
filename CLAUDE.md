@@ -13,7 +13,7 @@ Key components:
 - **bot/**: Node.js HTTP server with platform adapters
 - **infra/**: AWS CDK stacks (VPC, ECS, ALB, EFS, IAM)
 - **config/**: YAML configs (platforms, glossary, accounts, plugins)
-- **knowledge/**: Knowledge base files on EFS, Claude Code searches with Grep/Read
+- **knowledge/**: Knowledge base files on EFS, tiered progressive disclosure (Tier 1 index in CLAUDE.md, Tier 2 index.md auto-generated, Tier 3 runbooks/docs)
 - **scripts/**: Cross-account query helpers (foreach-account.sh)
 
 ## Deployment Requirements
@@ -29,7 +29,12 @@ Key components:
 Deploys: VPC (2 AZ, 1 NAT), ECS Cluster, Fargate Service (4C/8G), ALB, EFS, IAM Roles, CloudWatch Logs, ECR Repository, CodeBuild Project, S3 Source Bucket.
 
 ```bash
+# Default (us-east-1)
 cd infra && npx cdk deploy OpsAgentStack --require-approval never
+
+# Cross-region deploy (e.g. us-west-2)
+cd infra && npx cdk deploy OpsAgentStack -c hubAccountId=<id> -c region=us-west-2 -c initialDesiredCount=0 --require-approval never
+# After CodeBuild pushes image, update desiredCount: aws ecs update-service --desired-count 1 ...
 ```
 
 ### MemberRoleStack (optional)

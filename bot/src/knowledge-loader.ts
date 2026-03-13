@@ -46,9 +46,13 @@ export function scanKnowledgeFiles(knowledgeDir: string): KnowledgeFileEntry[] {
       if (!pastTitle) continue;
       if (line.startsWith('##')) continue;
       const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('|') && !trimmed.startsWith('-') && !trimmed.startsWith('**')) {
-        description = trimmed.length > 80 ? trimmed.substring(0, 77) + '...' : trimmed;
-        break;
+      if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('|') && !trimmed.startsWith('-') && !trimmed.startsWith('```')) {
+        // Strip leading bold markers for cleaner descriptions
+        const cleaned = trimmed.replace(/^\*\*[^*]+\*\*:\s*/, '').trim();
+        if (cleaned) {
+          description = cleaned.length > 80 ? cleaned.substring(0, 77) + '...' : cleaned;
+          break;
+        }
       }
     }
 
