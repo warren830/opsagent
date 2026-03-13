@@ -1,0 +1,43 @@
+# LLM Provider configuration
+# Determines how Claude Code CLI connects to the model backend.
+# Changes require service restart (ECS force-new-deployment).
+#
+# Supported providers:
+#   bedrock   - Amazon Bedrock (default, uses IAM role auth)
+#   anthropic - Anthropic API directly (requires API key)
+#   gateway   - LLM Gateway (e.g. LiteLLM) with Anthropic Messages API format
+#   bedrock-gateway - Bedrock via LLM Gateway
+#   vertex    - Google Vertex AI
+#   foundry   - Microsoft Azure Foundry
+
+provider:
+  type: bedrock
+  model: opus
+  # max_turns: 20
+  # timeout_ms: 300000
+
+  # --- Anthropic API ---
+  # type: anthropic
+  # api_key: sk-ant-xxx
+  # base_url: https://api.anthropic.com  # optional, for custom endpoints
+
+  # --- LLM Gateway (e.g. LiteLLM unified endpoint) ---
+  # type: gateway
+  # base_url: https://litellm-server:4000
+  # auth_token: sk-litellm-key           # sent as Authorization header
+  # model: opus                           # or custom model name configured in gateway
+
+  # --- Bedrock via LLM Gateway ---
+  # type: bedrock-gateway
+  # base_url: https://litellm-server:4000/bedrock
+  # auth_token: sk-litellm-key           # optional
+
+  # --- Google Vertex AI ---
+  # type: vertex
+  # project_id: your-gcp-project-id
+  # region: us-east5
+
+  # --- Microsoft Foundry ---
+  # type: foundry
+  # resource: your-resource-name
+  # api_key: your-foundry-key

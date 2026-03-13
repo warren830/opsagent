@@ -6,6 +6,7 @@ import { loadGlossary, generateGlossaryKnowledge } from './glossary-loader';
 import { loadAccounts, generateAccountsKnowledge } from './accounts-loader';
 import { loadSkills, generateSkillsPrompt } from './skills-loader';
 import { scanKnowledgeFiles, generateKnowledgeIndex, generateKnowledgeIndexFile } from './knowledge-loader';
+import { loadProvider, buildProviderEnv, ProviderConfig } from './provider-loader';
 
 const CLAUDE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes idle -> expire session
@@ -39,6 +40,7 @@ export interface ClaudeClientOptions {
   accountsConfigPath?: string;
   skillsConfigPath?: string;
   knowledgeDir?: string;
+  providerConfigPath?: string;
   timeoutMs?: number;
 }
 
@@ -64,6 +66,7 @@ export class ClaudeClient {
   private readonly accountsConfigPath: string;
   private readonly skillsConfigPath: string;
   private readonly knowledgeDir: string;
+  private readonly providerConfigPath: string;
   private readonly timeoutMs: number;
 
   /** Map of "platform:userId" -> session info */
@@ -77,6 +80,7 @@ export class ClaudeClient {
     this.accountsConfigPath = options.accountsConfigPath ?? path.join(this.workDir, 'config/accounts.yaml');
     this.skillsConfigPath = options.skillsConfigPath ?? path.join(this.workDir, 'config/skills.yaml');
     this.knowledgeDir = options.knowledgeDir ?? path.join(this.workDir, 'knowledge');
+    this.providerConfigPath = options.providerConfigPath ?? path.join(this.workDir, 'config/providers.yaml');
     this.timeoutMs = options.timeoutMs ?? CLAUDE_TIMEOUT_MS;
   }
 
@@ -169,6 +173,14 @@ export class ClaudeClient {
     if (entry) entry.lastActiveAt = Date.now();
   }
 
+  private getProvider(): ProviderConfig {
+    return loadProvider(this.providerConfigPath);
+  }
+
+  private buildSpawnEnv(provider: ProviderConfig): Record<string, string | undefined> {
+    return { ...process.env, ...buildProviderEnv(provider) };
+  }
+
   private prepareQuery(platform: string, userId: string): string | null {
     const plugins = loadPlugins(this.pluginsConfigPath);
     generateMcpConfig(plugins, this.mcpConfigPath);
@@ -178,14 +190,18 @@ export class ClaudeClient {
 
   async query(userMessage: string, platform: string = '', userId: string = ''): Promise<string> {
     const existingSessionId = this.prepareQuery(platform, userId);
+    const provider = this.getProvider();
+    const model = provider.model || 'opus';
+    const maxTurns = String(provider.max_turns || 20);
+    const timeout = provider.timeout_ms || this.timeoutMs;
 
     const args = [
       '-p', userMessage,
       '--allowedTools', 'Bash(git*:deny),Read,Glob,Grep',
       '--output-format', 'json',
-      '--max-turns', '20',
+      '--max-turns', maxTurns,
       '--dangerously-skip-permissions',
-      '--model', 'opus',
+      '--model', model,
     ];
 
     if (existingSessionId) {
@@ -195,7 +211,7 @@ export class ClaudeClient {
       console.log(`[claude-client] Starting new session for ${platform}:${userId}`);
     }
 
-    console.log(`[claude-client] Executing query: ${userMessage.substring(0, 100)}...`);
+    console.log(`[claude-client] Executing query (provider=${provider.type}, model=${model}): ${userMessage.substring(0, 100)}...`);
 
     const rawOutput = await new Promise<string>((resolve, reject) => {
       const child = spawn(
@@ -204,10 +220,7 @@ export class ClaudeClient {
         {
           cwd: this.workDir,
           stdio: ['ignore', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            CLAUDE_CODE_USE_BEDROCK: '1',
-          },
+          env: this.buildSpawnEnv(provider),
         },
       );
 
@@ -220,8 +233,8 @@ export class ClaudeClient {
 
       const timer = setTimeout(() => {
         child.kill('SIGTERM');
-        reject(new Error(`Claude Code timed out after ${this.timeoutMs / 1000}s`));
-      }, this.timeoutMs);
+        reject(new Error(`Claude Code timed out after ${timeout / 1000}s`));
+      }, timeout);
 
       child.on('close', (code) => {
         clearTimeout(timer);
@@ -263,27 +276,30 @@ export class ClaudeClient {
     userId: string = '',
   ): AsyncGenerator<StreamChunk> {
     const existingSessionId = this.prepareQuery(platform, userId);
+    const provider = this.getProvider();
+    const model = provider.model || 'opus';
+    const maxTurns = String(provider.max_turns || 20);
 
     const args = [
       '-p', userMessage,
       '--allowedTools', 'Bash(git*:deny),Read,Glob,Grep',
       '--output-format', 'stream-json',
       '--verbose',
-      '--max-turns', '20',
+      '--max-turns', maxTurns,
       '--dangerously-skip-permissions',
-      '--model', 'opus',
+      '--model', model,
     ];
 
     if (existingSessionId) {
       args.push('--resume', existingSessionId);
     }
 
-    console.log(`[claude-client] Stream query: ${userMessage.substring(0, 100)}...`);
+    console.log(`[claude-client] Stream query (provider=${provider.type}, model=${model}): ${userMessage.substring(0, 100)}...`);
 
     const child = spawn('claude', args, {
       cwd: this.workDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, CLAUDE_CODE_USE_BEDROCK: '1' },
+      env: this.buildSpawnEnv(provider),
     });
 
     let stderr = '';
@@ -294,10 +310,11 @@ export class ClaudeClient {
 
     child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
 
+    const streamTimeout = provider.timeout_ms || this.timeoutMs;
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
       console.error(`[claude-client] Stream timed out, PID: ${child.pid}`);
-    }, this.timeoutMs);
+    }, streamTimeout);
 
     const chunks = this.childStdoutIterator(child);
 

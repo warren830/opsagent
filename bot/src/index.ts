@@ -44,6 +44,7 @@ const GLOSSARY_CONFIG = process.env.GLOSSARY_CONFIG || seedConfig('glossary.yaml
 const ACCOUNTS_CONFIG = process.env.ACCOUNTS_CONFIG || seedConfig('accounts.yaml');
 const SKILLS_CONFIG = process.env.SKILLS_CONFIG || seedConfig('skills.yaml');
 const SCHEDULED_JOBS_CONFIG = process.env.SCHEDULED_JOBS_CONFIG || seedConfig('scheduled-jobs.yaml');
+const PROVIDERS_CONFIG = process.env.PROVIDERS_CONFIG || seedConfig('providers.yaml');
 
 // Core components
 const claudeClient = new ClaudeClient({
@@ -54,6 +55,7 @@ const claudeClient = new ClaudeClient({
   accountsConfigPath: ACCOUNTS_CONFIG,
   skillsConfigPath: SKILLS_CONFIG,
   knowledgeDir: KNOWLEDGE_DIR,
+  providerConfigPath: PROVIDERS_CONFIG,
 });
 const auditLogger = new AuditLogger();
 const messageHandler = new MessageHandler(claudeClient, auditLogger);
