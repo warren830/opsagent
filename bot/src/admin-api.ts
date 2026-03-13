@@ -11,6 +11,7 @@ export interface AdminApiOptions {
   knowledgeDir: string;
   scheduledJobsConfigPath?: string;
   pluginsConfigPath?: string;
+  providerConfigPath?: string;
   onScheduledJobsChanged?: () => void;
 }
 
@@ -22,6 +23,7 @@ export class AdminApi {
   private readonly knowledgeDir: string;
   private readonly scheduledJobsPath?: string;
   private readonly pluginsPath?: string;
+  private readonly providerPath?: string;
   private readonly onScheduledJobsChanged?: () => void;
   private authWarningLogged = false;
 
@@ -33,6 +35,7 @@ export class AdminApi {
     this.knowledgeDir = path.resolve(options.knowledgeDir);
     if (options.scheduledJobsConfigPath) this.scheduledJobsPath = path.resolve(options.scheduledJobsConfigPath);
     if (options.pluginsConfigPath) this.pluginsPath = path.resolve(options.pluginsConfigPath);
+    if (options.providerConfigPath) this.providerPath = path.resolve(options.providerConfigPath);
     this.onScheduledJobsChanged = options.onScheduledJobsChanged;
   }
 
@@ -97,6 +100,11 @@ export class AdminApi {
     if (urlPath === '/admin/api/plugins' && this.pluginsPath) {
       if (req.method === 'GET') return this.getPlugins(res);
       if (req.method === 'PUT') return this.putPlugins(res, body);
+    }
+
+    if (urlPath === '/admin/api/provider' && this.providerPath) {
+      if (req.method === 'GET') return this.getProvider(res);
+      if (req.method === 'PUT') return this.putProvider(res, body);
     }
 
     // Knowledge base file management
@@ -294,6 +302,26 @@ export class AdminApi {
     }
     this.writeYaml(this.pluginsPath!, { plugins: body.plugins });
     this.jsonResponse(res, 200, { ok: true });
+    return true;
+  }
+
+  // ── Provider ──────────────────────────────────────────────────
+
+  private getProvider(res: http.ServerResponse): boolean {
+    const data = this.readYaml(this.providerPath!);
+    const provider = data?.provider || { type: 'bedrock', model: 'opus' };
+    this.jsonResponse(res, 200, { provider });
+    return true;
+  }
+
+  private putProvider(res: http.ServerResponse, body: any): boolean {
+    if (!body || typeof body.provider !== 'object' || !body.provider.type) {
+      this.jsonResponse(res, 400, { error: 'Request body must contain a "provider" object with a "type" field' });
+      return true;
+    }
+    this.writeYaml(this.providerPath!, { provider: body.provider });
+    console.log(`[admin-api] Provider updated: type=${body.provider.type}`);
+    this.jsonResponse(res, 200, { ok: true, type: body.provider.type });
     return true;
   }
 

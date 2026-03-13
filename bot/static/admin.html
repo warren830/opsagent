@@ -361,6 +361,7 @@
     <a href="#skills" onclick="switchTab('skills')">Skills</a>
     <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
     <a href="#plugins" onclick="switchTab('plugins')">Plugins</a>
+    <a href="#provider" onclick="switchTab('provider')">Provider</a>
   </nav>
 </div>
 
@@ -492,6 +493,44 @@
       MCP plugins extend Claude's capabilities. Configure tokens and enable/disable plugins here.
     </div>
     <div id="plugins-list"></div>
+  </div>
+
+  <div id="tab-provider" style="display:none">
+    <div class="toolbar">
+      <h2>LLM Provider</h2>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      Configure how OpsAgent connects to the LLM backend. Changes take effect on the next query (no restart needed).
+    </div>
+    <div class="card" style="padding:20px">
+      <div class="form-group">
+        <label>Provider Type</label>
+        <select id="pv-type" onchange="onProviderTypeChange()" style="background:var(--surface);color:var(--text);border:1px solid var(--border);padding:8px 12px;border-radius:6px;width:100%">
+          <option value="bedrock">Amazon Bedrock</option>
+          <option value="anthropic">Anthropic API</option>
+          <option value="gateway">LLM Gateway (LiteLLM / OpenAI-compatible)</option>
+          <option value="bedrock-gateway">Bedrock via Gateway</option>
+          <option value="vertex">Google Vertex AI</option>
+          <option value="foundry">Microsoft Foundry (Azure)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Model</label>
+        <input id="pv-model" placeholder="opus" value="opus">
+        <div class="hint">Model alias (opus, sonnet, haiku) or full model name</div>
+      </div>
+      <div id="pv-fields"></div>
+      <div class="form-group" style="display:flex;gap:8px;margin-top:16px">
+        <label>Max Turns</label>
+        <input id="pv-max-turns" type="number" placeholder="20" value="" style="width:100px">
+        <label style="margin-left:16px">Timeout (ms)</label>
+        <input id="pv-timeout" type="number" placeholder="300000" value="" style="width:120px">
+      </div>
+      <div style="margin-top:20px">
+        <button class="btn btn-primary" onclick="saveProvider()">Save</button>
+        <span id="pv-status" style="margin-left:12px;font-size:13px;color:var(--success)"></span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2171,9 +2210,91 @@ loadKnowledge();
 loadSkills();
 loadScheduledJobs();
 loadPlugins();
+loadProvider();
 
 // Wire up cloud provider change to update extra fields
 document.getElementById('c-provider').addEventListener('change', updateCloudExtraFields);
+
+// ── Provider config ─────────────────────────────────────────
+let currentProvider = {};
+
+const PROVIDER_FIELDS = {
+  bedrock: [],
+  anthropic: [
+    { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'sk-ant-xxx' },
+    { key: 'base_url', label: 'Base URL (optional)', type: 'text', placeholder: 'https://api.anthropic.com' },
+  ],
+  gateway: [
+    { key: 'base_url', label: 'Gateway URL', type: 'text', placeholder: 'https://litellm-server:4000' },
+    { key: 'auth_token', label: 'Auth Token', type: 'password', placeholder: 'sk-litellm-key' },
+  ],
+  'bedrock-gateway': [
+    { key: 'base_url', label: 'Bedrock Gateway URL', type: 'text', placeholder: 'https://litellm-server:4000/bedrock' },
+    { key: 'auth_token', label: 'Auth Token (optional)', type: 'password', placeholder: '' },
+  ],
+  vertex: [
+    { key: 'project_id', label: 'GCP Project ID', type: 'text', placeholder: 'your-gcp-project-id' },
+    { key: 'region', label: 'Region', type: 'text', placeholder: 'us-east5' },
+  ],
+  foundry: [
+    { key: 'resource', label: 'Foundry Resource', type: 'text', placeholder: 'your-resource-name' },
+    { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'your-foundry-key' },
+    { key: 'base_url', label: 'Base URL (optional)', type: 'text', placeholder: '' },
+  ],
+};
+
+async function loadProvider() {
+  try {
+    const res = await fetch('/admin/api/provider');
+    const data = await res.json();
+    currentProvider = data.provider || { type: 'bedrock', model: 'opus' };
+    document.getElementById('pv-type').value = currentProvider.type || 'bedrock';
+    document.getElementById('pv-model').value = currentProvider.model || 'opus';
+    document.getElementById('pv-max-turns').value = currentProvider.max_turns || '';
+    document.getElementById('pv-timeout').value = currentProvider.timeout_ms || '';
+    onProviderTypeChange();
+  } catch (e) { console.warn('Failed to load provider', e); }
+}
+
+function onProviderTypeChange() {
+  const type = document.getElementById('pv-type').value;
+  const fields = PROVIDER_FIELDS[type] || [];
+  const container = document.getElementById('pv-fields');
+  container.innerHTML = fields.map(f => {
+    const val = currentProvider[f.key] || '';
+    return `<div class="form-group">
+      <label>${esc(f.label)}</label>
+      <input id="pv-f-${esc(f.key)}" type="${f.type}" value="${esc(val)}" placeholder="${esc(f.placeholder)}">
+    </div>`;
+  }).join('');
+}
+
+async function saveProvider() {
+  const type = document.getElementById('pv-type').value;
+  const provider = { type, model: document.getElementById('pv-model').value || 'opus' };
+  const maxTurns = document.getElementById('pv-max-turns').value;
+  const timeout = document.getElementById('pv-timeout').value;
+  if (maxTurns) provider.max_turns = Number(maxTurns);
+  if (timeout) provider.timeout_ms = Number(timeout);
+  const fields = PROVIDER_FIELDS[type] || [];
+  for (const f of fields) {
+    const el = document.getElementById('pv-f-' + f.key);
+    if (el && el.value) provider[f.key] = el.value;
+  }
+  const res = await fetch('/admin/api/provider', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider }),
+  });
+  if (res.ok) {
+    currentProvider = provider;
+    const status = document.getElementById('pv-status');
+    status.textContent = 'Saved! Changes take effect on next query.';
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } else {
+    toast('Failed to save provider', 'error');
+  }
+}
 </script>
 </body>
 </html>

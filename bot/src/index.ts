@@ -124,6 +124,7 @@ adminApi = new AdminApi({
   knowledgeDir: KNOWLEDGE_DIR,
   scheduledJobsConfigPath: SCHEDULED_JOBS_CONFIG,
   pluginsConfigPath: PLUGINS_CONFIG,
+  providerConfigPath: PROVIDERS_CONFIG,
   onScheduledJobsChanged: () => scheduler.reload(),
 });
 
