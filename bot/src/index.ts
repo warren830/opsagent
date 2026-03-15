@@ -215,12 +215,14 @@ const server = http.createServer(async (req, res) => {
     let body: any;
     if (req.method === 'PUT' || req.method === 'POST') {
       const rawBody = await parseBody(req);
-      try {
-        body = JSON.parse(rawBody);
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
-        return;
+      if (rawBody) {
+        try {
+          body = JSON.parse(rawBody);
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON' }));
+          return;
+        }
       }
     }
     // Handle DELETE with optional body
