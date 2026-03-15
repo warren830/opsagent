@@ -11,6 +11,7 @@ import { AuditLogger } from './audit-logger';
 import { loadPlatforms, isPlatformEnabled, getPlatformSettings, getPlatformCredentials } from './platform-loader';
 import { AdminApi } from './admin-api';
 import { SchedulerManager } from './scheduler';
+import { KubeconfigManager } from './kubeconfig-manager';
 
 const PORT = parseInt(process.env.PORT || '3978', 10);
 const WORK_DIR = process.env.WORK_DIR || path.resolve(__dirname, '../..');
@@ -45,6 +46,7 @@ const ACCOUNTS_CONFIG = process.env.ACCOUNTS_CONFIG || seedConfig('accounts.yaml
 const SKILLS_CONFIG = process.env.SKILLS_CONFIG || seedConfig('skills.yaml');
 const SCHEDULED_JOBS_CONFIG = process.env.SCHEDULED_JOBS_CONFIG || seedConfig('scheduled-jobs.yaml');
 const PROVIDERS_CONFIG = process.env.PROVIDERS_CONFIG || seedConfig('providers.yaml');
+const CLUSTERS_CONFIG = process.env.CLUSTERS_CONFIG || seedConfig('clusters.yaml');
 
 // Core components
 const claudeClient = new ClaudeClient({
@@ -115,6 +117,12 @@ if (isPlatformEnabled(platformsConfig, 'feishu')) {
 scheduler = new SchedulerManager(adapters, claudeClient, SCHEDULED_JOBS_CONFIG);
 scheduler.start();
 
+// Initialize KubeconfigManager (async — runs in background, does not block startup)
+const kubeconfigManager = new KubeconfigManager(CLUSTERS_CONFIG, ACCOUNTS_CONFIG, KNOWLEDGE_DIR);
+kubeconfigManager.initialize().catch(err => {
+  console.error(`[index] KubeconfigManager initialization failed: ${err}`);
+});
+
 // Initialize Admin API
 adminApi = new AdminApi({
   glossaryConfigPath: GLOSSARY_CONFIG,
@@ -125,6 +133,8 @@ adminApi = new AdminApi({
   scheduledJobsConfigPath: SCHEDULED_JOBS_CONFIG,
   pluginsConfigPath: PLUGINS_CONFIG,
   providerConfigPath: PROVIDERS_CONFIG,
+  clustersConfigPath: CLUSTERS_CONFIG,
+  kubeconfigManager,
   onScheduledJobsChanged: () => scheduler.reload(),
 });
 

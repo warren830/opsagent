@@ -1,0 +1,27 @@
+clusters:
+  # 自动发现
+  auto_discovery:
+    aws:
+      enabled: true
+    # alicloud:
+    #   enabled: false
+    # azure:
+    #   enabled: false
+    # gcp:
+    #   enabled: false
+
+  # 手动注册的集群
+  static: []
+    # - name: partner-k8s
+    #   cloud: aws
+    #   type: eks
+    #   account_id: "111111111111"
+    #   region: us-east-1
+    #   role_name: OpsAgentPartnerRole
+    #   description: 合作伙伴集群
+
+  # kubeconfig 刷新策略
+  refresh:
+    on_startup: true
+    interval_minutes: 60
+    before_query: false

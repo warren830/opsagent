@@ -361,6 +361,7 @@
     <a href="#skills" onclick="switchTab('skills')">Skills</a>
     <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
     <a href="#plugins" onclick="switchTab('plugins')">Plugins</a>
+    <a href="#clusters" onclick="switchTab('clusters')">Clusters</a>
     <a href="#provider" onclick="switchTab('provider')">Provider</a>
   </nav>
 </div>
@@ -493,6 +494,39 @@
       MCP plugins extend Claude's capabilities. Configure tokens and enable/disable plugins here.
     </div>
     <div id="plugins-list"></div>
+  </div>
+
+  <!-- Clusters Tab -->
+  <div id="tab-clusters" style="display:none">
+    <div class="toolbar">
+      <h2>Kubernetes Clusters</h2>
+      <button class="btn btn-primary" onclick="refreshClusters()" id="clusters-refresh-btn">Refresh Now</button>
+    </div>
+
+    <div class="section-title">Auto Discovery</div>
+    <div class="defaults-card">
+      <div class="inline-form">
+        <div class="form-group" style="display:flex;align-items:center;gap:8px;flex:none">
+          <input type="checkbox" id="cl-aws-enabled" style="width:auto">
+          <label for="cl-aws-enabled" style="margin:0;color:var(--text)">AWS EKS</label>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:8px;flex:none">
+          <input type="checkbox" id="cl-alicloud-enabled" style="width:auto" disabled>
+          <label for="cl-alicloud-enabled" style="margin:0;color:var(--text2)">Alicloud ACK (coming soon)</label>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveClustersConfig()">Save</button>
+      </div>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Static Clusters</span>
+      <button class="btn btn-primary btn-sm" onclick="openStaticClusterModal()">+ Add</button>
+    </div>
+    <div id="static-clusters-list"></div>
+
+    <div class="section-title">Discovered Clusters</div>
+    <div id="clusters-status" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
+    <div id="discovered-clusters-list"></div>
   </div>
 
   <div id="tab-provider" style="display:none">
@@ -799,6 +833,55 @@
   </div>
 </div>
 
+<!-- Static Cluster Modal -->
+<div class="modal-overlay" id="static-cluster-modal">
+  <div class="modal">
+    <h3 id="static-cluster-modal-title">Add Static Cluster</h3>
+    <div class="form-group">
+      <label>Cluster Name</label>
+      <input id="sc-name" placeholder="e.g. partner-k8s">
+    </div>
+    <div class="form-group">
+      <label>Cloud Provider</label>
+      <select id="sc-cloud" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px">
+        <option value="aws">AWS</option>
+        <option value="alicloud">Alicloud</option>
+        <option value="azure">Azure</option>
+        <option value="gcp">GCP</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Type</label>
+      <select id="sc-type" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px">
+        <option value="eks">EKS</option>
+        <option value="ack">ACK</option>
+        <option value="aks">AKS</option>
+        <option value="gke">GKE</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Account ID</label>
+      <input id="sc-account" placeholder="e.g. 111111111111">
+    </div>
+    <div class="form-group">
+      <label>Region</label>
+      <input id="sc-region" placeholder="e.g. us-east-1">
+    </div>
+    <div class="form-group">
+      <label>Role Name (optional)</label>
+      <input id="sc-role" placeholder="e.g. OpsAgentPartnerRole">
+    </div>
+    <div class="form-group">
+      <label>Description (optional)</label>
+      <input id="sc-desc" placeholder="e.g. 合作伙伴集群">
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal('static-cluster-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveStaticCluster()">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -810,7 +893,7 @@ let editingAccountIdx = null;    // null = new, number = editing
 let editingOverrideId = null;    // null = new, string = editing
 
 // ── Tab switching ──────────────────────────────────────────────────
-const allTabs = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins'];
+const allTabs = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'clusters', 'provider'];
 function switchTab(tab) {
   allTabs.forEach(t => {
     const el = document.getElementById('tab-' + t);
@@ -2195,6 +2278,172 @@ async function saveFullPlugins() {
   }
 }
 
+// ── Clusters ───────────────────────────────────────────────────────
+let clustersConfig = { auto_discovery: { aws: { enabled: true } }, static: [], refresh: { on_startup: true, interval_minutes: 60 } };
+let editingStaticIdx = null;
+
+async function loadClustersConfig() {
+  try {
+    const res = await fetch('/admin/api/clusters');
+    const data = await res.json();
+    clustersConfig = data.clusters || clustersConfig;
+    if (!clustersConfig.static) clustersConfig.static = [];
+    if (!clustersConfig.auto_discovery) clustersConfig.auto_discovery = { aws: { enabled: true } };
+    document.getElementById('cl-aws-enabled').checked = clustersConfig.auto_discovery?.aws?.enabled ?? true;
+    renderStaticClusters();
+    loadClustersStatus();
+  } catch (e) { console.warn('Failed to load clusters config', e); }
+}
+
+function renderStaticClusters() {
+  const container = document.getElementById('static-clusters-list');
+  const statics = clustersConfig.static || [];
+  if (statics.length === 0) {
+    container.innerHTML = '<div class="empty">No static clusters. Use auto-discovery or add manually.</div>';
+    return;
+  }
+  container.innerHTML = statics.map((c, i) => {
+    const tags = [];
+    if (c.cloud) tags.push(`<span class="tag">${esc(c.cloud)}</span>`);
+    if (c.type) tags.push(`<span class="tag">${esc(c.type)}</span>`);
+    if (c.region) tags.push(`<span class="tag">${esc(c.region)}</span>`);
+    return `<div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${esc(c.name)}</div>
+          <div class="card-subtitle">${esc(c.account_id || '')} ${c.description ? '— ' + esc(c.description) : ''}</div>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editStaticCluster(${i})">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteStaticCluster(${i})">Delete</button>
+        </div>
+      </div>
+      ${tags.length ? '<div class="tags">' + tags.join('') + '</div>' : ''}
+    </div>`;
+  }).join('');
+}
+
+async function loadClustersStatus() {
+  try {
+    const res = await fetch('/admin/api/clusters/status');
+    const data = await res.json();
+    const statusEl = document.getElementById('clusters-status');
+    statusEl.textContent = data.lastRefresh
+      ? `Last refresh: ${new Date(data.lastRefresh).toLocaleString()} — ${data.active} active, ${data.failed} failed`
+      : 'Not yet refreshed';
+    renderDiscoveredClusters(data.clusters || []);
+  } catch (e) {
+    document.getElementById('clusters-status').textContent = 'Failed to load status';
+  }
+}
+
+function renderDiscoveredClusters(clusters) {
+  const container = document.getElementById('discovered-clusters-list');
+  if (clusters.length === 0) {
+    container.innerHTML = '<div class="empty">No clusters discovered yet. Click "Refresh Now" to start discovery.</div>';
+    return;
+  }
+  container.innerHTML = clusters.map(c => {
+    const statusIcon = c.configError ? '❌' : '✅';
+    const subtitle = c.configError ? esc(c.configError) : esc(c.context);
+    return `<div class="card" style="padding:12px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <span style="font-weight:600">${esc(c.name)}</span>
+          <span class="tag" style="margin-left:8px">${esc(c.cloud.toUpperCase())} ${esc(c.type.toUpperCase())}</span>
+          <span class="tag">${esc(c.accountAlias)}</span>
+          <span class="tag">${esc(c.region)}</span>
+          <span class="tag">v${esc(c.version)}</span>
+        </div>
+        <span>${statusIcon}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px">${subtitle}</div>
+    </div>`;
+  }).join('');
+}
+
+function openStaticClusterModal(idx) {
+  editingStaticIdx = idx ?? null;
+  const entry = idx != null ? clustersConfig.static[idx] : {};
+  document.getElementById('static-cluster-modal-title').textContent = idx != null ? 'Edit Static Cluster' : 'Add Static Cluster';
+  document.getElementById('sc-name').value = entry.name || '';
+  document.getElementById('sc-cloud').value = entry.cloud || 'aws';
+  document.getElementById('sc-type').value = entry.type || 'eks';
+  document.getElementById('sc-account').value = entry.account_id || '';
+  document.getElementById('sc-region').value = entry.region || '';
+  document.getElementById('sc-role').value = entry.role_name || '';
+  document.getElementById('sc-desc').value = entry.description || '';
+  openModal('static-cluster-modal');
+}
+
+function editStaticCluster(idx) { openStaticClusterModal(idx); }
+
+async function deleteStaticCluster(idx) {
+  if (!confirm('Delete this static cluster?')) return;
+  clustersConfig.static.splice(idx, 1);
+  await saveClustersConfig();
+}
+
+async function saveStaticCluster() {
+  const entry = {
+    name: document.getElementById('sc-name').value.trim(),
+    cloud: document.getElementById('sc-cloud').value,
+    type: document.getElementById('sc-type').value,
+    account_id: document.getElementById('sc-account').value.trim(),
+    region: document.getElementById('sc-region').value.trim(),
+  };
+  if (!entry.name || !entry.region) return toast('Name and Region are required', 'error');
+  const role = document.getElementById('sc-role').value.trim();
+  const desc = document.getElementById('sc-desc').value.trim();
+  if (role) entry.role_name = role;
+  if (desc) entry.description = desc;
+
+  if (editingStaticIdx != null) {
+    clustersConfig.static[editingStaticIdx] = entry;
+  } else {
+    clustersConfig.static.push(entry);
+  }
+  await saveClustersConfig();
+  closeModal('static-cluster-modal');
+}
+
+async function saveClustersConfig() {
+  clustersConfig.auto_discovery = clustersConfig.auto_discovery || {};
+  clustersConfig.auto_discovery.aws = { enabled: document.getElementById('cl-aws-enabled').checked };
+  const res = await fetch('/admin/api/clusters', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clusters: clustersConfig }),
+  });
+  if (res.ok) {
+    toast('Clusters config saved');
+    renderStaticClusters();
+  } else {
+    toast('Failed to save', 'error');
+  }
+}
+
+async function refreshClusters() {
+  const btn = document.getElementById('clusters-refresh-btn');
+  btn.disabled = true;
+  btn.textContent = 'Refreshing...';
+  try {
+    const res = await fetch('/admin/api/clusters/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      toast(`Refresh complete: ${data.active} active, ${data.failed} failed`);
+      loadClustersStatus();
+    } else {
+      toast(data.error || 'Refresh failed', 'error');
+    }
+  } catch (e) {
+    toast('Refresh failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Refresh Now';
+  }
+}
+
 // ── Util ───────────────────────────────────────────────────────────
 function esc(s) {
   const div = document.createElement('div');
@@ -2210,6 +2459,7 @@ loadKnowledge();
 loadSkills();
 loadScheduledJobs();
 loadPlugins();
+loadClustersConfig();
 loadProvider();
 
 // Wire up cloud provider change to update extra fields
