@@ -97,27 +97,50 @@ export class ClaudeClient {
     return file.tenants.find(t => t.id === tenantId) || null;
   }
 
+  /**
+   * Get the tenant data directory: knowledge/_tenants/{tenantId}/
+   * Contains tenant-specific glossary, skills, and knowledge files.
+   */
+  private getTenantDir(tenantId: string): string {
+    return path.join(this.knowledgeDir, '_tenants', tenantId);
+  }
+
   private generateClaudeMd(tenantId?: string): void {
     const parts: string[] = [BASE_SYSTEM_PROMPT];
     const tenant = tenantId ? this.findTenant(tenantId) : null;
 
-    // Glossary summary
-    const glossary = loadGlossary(this.glossaryConfigPath);
+    // Determine paths: tenant-specific or shared
+    const tenantDir = tenantId ? this.getTenantDir(tenantId) : null;
+    const tenantConfigDir = tenantDir ? path.join(tenantDir, '_config') : null;
+    const glossaryPath = tenantConfigDir ? path.join(tenantConfigDir, 'glossary.yaml') : this.glossaryConfigPath;
+    const skillsPath = tenantConfigDir ? path.join(tenantConfigDir, 'skills.yaml') : this.skillsConfigPath;
+    const knowledgeDir = tenantDir || this.knowledgeDir;
+    const skillsDir = tenantDir ? path.join(tenantDir, 'skills') : path.join(this.workDir, 'skills');
+
+    // Ensure tenant dirs exist
+    if (tenantDir && !fs.existsSync(tenantDir)) {
+      fs.mkdirSync(tenantDir, { recursive: true });
+    }
+    if (tenantConfigDir && !fs.existsSync(tenantConfigDir)) {
+      fs.mkdirSync(tenantConfigDir, { recursive: true });
+    }
+
+    // Glossary summary (tenant-scoped)
+    const glossary = loadGlossary(glossaryPath);
     if (glossary) {
-      const summary = generateGlossaryKnowledge(glossary, this.knowledgeDir);
+      const summary = generateGlossaryKnowledge(glossary, knowledgeDir);
       if (summary) {
         parts.push('');
         parts.push('## 公司术语速查');
         parts.push(summary);
-        parts.push('完整术语详情见 knowledge/glossary.md 文件。');
+        parts.push(`完整术语详情见 ${tenantId ? 'knowledge/_tenants/' + tenantId + '/glossary.md' : 'knowledge/glossary.md'} 文件。`);
       }
     }
 
-    // Accounts summary (filtered by tenant if applicable)
+    // Accounts summary (filtered by tenant)
     const accounts = loadAccounts(this.accountsConfigPath);
     if (accounts) {
       if (tenant?.aws_account_ids) {
-        // Filter to only this tenant's accounts
         const allowedIds = new Set(tenant.aws_account_ids);
         if (accounts.accounts.extra) {
           accounts.accounts.extra = accounts.accounts.extra.filter(a => allowedIds.has(a.id));
@@ -130,12 +153,11 @@ export class ClaudeClient {
           accounts.accounts.overrides = filtered;
         }
       }
-      const summary = generateAccountsKnowledge(accounts, this.knowledgeDir);
+      const summary = generateAccountsKnowledge(accounts, knowledgeDir);
       if (summary) {
         parts.push('');
         parts.push('## 已配置的云账号');
         parts.push(summary);
-        parts.push('完整账号详情见 knowledge/accounts.md 文件。');
       }
     }
 
@@ -158,10 +180,9 @@ export class ClaudeClient {
       }
     }
 
-    // Skills (progressive: index only, full instructions in skills/)
-    const skillsConfig = loadSkills(this.skillsConfigPath);
+    // Skills (tenant-scoped)
+    const skillsConfig = loadSkills(skillsPath);
     if (skillsConfig) {
-      const skillsDir = path.join(this.workDir, 'skills');
       const skillsPrompt = generateSkillsPrompt(skillsConfig, skillsDir);
       if (skillsPrompt) {
         parts.push('');
@@ -170,10 +191,10 @@ export class ClaudeClient {
       }
     }
 
-    // Knowledge index (progressive: Tier 1 index in CLAUDE.md, Tier 2 index.md in knowledge/)
-    const knowledgeEntries = scanKnowledgeFiles(this.knowledgeDir);
+    // Knowledge index (tenant-scoped)
+    const knowledgeEntries = scanKnowledgeFiles(knowledgeDir);
     if (knowledgeEntries.length > 0) {
-      generateKnowledgeIndexFile(knowledgeEntries, this.knowledgeDir);
+      generateKnowledgeIndexFile(knowledgeEntries, knowledgeDir);
       const knowledgeIndex = generateKnowledgeIndex(knowledgeEntries);
       if (knowledgeIndex) {
         parts.push('');

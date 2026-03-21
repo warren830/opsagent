@@ -501,14 +501,42 @@
   <!-- Clusters Tab -->
   <!-- Tenants Tab -->
   <div id="tab-tenants" style="display:none">
-    <div class="toolbar">
-      <h2>Tenants</h2>
-      <button class="btn btn-primary" onclick="openTenantModal()">+ New Tenant</button>
+    <!-- Tenant list view -->
+    <div id="tenant-list-view">
+      <div class="toolbar">
+        <h2>Tenants</h2>
+        <button class="btn btn-primary" onclick="openTenantModal()">+ New Tenant</button>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+        Each tenant has isolated glossary, skills, knowledge files, and cloud accounts. Messages from unmapped channels are denied.
+      </div>
+      <div id="tenants-list"></div>
     </div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
-      Each tenant maps IM channels to scoped AWS accounts and Alicloud credentials. Messages from unmapped channels are denied.
+
+    <!-- Tenant detail view (hidden by default) -->
+    <div id="tenant-detail-view" style="display:none">
+      <div class="toolbar">
+        <h2><button class="btn btn-ghost" onclick="closeTenantDetail()" style="font-size:16px;padding:4px 8px">&larr;</button> <span id="td-title"></span></h2>
+      </div>
+
+      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Glossary</span>
+        <button class="btn btn-primary btn-sm" onclick="openTdGlossaryModal()">+ Add Term</button>
+      </div>
+      <div id="td-glossary-list"></div>
+
+      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:20px">
+        <span>Skills</span>
+        <button class="btn btn-primary btn-sm" onclick="openTdSkillModal()">+ Add Skill</button>
+      </div>
+      <div id="td-skills-list"></div>
+
+      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:20px">
+        <span>Knowledge Files</span>
+        <button class="btn btn-primary btn-sm" onclick="openTdKnowledgeModal()">+ Add File</button>
+      </div>
+      <div id="td-knowledge-list"></div>
     </div>
-    <div id="tenants-list"></div>
   </div>
 
   <div id="tab-clusters" style="display:none">
@@ -928,6 +956,58 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('tenant-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveTenantEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tenant Detail: Glossary Modal -->
+<div class="modal" id="td-glossary-modal">
+  <div class="modal-content">
+    <h3 id="td-glossary-modal-title">Add Term</h3>
+    <div class="form-group"><label>Key</label><input id="td-g-key" placeholder="term-key"></div>
+    <div class="form-group"><label>Full Name</label><input id="td-g-fullname" placeholder="Full Name"></div>
+    <div class="form-group"><label>Description</label><textarea id="td-g-desc" rows="3" style="width:100%;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px;resize:vertical"></textarea></div>
+    <div class="form-group"><label>Aliases (comma-separated)</label><input id="td-g-aliases"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('td-glossary-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTdGlossaryEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tenant Detail: Skill Modal -->
+<div class="modal" id="td-skill-modal">
+  <div class="modal-content">
+    <h3 id="td-skill-modal-title">Add Skill</h3>
+    <div class="form-group"><label>Name</label><input id="td-s-name" placeholder="Skill Name"></div>
+    <div class="form-group"><label>Description</label><input id="td-s-desc" placeholder="Brief description"></div>
+    <div class="form-group">
+      <label>Instructions (Markdown)</label>
+      <textarea id="td-s-instructions" rows="8" style="width:100%;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:monospace;resize:vertical"></textarea>
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="td-s-enabled" checked style="width:auto">
+      <label for="td-s-enabled" style="margin:0">Enabled</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('td-skill-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTdSkillEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tenant Detail: Knowledge Modal -->
+<div class="modal" id="td-knowledge-modal">
+  <div class="modal-content">
+    <h3 id="td-knowledge-modal-title">Add Knowledge File</h3>
+    <div class="form-group"><label>Filename</label><input id="td-k-name" placeholder="runbook-xxx.md"></div>
+    <div class="form-group">
+      <label>Content (Markdown)</label>
+      <textarea id="td-k-content" rows="12" style="width:100%;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:monospace;resize:vertical"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('td-knowledge-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTdKnowledgeEntry()">Save</button>
     </div>
   </div>
 </div>
@@ -2379,6 +2459,7 @@ function renderTenants() {
           <div class="card-subtitle">${esc(t.id)}</div>
         </div>
         <div class="card-actions">
+          <button class="btn btn-primary btn-sm" onclick="openTenantDetail('${esc(t.id)}','${esc(t.name)}')">Manage</button>
           <button class="btn btn-ghost btn-sm" onclick="editTenant(${i})">Edit</button>
           <button class="btn btn-danger btn-sm" onclick="deleteTenant(${i})">Delete</button>
         </div>
@@ -2516,6 +2597,238 @@ async function saveFullTenants() {
     const data = await res.json().catch(() => ({}));
     toast(data.error || 'Failed to save', 'error');
   }
+}
+
+// ── Tenant Detail View ────────────────────────────────────────────
+let tdTenantId = null;
+let tdGlossary = {};
+let tdSkills = [];
+let tdKnowledge = [];
+let tdEditingGlossaryKey = null;
+let tdEditingSkillIdx = null;
+let tdEditingKnowledgeFile = null;
+
+function openTenantDetail(tenantId, tenantName) {
+  tdTenantId = tenantId;
+  document.getElementById('td-title').textContent = tenantName + ' (' + tenantId + ')';
+  document.getElementById('tenant-list-view').style.display = 'none';
+  document.getElementById('tenant-detail-view').style.display = '';
+  loadTdGlossary();
+  loadTdSkills();
+  loadTdKnowledge();
+}
+
+function closeTenantDetail() {
+  document.getElementById('tenant-list-view').style.display = '';
+  document.getElementById('tenant-detail-view').style.display = 'none';
+  tdTenantId = null;
+}
+
+// ── Tenant Glossary ──
+async function loadTdGlossary() {
+  const res = await fetch('/admin/api/tenants/' + encodeURIComponent(tdTenantId) + '/glossary');
+  const data = await res.json();
+  tdGlossary = data.glossary || {};
+  renderTdGlossary();
+}
+
+function renderTdGlossary() {
+  const container = document.getElementById('td-glossary-list');
+  const keys = Object.keys(tdGlossary);
+  if (keys.length === 0) {
+    container.innerHTML = '<div class="empty">No tenant glossary terms. Click "+ Add Term" to add one.</div>';
+    return;
+  }
+  container.innerHTML = keys.map(key => {
+    const e = tdGlossary[key];
+    return `<div class="card" style="padding:12px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><span style="font-weight:600">${esc(key)}</span> — ${esc(e.full_name || '')}</div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editTdGlossary('${esc(key)}')">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteTdGlossary('${esc(key)}')">Delete</button>
+        </div>
+      </div>
+      ${e.description ? '<div style="font-size:12px;color:var(--text2);margin-top:4px">' + esc(e.description) + '</div>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function openTdGlossaryModal(key) {
+  tdEditingGlossaryKey = key || null;
+  const entry = key ? tdGlossary[key] : {};
+  document.getElementById('td-glossary-modal-title').textContent = key ? 'Edit Term' : 'Add Term';
+  document.getElementById('td-g-key').value = key || '';
+  document.getElementById('td-g-key').disabled = !!key;
+  document.getElementById('td-g-fullname').value = entry.full_name || '';
+  document.getElementById('td-g-desc').value = entry.description || '';
+  document.getElementById('td-g-aliases').value = arrayToCsv(entry.aliases);
+  openModal('td-glossary-modal');
+}
+
+function editTdGlossary(key) { openTdGlossaryModal(key); }
+
+async function deleteTdGlossary(key) {
+  if (!confirm('Delete "' + key + '"?')) return;
+  delete tdGlossary[key];
+  await saveTdGlossary();
+}
+
+async function saveTdGlossaryEntry() {
+  const key = document.getElementById('td-g-key').value.trim().toLowerCase();
+  if (!key) return toast('Key is required', 'error');
+  const entry = { full_name: document.getElementById('td-g-fullname').value.trim(), description: document.getElementById('td-g-desc').value.trim() };
+  const aliases = csvToArray(document.getElementById('td-g-aliases').value);
+  if (aliases.length) entry.aliases = aliases;
+  if (tdEditingGlossaryKey && tdEditingGlossaryKey !== key) delete tdGlossary[tdEditingGlossaryKey];
+  tdGlossary[key] = entry;
+  await saveTdGlossary();
+  closeModal('td-glossary-modal');
+}
+
+async function saveTdGlossary() {
+  const res = await fetch('/admin/api/tenants/' + encodeURIComponent(tdTenantId) + '/glossary', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ glossary: tdGlossary }),
+  });
+  if (res.ok) { toast('Tenant glossary saved'); renderTdGlossary(); }
+  else toast('Failed to save', 'error');
+}
+
+// ── Tenant Skills ──
+async function loadTdSkills() {
+  const res = await fetch('/admin/api/tenants/' + encodeURIComponent(tdTenantId) + '/skills');
+  const data = await res.json();
+  tdSkills = data.skills || [];
+  renderTdSkills();
+}
+
+function renderTdSkills() {
+  const container = document.getElementById('td-skills-list');
+  if (tdSkills.length === 0) {
+    container.innerHTML = '<div class="empty">No tenant skills. Click "+ Add Skill" to add one.</div>';
+    return;
+  }
+  container.innerHTML = tdSkills.map((s, i) => {
+    const badge = s.enabled !== false ? '<span class="badge-on">ON</span>' : '<span class="badge-off">OFF</span>';
+    return `<div class="card" style="padding:12px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><span style="font-weight:600">${esc(s.name)}</span>${badge} <span style="font-size:12px;color:var(--text2)">${esc(s.description || '')}</span></div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editTdSkill(${i})">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteTdSkill(${i})">Delete</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openTdSkillModal(idx) {
+  tdEditingSkillIdx = idx ?? null;
+  const isEdit = idx != null;
+  const entry = isEdit ? tdSkills[idx] : {};
+  document.getElementById('td-skill-modal-title').textContent = isEdit ? 'Edit Skill' : 'Add Skill';
+  document.getElementById('td-s-name').value = entry.name || '';
+  document.getElementById('td-s-desc').value = entry.description || '';
+  document.getElementById('td-s-instructions').value = entry.instructions || '';
+  document.getElementById('td-s-enabled').checked = entry.enabled !== false;
+  openModal('td-skill-modal');
+}
+
+function editTdSkill(idx) { openTdSkillModal(idx); }
+
+async function deleteTdSkill(idx) {
+  if (!confirm('Delete skill "' + tdSkills[idx].name + '"?')) return;
+  tdSkills.splice(idx, 1);
+  await saveTdSkills();
+}
+
+async function saveTdSkillEntry() {
+  const name = document.getElementById('td-s-name').value.trim();
+  if (!name) return toast('Name is required', 'error');
+  const entry = {
+    name,
+    description: document.getElementById('td-s-desc').value.trim(),
+    instructions: document.getElementById('td-s-instructions').value.trim(),
+    enabled: document.getElementById('td-s-enabled').checked,
+  };
+  if (tdEditingSkillIdx != null) tdSkills[tdEditingSkillIdx] = entry;
+  else tdSkills.push(entry);
+  await saveTdSkills();
+  closeModal('td-skill-modal');
+}
+
+async function saveTdSkills() {
+  const res = await fetch('/admin/api/tenants/' + encodeURIComponent(tdTenantId) + '/skills', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ skills: tdSkills }),
+  });
+  if (res.ok) { toast('Tenant skills saved'); renderTdSkills(); }
+  else toast('Failed to save', 'error');
+}
+
+// ── Tenant Knowledge ──
+async function loadTdKnowledge() {
+  const res = await fetch('/admin/api/tenants/' + encodeURIComponent(tdTenantId) + '/knowledge');
+  const data = await res.json();
+  tdKnowledge = data.files || [];
+  renderTdKnowledge();
+}
+
+function renderTdKnowledge() {
+  const container = document.getElementById('td-knowledge-list');
+  if (tdKnowledge.length === 0) {
+    container.innerHTML = '<div class="empty">No tenant knowledge files. Click "+ Add File" to add one.</div>';
+    return;
+  }
+  container.innerHTML = tdKnowledge.map(f => {
+    return `<div class="card" style="padding:12px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <span style="font-weight:600">${esc(f.name)}</span>
+          <span style="font-size:12px;color:var(--text2);margin-left:8px">${f.size} bytes</span>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editTdKnowledge('${esc(f.name)}')">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteTdKnowledge('${esc(f.name)}')">Delete</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openTdKnowledgeModal(filename) {
+  tdEditingKnowledgeFile = filename || null;
+  document.getElementById('td-knowledge-modal-title').textContent = filename ? 'Edit ' + filename : 'Add Knowledge File';
+  document.getElementById('td-k-name').value = filename || '';
+  document.getElementById('td-k-name').disabled = !!filename;
+  document.getElementById('td-k-content').value = '';
+  if (filename) {
+    fetch('/admin/api/tenants/' + encodeURIComponent(tdTenantId) + '/knowledge/' + encodeURIComponent(filename))
+      .then(r => r.json()).then(d => { document.getElementById('td-k-content').value = d.content || ''; });
+  }
+  openModal('td-knowledge-modal');
+}
+
+async function editTdKnowledge(filename) { openTdKnowledgeModal(filename); }
+
+async function deleteTdKnowledge(filename) {
+  if (!confirm('Delete "' + filename + '"?')) return;
+  await fetch('/admin/api/tenants/' + encodeURIComponent(tdTenantId) + '/knowledge/' + encodeURIComponent(filename), { method: 'DELETE' });
+  toast('File deleted');
+  loadTdKnowledge();
+}
+
+async function saveTdKnowledgeEntry() {
+  const filename = document.getElementById('td-k-name').value.trim();
+  if (!filename) return toast('Filename is required', 'error');
+  const content = document.getElementById('td-k-content').value;
+  const res = await fetch('/admin/api/tenants/' + encodeURIComponent(tdTenantId) + '/knowledge/' + encodeURIComponent(filename), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (res.ok) { toast('File saved'); closeModal('td-knowledge-modal'); loadTdKnowledge(); }
+  else toast('Failed to save', 'error');
 }
 
 // ── Clusters ───────────────────────────────────────────────────────

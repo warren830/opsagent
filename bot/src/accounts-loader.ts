@@ -172,7 +172,6 @@ export function generateAlicloudPromptSection(alicloudAccounts: TenantAlicloudAc
   lines.push('```');
   lines.push('');
   lines.push('跨 region 查询时，修改 --RegionId 参数即可。');
-  lines.push('详细的阿里云运维手册见 knowledge/runbook-alicloud.md。');
 
   return lines.join('\n');
 }
