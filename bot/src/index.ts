@@ -280,17 +280,19 @@ const server = http.createServer(async (req, res) => {
     // Chat endpoint (streaming via SSE) — supports both POST and GET
     if (url.startsWith('/admin/api/chat/stream') && (req.method === 'POST' || req.method === 'GET')) {
       let message: string | undefined;
-
       let files: string | undefined;
+      let tenantId: string | undefined;
 
       if (req.method === 'GET') {
         // GET: message in query param (for EventSource)
         const parsedUrl = new URL(url, `http://${req.headers.host}`);
         message = parsedUrl.searchParams.get('message') || undefined;
         files = parsedUrl.searchParams.get('files') || undefined;
+        tenantId = parsedUrl.searchParams.get('tenantId') || undefined;
       } else {
         message = body?.message;
         files = body?.files;
+        tenantId = body?.tenantId;
       }
 
       // Inject file paths into query if present
@@ -321,10 +323,10 @@ const server = http.createServer(async (req, res) => {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
 
-      console.log(`[index] Admin chat stream: ${message.substring(0, 100)}`);
+      console.log(`[index] Admin chat stream${tenantId ? ` [tenant=${tenantId}]` : ''}: ${message.substring(0, 100)}`);
 
       try {
-        for await (const chunk of claudeClient.queryStream(message, 'admin', 'admin')) {
+        for await (const chunk of claudeClient.queryStream(message, 'admin', 'admin', tenantId)) {
           sendSSE(chunk.type, chunk);
         }
       } catch (err: any) {

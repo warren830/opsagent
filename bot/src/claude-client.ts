@@ -203,10 +203,11 @@ export class ClaudeClient {
       }
     }
 
-    const filename = tenantId ? `CLAUDE-${tenantId}.md` : 'CLAUDE.md';
-    const claudeMdPath = path.join(this.workDir, filename);
+    // Always write to CLAUDE.md — Claude Code only reads this file.
+    // Tenant-scoped content overwrites it before each query.
+    const claudeMdPath = path.join(this.workDir, 'CLAUDE.md');
     fs.writeFileSync(claudeMdPath, parts.join('\n'), 'utf-8');
-    console.log(`[claude-client] Generated ${filename} (${parts.join('\n').length} bytes)`);
+    console.log(`[claude-client] Generated CLAUDE.md${tenantId ? ` [tenant=${tenantId}]` : ''} (${parts.join('\n').length} bytes)`);
   }
 
   private getSessionKey(platform: string, userId: string, tenantId?: string): string {

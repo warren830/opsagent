@@ -374,6 +374,13 @@
     <h2>Chat</h2>
     <div class="chat-messages" id="chat-messages"></div>
     <div id="chat-attachments" style="display:none;padding:4px 12px;font-size:12px;color:var(--text2);background:var(--surface2);border-radius:6px 6px 0 0;margin:0 0 -1px 0"></div>
+    <div style="display:flex;align-items:center;gap:8px;padding-bottom:8px">
+      <label style="font-size:12px;color:var(--text2);white-space:nowrap">Chat as:</label>
+      <select id="chat-tenant-select" style="background:var(--surface);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:12px" onchange="onChatTenantChange()">
+        <option value="">Global (Admin)</option>
+      </select>
+      <span id="chat-tenant-hint" style="font-size:11px;color:var(--text2)"></span>
+    </div>
     <div class="chat-input-bar">
       <input type="file" id="chat-file-input" multiple style="display:none" onchange="handleChatFiles(this.files)">
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('chat-file-input').click()" title="Attach file" style="font-size:18px;padding:4px 8px;min-width:auto">+</button>
@@ -1718,6 +1725,8 @@ async function sendChat() {
 
   // Use EventSource for SSE streaming
   let url = '/admin/api/chat/stream?message=' + encodeURIComponent(text);
+  const chatTenantId = document.getElementById('chat-tenant-select').value;
+  if (chatTenantId) url += '&tenantId=' + encodeURIComponent(chatTenantId);
   if (chatPendingFiles.length > 0) {
     url += '&files=' + encodeURIComponent(JSON.stringify(chatPendingFiles));
     chatPendingFiles = [];
@@ -2433,7 +2442,33 @@ async function loadTenants() {
     const data = await res.json();
     tenantsList = data.tenants || [];
     renderTenants();
+    updateChatTenantSelector();
   } catch (e) { console.warn('Failed to load tenants', e); }
+}
+
+function updateChatTenantSelector() {
+  const sel = document.getElementById('chat-tenant-select');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Global (Admin)</option>';
+  for (const t of tenantsList) {
+    sel.innerHTML += `<option value="${esc(t.id)}">${esc(t.name)} (${esc(t.id)})</option>`;
+  }
+  sel.value = current;
+  onChatTenantChange();
+}
+
+function onChatTenantChange() {
+  const id = document.getElementById('chat-tenant-select').value;
+  const hint = document.getElementById('chat-tenant-hint');
+  if (id) {
+    const t = tenantsList.find(x => x.id === id);
+    const parts = [];
+    if (t?.aws_account_ids?.length) parts.push('AWS: ' + t.aws_account_ids.join(', '));
+    if (t?.alicloud?.length) parts.push('Alicloud: ' + t.alicloud.map(a => a.name).join(', '));
+    hint.textContent = parts.join(' | ') || 'Tenant-scoped view';
+  } else {
+    hint.textContent = 'Full access to all accounts and knowledge';
+  }
 }
 
 function renderTenants() {
