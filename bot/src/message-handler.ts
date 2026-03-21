@@ -2,16 +2,19 @@ import * as fs from 'fs';
 import { PlatformAdapter, PlatformMessage } from './adapters/types';
 import { ClaudeClient } from './claude-client';
 import { AuditLogger } from './audit-logger';
+import { TenantResolver } from './tenant-resolver';
 
 const STREAM_UPDATE_INTERVAL_MS = 2000; // Throttle IM updates to every 2 seconds
 
 export class MessageHandler {
   private readonly claudeClient: ClaudeClient;
   private readonly auditLogger: AuditLogger;
+  private readonly tenantResolver?: TenantResolver;
 
-  constructor(claudeClient: ClaudeClient, auditLogger: AuditLogger) {
+  constructor(claudeClient: ClaudeClient, auditLogger: AuditLogger, tenantResolver?: TenantResolver) {
     this.claudeClient = claudeClient;
     this.auditLogger = auditLogger;
+    this.tenantResolver = tenantResolver;
   }
 
   /**
@@ -50,6 +53,20 @@ export class MessageHandler {
       console.log(`[message-handler] Attachments: ${msg.attachments.map(a => a.fileName).join(', ')}`);
     }
 
+    // Tenant resolution gate
+    if (this.tenantResolver) {
+      const resolution = this.tenantResolver.resolve(msg.platform, msg.conversationId);
+      if (resolution.denied) {
+        console.log(`[message-handler] Tenant denied for ${msg.platform}:${msg.conversationId}: ${resolution.denyReason}`);
+        await adapter.sendReply(msg, resolution.denyReason || 'Access denied').catch(() => {});
+        return;
+      }
+      if (resolution.tenant) {
+        msg.tenantId = resolution.tenant.id;
+        console.log(`[message-handler] Tenant resolved: ${resolution.tenant.id} (${resolution.tenant.name})`);
+      }
+    }
+
     // If adapter supports updateReply, use streaming path
     if (adapter.updateReply) {
       return this.handleStreamingMessage(adapter, msg);
@@ -75,7 +92,7 @@ export class MessageHandler {
 
     try {
       const query = this.buildQuery(msg);
-      for await (const chunk of this.claudeClient.queryStream(query, msg.platform, msg.userId)) {
+      for await (const chunk of this.claudeClient.queryStream(query, msg.platform, msg.userId, msg.tenantId)) {
         const now = Date.now();
 
         if (chunk.type === 'text') {
@@ -134,6 +151,7 @@ export class MessageHandler {
         durationMs,
         success: true,
         sessionId: msg.conversationId,
+        tenantId: msg.tenantId,
       });
 
     } catch (error: unknown) {
@@ -151,6 +169,7 @@ export class MessageHandler {
         success: false,
         error: errMsg,
         sessionId: msg.conversationId,
+        tenantId: msg.tenantId,
       });
 
       const errorText = errMsg.includes('timed out')
@@ -179,7 +198,7 @@ export class MessageHandler {
 
     try {
       const query = this.buildQuery(msg);
-      const result = await this.claudeClient.query(query, msg.platform, msg.userId);
+      const result = await this.claudeClient.query(query, msg.platform, msg.userId, msg.tenantId);
       const durationMs = Date.now() - startTime;
 
       console.log(`[message-handler] Claude Code result: ${result.substring(0, 200)}`);
@@ -193,6 +212,7 @@ export class MessageHandler {
         durationMs,
         success: true,
         sessionId: msg.conversationId,
+        tenantId: msg.tenantId,
       });
 
       if (!result) {
@@ -216,6 +236,7 @@ export class MessageHandler {
         success: false,
         error: errMsg,
         sessionId: msg.conversationId,
+        tenantId: msg.tenantId,
       });
 
       if (errMsg.includes('timed out')) {

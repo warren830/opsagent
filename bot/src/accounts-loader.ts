@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import { TenantAlicloudAccount } from './tenant-loader';
 
 export interface ExtraAccount {
   id: string;
@@ -133,4 +134,45 @@ export function generateAccountsKnowledge(config: AccountsConfig, knowledgeDir: 
     }
   }
   return summaryLines.join('\n');
+}
+
+export function generateAlicloudPromptSection(alicloudAccounts: TenantAlicloudAccount[]): string {
+  if (!alicloudAccounts || alicloudAccounts.length === 0) return '';
+
+  const lines: string[] = [
+    '## 阿里云账号',
+    '',
+    '| 名称 | Region |',
+    '|------|--------|',
+  ];
+
+  for (const acct of alicloudAccounts) {
+    lines.push(`| ${acct.name} | ${acct.region} |`);
+  }
+
+  lines.push('');
+  lines.push('阿里云凭证已通过环境变量预配置，可直接使用 aliyun CLI。');
+  lines.push('');
+  lines.push('### aliyun CLI 常用命令');
+  lines.push('```bash');
+  lines.push('# ECS 实例列表');
+  lines.push('aliyun ecs DescribeInstances --RegionId cn-hangzhou');
+  lines.push('');
+  lines.push('# ACK 集群列表');
+  lines.push('aliyun cs DescribeClusters');
+  lines.push('');
+  lines.push('# RDS 实例列表');
+  lines.push('aliyun rds DescribeDBInstances --RegionId cn-hangzhou');
+  lines.push('');
+  lines.push('# SLB 实例列表');
+  lines.push('aliyun slb DescribeLoadBalancers --RegionId cn-hangzhou');
+  lines.push('');
+  lines.push('# OSS Bucket 列表');
+  lines.push('aliyun oss ls');
+  lines.push('```');
+  lines.push('');
+  lines.push('跨 region 查询时，修改 --RegionId 参数即可。');
+  lines.push('详细的阿里云运维手册见 knowledge/runbook-alicloud.md。');
+
+  return lines.join('\n');
 }

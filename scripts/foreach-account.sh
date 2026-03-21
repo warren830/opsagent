@@ -4,16 +4,27 @@
 set -euo pipefail
 
 ROLE_NAME="${OPS_AGENT_ROLE_NAME:-OpsAgentReadOnly}"
+FILTER_ACCOUNTS=""
+
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --accounts) FILTER_ACCOUNTS="$2"; shift 2 ;;
+    *) break ;;
+  esac
+done
 
 if [ $# -eq 0 ]; then
-  echo "Usage: $0 <command> [args...]"
+  echo "Usage: $0 [--accounts id1,id2,...] <command> [args...]"
   echo ""
   echo "Execute a command in every active AWS Organization account."
   echo "The script assumes the role specified by OPS_AGENT_ROLE_NAME (default: OpsAgentReadOnly)."
   echo ""
+  echo "Options:"
+  echo "  --accounts id1,id2,...  Only query these account IDs (comma-separated)"
+  echo ""
   echo "Examples:"
   echo "  $0 aws eks list-clusters --output json"
-  echo "  $0 aws s3 ls"
+  echo "  $0 --accounts 111111111111,222222222222 aws s3 ls"
   echo ""
   echo "Environment variables:"
   echo "  OPS_AGENT_ROLE_NAME  IAM role to assume in each account (default: OpsAgentReadOnly)"
@@ -28,6 +39,9 @@ if [ -z "$accounts" ]; then
 fi
 
 while IFS=$'\t' read -r account_id account_name; do
+  if [ -n "$FILTER_ACCOUNTS" ]; then
+    echo ",$FILTER_ACCOUNTS," | grep -q ",${account_id}," || continue
+  fi
   echo "=== ${account_name} (${account_id}) ==="
 
   creds=$(aws sts assume-role \

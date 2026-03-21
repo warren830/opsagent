@@ -26,6 +26,8 @@ export interface PlatformMessage {
   replyContext: unknown;
   /** Files/images attached to this message */
   attachments?: MessageAttachment[];
+  /** Tenant ID (set by tenant resolver) */
+  tenantId?: string;
 }
 
 /**

@@ -12,6 +12,7 @@ import { loadPlatforms, isPlatformEnabled, getPlatformSettings, getPlatformCrede
 import { AdminApi } from './admin-api';
 import { SchedulerManager } from './scheduler';
 import { KubeconfigManager } from './kubeconfig-manager';
+import { TenantResolver } from './tenant-resolver';
 
 const PORT = parseInt(process.env.PORT || '3978', 10);
 const WORK_DIR = process.env.WORK_DIR || path.resolve(__dirname, '../..');
@@ -47,6 +48,7 @@ const SKILLS_CONFIG = process.env.SKILLS_CONFIG || seedConfig('skills.yaml');
 const SCHEDULED_JOBS_CONFIG = process.env.SCHEDULED_JOBS_CONFIG || seedConfig('scheduled-jobs.yaml');
 const PROVIDERS_CONFIG = process.env.PROVIDERS_CONFIG || seedConfig('providers.yaml');
 const CLUSTERS_CONFIG = process.env.CLUSTERS_CONFIG || seedConfig('clusters.yaml');
+const TENANTS_CONFIG = process.env.TENANTS_CONFIG || seedConfig('tenants.yaml');
 
 // Core components
 const claudeClient = new ClaudeClient({
@@ -58,9 +60,11 @@ const claudeClient = new ClaudeClient({
   skillsConfigPath: SKILLS_CONFIG,
   knowledgeDir: KNOWLEDGE_DIR,
   providerConfigPath: PROVIDERS_CONFIG,
+  tenantsConfigPath: TENANTS_CONFIG,
 });
 const auditLogger = new AuditLogger();
-const messageHandler = new MessageHandler(claudeClient, auditLogger);
+const tenantResolver = new TenantResolver(TENANTS_CONFIG);
+const messageHandler = new MessageHandler(claudeClient, auditLogger, tenantResolver);
 
 // Scheduler (initialized after adapters are created below)
 let scheduler: SchedulerManager;
@@ -134,8 +138,10 @@ adminApi = new AdminApi({
   pluginsConfigPath: PLUGINS_CONFIG,
   providerConfigPath: PROVIDERS_CONFIG,
   clustersConfigPath: CLUSTERS_CONFIG,
+  tenantsConfigPath: TENANTS_CONFIG,
   kubeconfigManager,
   onScheduledJobsChanged: () => scheduler.reload(),
+  onTenantsChanged: () => tenantResolver.reload(),
 });
 
 // HTTP request body parser
@@ -212,6 +218,24 @@ const server = http.createServer(async (req, res) => {
 
   // Admin API
   if (url.startsWith('/admin/api/')) {
+    // File upload endpoint for admin chat — must be handled BEFORE parseBody consumes the stream
+    if (url === '/admin/api/upload' && req.method === 'POST') {
+      const fileName = decodeURIComponent(req.headers['x-file-name'] as string || 'upload');
+      const dir = path.join('/tmp/opsagent-uploads', `admin-${Date.now()}`);
+      fs.mkdirSync(dir, { recursive: true });
+      const filePath = path.join(dir, fileName);
+
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        fs.writeFileSync(filePath, Buffer.concat(chunks));
+        console.log(`[index] Admin upload: ${fileName} -> ${filePath}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ filePath, fileName }));
+      });
+      return;
+    }
+
     let body: any;
     if (req.method === 'PUT' || req.method === 'POST') {
       const rawBody = await parseBody(req);
@@ -231,23 +255,6 @@ const server = http.createServer(async (req, res) => {
       if (rawBody) {
         try { body = JSON.parse(rawBody); } catch { /* no body needed for DELETE */ }
       }
-    }
-    // File upload endpoint for admin chat (multipart-like: raw binary with headers)
-    if (url === '/admin/api/upload' && req.method === 'POST') {
-      const fileName = decodeURIComponent(req.headers['x-file-name'] as string || 'upload');
-      const dir = path.join('/tmp/opsagent-uploads', `admin-${Date.now()}`);
-      fs.mkdirSync(dir, { recursive: true });
-      const filePath = path.join(dir, fileName);
-
-      const chunks: Buffer[] = [];
-      req.on('data', (chunk: Buffer) => chunks.push(chunk));
-      req.on('end', () => {
-        fs.writeFileSync(filePath, Buffer.concat(chunks));
-        console.log(`[index] Admin upload: ${fileName} -> ${filePath}`);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ filePath, fileName }));
-      });
-      return;
     }
 
     // Chat endpoint (non-streaming, kept for backward compatibility)

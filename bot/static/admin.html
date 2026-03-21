@@ -172,9 +172,10 @@
     font-size: 13px;
     z-index: 200;
     opacity: 0;
+    pointer-events: none;
     transition: opacity 0.3s;
   }
-  .toast.show { opacity: 1; }
+  .toast.show { opacity: 1; pointer-events: auto; cursor: pointer; }
   .toast.success { background: var(--success); color: #000; }
   .toast.error { background: var(--danger); color: #fff; }
   /* Status badge */
@@ -361,6 +362,7 @@
     <a href="#skills" onclick="switchTab('skills')">Skills</a>
     <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
     <a href="#plugins" onclick="switchTab('plugins')">Plugins</a>
+    <a href="#tenants" onclick="switchTab('tenants')">Tenants</a>
     <a href="#clusters" onclick="switchTab('clusters')">Clusters</a>
     <a href="#provider" onclick="switchTab('provider')">Provider</a>
   </nav>
@@ -497,6 +499,18 @@
   </div>
 
   <!-- Clusters Tab -->
+  <!-- Tenants Tab -->
+  <div id="tab-tenants" style="display:none">
+    <div class="toolbar">
+      <h2>Tenants</h2>
+      <button class="btn btn-primary" onclick="openTenantModal()">+ New Tenant</button>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      Each tenant maps IM channels to scoped AWS accounts and Alicloud credentials. Messages from unmapped channels are denied.
+    </div>
+    <div id="tenants-list"></div>
+  </div>
+
   <div id="tab-clusters" style="display:none">
     <div class="toolbar">
       <h2>Kubernetes Clusters</h2>
@@ -882,6 +896,42 @@
   </div>
 </div>
 
+<!-- Tenant Modal -->
+<div class="modal" id="tenant-modal">
+  <div class="modal-content" style="max-width:600px">
+    <h3 id="tenant-modal-title">New Tenant</h3>
+    <div class="form-group">
+      <label>ID (slug)</label>
+      <input id="t-id" placeholder="team-alpha">
+      <div class="hint">Unique identifier, lowercase with dashes</div>
+    </div>
+    <div class="form-group">
+      <label>Name</label>
+      <input id="t-name" placeholder="Team Alpha">
+    </div>
+    <div class="form-group">
+      <label>Channels</label>
+      <div id="t-channels"></div>
+      <button class="btn btn-ghost btn-sm" onclick="addTenantChannel()" style="margin-top:4px">+ Add Channel</button>
+      <div class="hint">Map IM channels to this tenant</div>
+    </div>
+    <div class="form-group">
+      <label>AWS Account IDs</label>
+      <input id="t-aws-accounts" placeholder="111111111111, 222222222222">
+      <div class="hint">Comma-separated. Only these accounts will be queryable.</div>
+    </div>
+    <div class="form-group">
+      <label>Alicloud Accounts</label>
+      <div id="t-alicloud"></div>
+      <button class="btn btn-ghost btn-sm" onclick="addTenantAlicloud()" style="margin-top:4px">+ Add Alicloud Account</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('tenant-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTenantEntry()">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -893,7 +943,7 @@ let editingAccountIdx = null;    // null = new, number = editing
 let editingOverrideId = null;    // null = new, string = editing
 
 // ── Tab switching ──────────────────────────────────────────────────
-const allTabs = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'clusters', 'provider'];
+const allTabs = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'tenants', 'clusters', 'provider'];
 function switchTab(tab) {
   allTabs.forEach(t => {
     const el = document.getElementById('tab-' + t);
@@ -911,12 +961,19 @@ function switchTab(tab) {
 }
 
 // ── Toast ──────────────────────────────────────────────────────────
+let toastTimer = null;
 function toast(msg, type = 'success') {
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.className = 'toast show ' + type;
-  setTimeout(() => el.className = 'toast', 2500);
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = 'toast'; toastTimer = null; }, 2500);
 }
+// Click to dismiss toast immediately
+document.getElementById('toast').addEventListener('click', function() {
+  this.className = 'toast';
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+});
 
 // ── Modal helpers ──────────────────────────────────────────────────
 function openModal(id) { document.getElementById(id).classList.add('active'); }
@@ -2235,7 +2292,7 @@ function editPlugin(key) {
       return `<div class="form-group">
         <label>${esc(k)}</label>
         <input id="pl-env-${esc(k)}" type="${isToken ? 'password' : 'text'}" value="${esc(currentVal)}" placeholder="${esc(v)}">
-        ${isToken ? '<div class="hint">Leave empty to keep placeholder variable reference.</div>' : ''}
+        ${isToken ? '<div class="hint">Clear field and save to reset to env var placeholder.</div>' : ''}
       </div>`;
     }).join('');
   }
@@ -2255,8 +2312,16 @@ async function savePluginEntry() {
       const v = el.value.trim();
       if (v) {
         plugins[key].env[k] = v;
+      } else {
+        // When field is cleared, restore the env var placeholder from the input's placeholder attribute
+        const placeholder = el.placeholder;
+        if (placeholder && placeholder.includes('${')) {
+          plugins[key].env[k] = placeholder;
+        } else {
+          // Default: wrap the key name as an env var reference
+          plugins[key].env[k] = '${' + k + '}';
+        }
       }
-      // If empty, keep original placeholder
     }
   });
 
@@ -2275,6 +2340,181 @@ async function saveFullPlugins() {
     renderPlugins();
   } else {
     toast('Failed to save', 'error');
+  }
+}
+
+// ── Tenants ───────────────────────────────────────────────────────
+let tenantsList = [];
+let editingTenantIdx = null;
+
+async function loadTenants() {
+  try {
+    const res = await fetch('/admin/api/tenants');
+    const data = await res.json();
+    tenantsList = data.tenants || [];
+    renderTenants();
+  } catch (e) { console.warn('Failed to load tenants', e); }
+}
+
+function renderTenants() {
+  const container = document.getElementById('tenants-list');
+  if (tenantsList.length === 0) {
+    container.innerHTML = '<div class="empty">No tenants configured. Click "+ New Tenant" to add one.</div>';
+    return;
+  }
+  container.innerHTML = tenantsList.map((t, i) => {
+    const channels = (t.channels || []).map(c =>
+      `<span class="tag">${esc(c.platform)}:${esc(c.channel_id.substring(0, 12))}...</span>`
+    ).join('');
+    const awsTags = (t.aws_account_ids || []).map(a =>
+      `<span class="tag">AWS ${esc(a)}</span>`
+    ).join('');
+    const aliTags = (t.alicloud || []).map(a =>
+      `<span class="tag">Alicloud ${esc(a.name)}</span>`
+    ).join('');
+    return `<div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${esc(t.name)}</div>
+          <div class="card-subtitle">${esc(t.id)}</div>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editTenant(${i})">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteTenant(${i})">Delete</button>
+        </div>
+      </div>
+      <div class="tags">${channels}${awsTags}${aliTags}</div>
+    </div>`;
+  }).join('');
+}
+
+function addTenantChannel() {
+  const container = document.getElementById('t-channels');
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;margin-bottom:4px;align-items:center';
+  row.innerHTML = `
+    <select class="t-ch-platform" style="background:var(--surface);color:var(--text);border:1px solid var(--border);padding:6px 8px;border-radius:4px;width:100px">
+      <option value="feishu">Feishu</option>
+      <option value="slack">Slack</option>
+      <option value="teams">Teams</option>
+    </select>
+    <input class="t-ch-id" placeholder="Channel ID (e.g. oc_xxxx)" style="flex:1;padding:6px 8px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px">
+    <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">X</button>
+  `;
+  container.appendChild(row);
+}
+
+function addTenantAlicloud() {
+  const container = document.getElementById('t-alicloud');
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;align-items:center;flex-wrap:wrap';
+  row.innerHTML = `
+    <input class="t-ali-name" placeholder="Name" style="width:100px;padding:6px 8px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px">
+    <input class="t-ali-region" placeholder="Region" style="width:100px;padding:6px 8px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px">
+    <input class="t-ali-ak" placeholder="AK env var" style="width:130px;padding:6px 8px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px">
+    <input class="t-ali-sk" placeholder="SK env var" style="width:130px;padding:6px 8px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px">
+    <button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">X</button>
+  `;
+  container.appendChild(row);
+}
+
+function openTenantModal(idx) {
+  editingTenantIdx = idx ?? null;
+  const isEdit = idx != null;
+  const entry = isEdit ? tenantsList[idx] : {};
+  document.getElementById('tenant-modal-title').textContent = isEdit ? 'Edit Tenant' : 'New Tenant';
+  document.getElementById('t-id').value = entry.id || '';
+  document.getElementById('t-id').disabled = isEdit;
+  document.getElementById('t-name').value = entry.name || '';
+  document.getElementById('t-aws-accounts').value = (entry.aws_account_ids || []).join(', ');
+
+  // Channels
+  const chContainer = document.getElementById('t-channels');
+  chContainer.innerHTML = '';
+  for (const ch of entry.channels || []) {
+    addTenantChannel();
+    const rows = chContainer.children;
+    const row = rows[rows.length - 1];
+    row.querySelector('.t-ch-platform').value = ch.platform;
+    row.querySelector('.t-ch-id').value = ch.channel_id;
+  }
+
+  // Alicloud
+  const aliContainer = document.getElementById('t-alicloud');
+  aliContainer.innerHTML = '';
+  for (const ali of entry.alicloud || []) {
+    addTenantAlicloud();
+    const rows = aliContainer.children;
+    const row = rows[rows.length - 1];
+    row.querySelector('.t-ali-name').value = ali.name;
+    row.querySelector('.t-ali-region').value = ali.region;
+    row.querySelector('.t-ali-ak').value = ali.access_key_env;
+    row.querySelector('.t-ali-sk').value = ali.secret_key_env;
+  }
+
+  openModal('tenant-modal');
+}
+
+function editTenant(idx) { openTenantModal(idx); }
+
+async function deleteTenant(idx) {
+  if (!confirm(`Delete tenant "${tenantsList[idx].name}"?`)) return;
+  tenantsList.splice(idx, 1);
+  await saveFullTenants();
+}
+
+async function saveTenantEntry() {
+  const id = document.getElementById('t-id').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  if (!id) return toast('ID is required', 'error');
+  const name = document.getElementById('t-name').value.trim();
+  if (!name) return toast('Name is required', 'error');
+
+  // Collect channels
+  const channels = [];
+  for (const row of document.getElementById('t-channels').children) {
+    const platform = row.querySelector('.t-ch-platform').value;
+    const channel_id = row.querySelector('.t-ch-id').value.trim();
+    if (channel_id) channels.push({ platform, channel_id });
+  }
+
+  // Collect alicloud
+  const alicloud = [];
+  for (const row of document.getElementById('t-alicloud').children) {
+    const aliName = row.querySelector('.t-ali-name').value.trim();
+    const region = row.querySelector('.t-ali-region').value.trim();
+    const access_key_env = row.querySelector('.t-ali-ak').value.trim();
+    const secret_key_env = row.querySelector('.t-ali-sk').value.trim();
+    if (aliName && region) alicloud.push({ name: aliName, region, access_key_env, secret_key_env });
+  }
+
+  const aws_account_ids = csvToArray(document.getElementById('t-aws-accounts').value);
+
+  const tenant = { id, name, channels };
+  if (aws_account_ids.length) tenant.aws_account_ids = aws_account_ids;
+  if (alicloud.length) tenant.alicloud = alicloud;
+
+  if (editingTenantIdx != null) {
+    tenantsList[editingTenantIdx] = tenant;
+  } else {
+    tenantsList.push(tenant);
+  }
+
+  await saveFullTenants();
+  closeModal('tenant-modal');
+}
+
+async function saveFullTenants() {
+  const res = await fetch('/admin/api/tenants', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tenants: tenantsList }),
+  });
+  if (res.ok) {
+    toast('Tenants saved');
+    renderTenants();
+  } else {
+    const data = await res.json().catch(() => ({}));
+    toast(data.error || 'Failed to save', 'error');
   }
 }
 
@@ -2459,6 +2699,7 @@ loadKnowledge();
 loadSkills();
 loadScheduledJobs();
 loadPlugins();
+loadTenants();
 loadClustersConfig();
 loadProvider();
 

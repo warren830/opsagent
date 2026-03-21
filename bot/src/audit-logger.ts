@@ -8,6 +8,7 @@ export interface AuditEntry {
   success: boolean;
   error?: string;
   sessionId?: string;
+  tenantId?: string;
 }
 
 export class AuditLogger {
@@ -32,6 +33,7 @@ export class AuditLogger {
       success: entry.success,
       ...(entry.error ? { error: entry.error } : {}),
       ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
+      ...(entry.tenantId ? { tenantId: entry.tenantId } : {}),
     };
 
     console.log(JSON.stringify(auditRecord));

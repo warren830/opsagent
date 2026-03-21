@@ -140,6 +140,77 @@ describe('AdminApi CORS', () => {
   });
 });
 
+describe('AdminApi tenants CRUD', () => {
+  let tmpDir: string;
+  let api: AdminApi;
+  let tenantsPath: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'admin-api-tenants-'));
+    tenantsPath = path.join(tmpDir, 'tenants.yaml');
+    api = new AdminApi({
+      glossaryConfigPath: path.join(tmpDir, 'glossary.yaml'),
+      accountsConfigPath: path.join(tmpDir, 'accounts.yaml'),
+      platformsConfigPath: path.join(tmpDir, 'platforms.yaml'),
+      skillsConfigPath: path.join(tmpDir, 'skills.yaml'),
+      knowledgeDir: path.join(tmpDir, 'knowledge'),
+      tenantsConfigPath: tenantsPath,
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.ADMIN_API_KEY;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('GET /admin/api/tenants returns empty list when file missing', async () => {
+    const req = mockRequest('GET');
+    const res = mockResponse();
+    await api.handleRequest(req, res, '/admin/api/tenants');
+    assert.equal(res._status, 200);
+    const body = JSON.parse(res._body);
+    assert.deepEqual(body.tenants, []);
+  });
+
+  it('PUT /admin/api/tenants saves valid config', async () => {
+    const req = mockRequest('PUT');
+    const res = mockResponse();
+    const tenants = [{
+      id: 'team-a',
+      name: 'Team A',
+      channels: [{ platform: 'feishu', channel_id: 'oc_1' }],
+    }];
+    await api.handleRequest(req, res, '/admin/api/tenants', { tenants });
+    assert.equal(res._status, 200);
+    const body = JSON.parse(res._body);
+    assert.equal(body.ok, true);
+    assert.equal(body.count, 1);
+
+    // Verify file was written
+    assert.ok(fs.existsSync(tenantsPath));
+  });
+
+  it('PUT /admin/api/tenants validates duplicate channels → 400', async () => {
+    const req = mockRequest('PUT');
+    const res = mockResponse();
+    const tenants = [
+      { id: 'a', name: 'A', channels: [{ platform: 'feishu', channel_id: 'oc_1' }] },
+      { id: 'b', name: 'B', channels: [{ platform: 'feishu', channel_id: 'oc_1' }] },
+    ];
+    await api.handleRequest(req, res, '/admin/api/tenants', { tenants });
+    assert.equal(res._status, 400);
+    const body = JSON.parse(res._body);
+    assert.ok(body.error.includes('Duplicate'));
+  });
+
+  it('PUT /admin/api/tenants rejects non-array', async () => {
+    const req = mockRequest('PUT');
+    const res = mockResponse();
+    await api.handleRequest(req, res, '/admin/api/tenants', { tenants: 'not-array' });
+    assert.equal(res._status, 400);
+  });
+});
+
 describe('AdminApi path traversal protection', () => {
   let tmpDir: string;
   let api: AdminApi;

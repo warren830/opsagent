@@ -3,10 +3,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { loadPlugins, generateMcpConfig } from './plugin-loader';
 import { loadGlossary, generateGlossaryKnowledge } from './glossary-loader';
-import { loadAccounts, generateAccountsKnowledge } from './accounts-loader';
+import { loadAccounts, generateAccountsKnowledge, generateAlicloudPromptSection } from './accounts-loader';
 import { loadSkills, generateSkillsPrompt } from './skills-loader';
 import { scanKnowledgeFiles, generateKnowledgeIndex, generateKnowledgeIndexFile } from './knowledge-loader';
 import { loadProvider, buildProviderEnv, ProviderConfig } from './provider-loader';
+import { loadTenants, TenantConfig, TenantAlicloudAccount } from './tenant-loader';
 
 const CLAUDE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes idle -> expire session
@@ -40,6 +41,7 @@ export interface ClaudeClientOptions {
   skillsConfigPath?: string;
   knowledgeDir?: string;
   providerConfigPath?: string;
+  tenantsConfigPath?: string;
   timeoutMs?: number;
 }
 
@@ -66,6 +68,7 @@ export class ClaudeClient {
   private readonly skillsConfigPath: string;
   private readonly knowledgeDir: string;
   private readonly providerConfigPath: string;
+  private readonly tenantsConfigPath: string;
   private readonly timeoutMs: number;
 
   /** Map of "platform:userId" -> session info */
@@ -80,6 +83,7 @@ export class ClaudeClient {
     this.skillsConfigPath = options.skillsConfigPath ?? path.join(this.workDir, 'config/skills.yaml');
     this.knowledgeDir = options.knowledgeDir ?? path.join(this.workDir, 'knowledge');
     this.providerConfigPath = options.providerConfigPath ?? path.join(this.workDir, 'config/providers.yaml');
+    this.tenantsConfigPath = options.tenantsConfigPath ?? path.join(this.workDir, 'config/tenants.yaml');
     this.timeoutMs = options.timeoutMs ?? CLAUDE_TIMEOUT_MS;
   }
 
@@ -87,8 +91,15 @@ export class ClaudeClient {
    * Generate CLAUDE.md in workDir — Claude Code reads this natively.
    * Also generates knowledge files (glossary.md, accounts.md) and skills/*.md.
    */
-  private generateClaudeMd(): void {
+  private findTenant(tenantId: string): TenantConfig | null {
+    const file = loadTenants(this.tenantsConfigPath);
+    if (!file) return null;
+    return file.tenants.find(t => t.id === tenantId) || null;
+  }
+
+  private generateClaudeMd(tenantId?: string): void {
     const parts: string[] = [BASE_SYSTEM_PROMPT];
+    const tenant = tenantId ? this.findTenant(tenantId) : null;
 
     // Glossary summary
     const glossary = loadGlossary(this.glossaryConfigPath);
@@ -102,15 +113,48 @@ export class ClaudeClient {
       }
     }
 
-    // Accounts summary
+    // Accounts summary (filtered by tenant if applicable)
     const accounts = loadAccounts(this.accountsConfigPath);
     if (accounts) {
+      if (tenant?.aws_account_ids) {
+        // Filter to only this tenant's accounts
+        const allowedIds = new Set(tenant.aws_account_ids);
+        if (accounts.accounts.extra) {
+          accounts.accounts.extra = accounts.accounts.extra.filter(a => allowedIds.has(a.id));
+        }
+        if (accounts.accounts.overrides) {
+          const filtered: Record<string, any> = {};
+          for (const [id, override] of Object.entries(accounts.accounts.overrides)) {
+            if (allowedIds.has(id)) filtered[id] = override;
+          }
+          accounts.accounts.overrides = filtered;
+        }
+      }
       const summary = generateAccountsKnowledge(accounts, this.knowledgeDir);
       if (summary) {
         parts.push('');
         parts.push('## 已配置的云账号');
         parts.push(summary);
         parts.push('完整账号详情见 knowledge/accounts.md 文件。');
+      }
+    }
+
+    // Alicloud section for tenant
+    if (tenant?.alicloud && tenant.alicloud.length > 0) {
+      const aliSection = generateAlicloudPromptSection(tenant.alicloud);
+      if (aliSection) {
+        parts.push('');
+        parts.push(aliSection);
+      }
+    }
+
+    // Tenant scope info
+    if (tenant) {
+      parts.push('');
+      parts.push(`## 当前租户: ${tenant.name} (${tenant.id})`);
+      if (tenant.aws_account_ids?.length) {
+        parts.push(`仅查询以下 AWS 账号: ${tenant.aws_account_ids.join(', ')}`);
+        parts.push(`使用 foreach-account.sh 时必须加 --accounts ${tenant.aws_account_ids.join(',')} 参数限制范围。`);
       }
     }
 
@@ -138,17 +182,18 @@ export class ClaudeClient {
       }
     }
 
-    const claudeMdPath = path.join(this.workDir, 'CLAUDE.md');
+    const filename = tenantId ? `CLAUDE-${tenantId}.md` : 'CLAUDE.md';
+    const claudeMdPath = path.join(this.workDir, filename);
     fs.writeFileSync(claudeMdPath, parts.join('\n'), 'utf-8');
-    console.log(`[claude-client] Generated CLAUDE.md (${parts.join('\n').length} bytes)`);
+    console.log(`[claude-client] Generated ${filename} (${parts.join('\n').length} bytes)`);
   }
 
-  private getSessionKey(platform: string, userId: string): string {
-    return `${platform}:${userId}`;
+  private getSessionKey(platform: string, userId: string, tenantId?: string): string {
+    return tenantId ? `tenant:${tenantId}:${platform}:${userId}` : `${platform}:${userId}`;
   }
 
-  private getSession(platform: string, userId: string): string | null {
-    const key = this.getSessionKey(platform, userId);
+  private getSession(platform: string, userId: string, tenantId?: string): string | null {
+    const key = this.getSessionKey(platform, userId, tenantId);
     const entry = this.sessions.get(key);
     if (!entry) return null;
     // Expire stale sessions
@@ -160,14 +205,14 @@ export class ClaudeClient {
     return entry.sessionId;
   }
 
-  private setSession(platform: string, userId: string, sessionId: string): void {
-    const key = this.getSessionKey(platform, userId);
+  private setSession(platform: string, userId: string, sessionId: string, tenantId?: string): void {
+    const key = this.getSessionKey(platform, userId, tenantId);
     this.sessions.set(key, { sessionId, lastActiveAt: Date.now() });
     console.log(`[claude-client] Session stored for ${key}: ${sessionId}`);
   }
 
-  private touchSession(platform: string, userId: string): void {
-    const key = this.getSessionKey(platform, userId);
+  private touchSession(platform: string, userId: string, tenantId?: string): void {
+    const key = this.getSessionKey(platform, userId, tenantId);
     const entry = this.sessions.get(key);
     if (entry) entry.lastActiveAt = Date.now();
   }
@@ -176,19 +221,41 @@ export class ClaudeClient {
     return loadProvider(this.providerConfigPath);
   }
 
-  private buildSpawnEnv(provider: ProviderConfig): Record<string, string | undefined> {
-    return { ...process.env, ...buildProviderEnv(provider) };
+  private buildSpawnEnv(provider: ProviderConfig, tenant?: TenantConfig | null): Record<string, string | undefined> {
+    const env: Record<string, string | undefined> = { ...process.env, ...buildProviderEnv(provider) };
+
+    if (tenant?.alicloud && tenant.alicloud.length > 0) {
+      // Use the first alicloud account as default
+      const ali = tenant.alicloud[0];
+      const ak = process.env[ali.access_key_env];
+      const sk = process.env[ali.secret_key_env];
+      if (ak && sk) {
+        env.ALICLOUD_ACCESS_KEY_ID = ak;
+        env.ALICLOUD_SECRET_ACCESS_KEY = sk;
+        env.ALICLOUD_REGION = ali.region;
+      } else {
+        console.warn(`[claude-client] Alicloud env vars not set for tenant ${tenant.id}: ${ali.access_key_env}, ${ali.secret_key_env}`);
+      }
+    }
+
+    // Strip other tenants' alicloud env vars for isolation
+    for (const key of Object.keys(env)) {
+      if (key.startsWith('ALICLOUD_') && key.endsWith('_AK')) delete env[key];
+      if (key.startsWith('ALICLOUD_') && key.endsWith('_SK')) delete env[key];
+    }
+
+    return env;
   }
 
-  private prepareQuery(platform: string, userId: string): string | null {
+  private prepareQuery(platform: string, userId: string, tenantId?: string): string | null {
     const plugins = loadPlugins(this.pluginsConfigPath);
     generateMcpConfig(plugins, this.mcpConfigPath);
-    this.generateClaudeMd();
-    return this.getSession(platform, userId);
+    this.generateClaudeMd(tenantId);
+    return this.getSession(platform, userId, tenantId);
   }
 
-  async query(userMessage: string, platform: string = '', userId: string = ''): Promise<string> {
-    const existingSessionId = this.prepareQuery(platform, userId);
+  async query(userMessage: string, platform: string = '', userId: string = '', tenantId?: string): Promise<string> {
+    const existingSessionId = this.prepareQuery(platform, userId, tenantId);
     const provider = this.getProvider();
     const model = provider.model || 'opus';
     const maxTurns = String(provider.max_turns || 20);
@@ -219,7 +286,7 @@ export class ClaudeClient {
         {
           cwd: this.workDir,
           stdio: ['ignore', 'pipe', 'pipe'],
-          env: this.buildSpawnEnv(provider),
+          env: this.buildSpawnEnv(provider, tenantId ? this.findTenant(tenantId) : null),
         },
       );
 
@@ -256,9 +323,9 @@ export class ClaudeClient {
 
     // Store/update session
     if (sessionId && platform && userId) {
-      this.setSession(platform, userId, sessionId);
+      this.setSession(platform, userId, sessionId, tenantId);
     } else if (platform && userId) {
-      this.touchSession(platform, userId);
+      this.touchSession(platform, userId, tenantId);
     }
 
     console.log(`[claude-client] Query completed, response length: ${text.length}`);
@@ -273,8 +340,9 @@ export class ClaudeClient {
     userMessage: string,
     platform: string = '',
     userId: string = '',
+    tenantId?: string,
   ): AsyncGenerator<StreamChunk> {
-    const existingSessionId = this.prepareQuery(platform, userId);
+    const existingSessionId = this.prepareQuery(platform, userId, tenantId);
     const provider = this.getProvider();
     const model = provider.model || 'opus';
     const maxTurns = String(provider.max_turns || 20);
@@ -298,7 +366,7 @@ export class ClaudeClient {
     const child = spawn('claude', args, {
       cwd: this.workDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: this.buildSpawnEnv(provider),
+      env: this.buildSpawnEnv(provider, tenantId ? this.findTenant(tenantId) : null),
     });
 
     let stderr = '';
@@ -358,9 +426,9 @@ export class ClaudeClient {
                 yield { type: 'text', content: fullText, turn };
               }
               if (sessionId && platform && userId) {
-                this.setSession(platform, userId, sessionId);
+                this.setSession(platform, userId, sessionId, tenantId);
               } else if (platform && userId) {
-                this.touchSession(platform, userId);
+                this.touchSession(platform, userId, tenantId);
               }
               yield { type: 'done', content: fullText, sessionId, turn, durationMs };
               console.log(`[claude-client] Stream completed, length: ${fullText.length}, turns: ${turn}`);
@@ -381,7 +449,7 @@ export class ClaudeClient {
               fullText = typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
             }
             if (sessionId && platform && userId) {
-              this.setSession(platform, userId, sessionId);
+              this.setSession(platform, userId, sessionId, tenantId);
             }
             yield { type: 'done', content: fullText, sessionId, turn, durationMs: event.duration_ms || 0 };
           }

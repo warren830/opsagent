@@ -15,8 +15,10 @@ export interface AdminApiOptions {
   pluginsConfigPath?: string;
   providerConfigPath?: string;
   clustersConfigPath?: string;
+  tenantsConfigPath?: string;
   kubeconfigManager?: KubeconfigManager;
   onScheduledJobsChanged?: () => void;
+  onTenantsChanged?: () => void;
 }
 
 export class AdminApi {
@@ -29,8 +31,10 @@ export class AdminApi {
   private readonly pluginsPath?: string;
   private readonly providerPath?: string;
   private readonly clustersPath?: string;
+  private readonly tenantsPath?: string;
   private readonly kubeconfigManager?: KubeconfigManager;
   private readonly onScheduledJobsChanged?: () => void;
+  private readonly onTenantsChanged?: () => void;
   private authWarningLogged = false;
 
   constructor(options: AdminApiOptions) {
@@ -43,8 +47,10 @@ export class AdminApi {
     if (options.pluginsConfigPath) this.pluginsPath = path.resolve(options.pluginsConfigPath);
     if (options.providerConfigPath) this.providerPath = path.resolve(options.providerConfigPath);
     if (options.clustersConfigPath) this.clustersPath = path.resolve(options.clustersConfigPath);
+    if (options.tenantsConfigPath) this.tenantsPath = path.resolve(options.tenantsConfigPath);
     this.kubeconfigManager = options.kubeconfigManager;
     this.onScheduledJobsChanged = options.onScheduledJobsChanged;
+    this.onTenantsChanged = options.onTenantsChanged;
   }
 
   async handleRequest(
@@ -113,6 +119,12 @@ export class AdminApi {
     if (urlPath === '/admin/api/provider' && this.providerPath) {
       if (req.method === 'GET') return this.getProvider(res);
       if (req.method === 'PUT') return this.putProvider(res, body);
+    }
+
+    // Tenants management
+    if (urlPath === '/admin/api/tenants' && this.tenantsPath) {
+      if (req.method === 'GET') return this.getTenants(res);
+      if (req.method === 'PUT') return this.putTenants(res, body);
     }
 
     // Clusters management
@@ -391,6 +403,43 @@ export class AdminApi {
     } catch (err) {
       this.jsonResponse(res, 500, { error: (err as Error).message });
     }
+    return true;
+  }
+
+  // ── Tenants ──────────────────────────────────────────────────
+
+  private getTenants(res: http.ServerResponse): boolean {
+    const data = this.readYaml(this.tenantsPath!);
+    const tenants = data?.tenants || [];
+    this.jsonResponse(res, 200, { tenants });
+    return true;
+  }
+
+  private putTenants(res: http.ServerResponse, body: any): boolean {
+    if (!body || !Array.isArray(body.tenants)) {
+      this.jsonResponse(res, 400, { error: 'Request body must contain a "tenants" array' });
+      return true;
+    }
+
+    // Validate: no duplicate channel_id across tenants
+    const seen = new Map<string, string>();
+    for (const tenant of body.tenants) {
+      if (!tenant.channels) continue;
+      for (const ch of tenant.channels) {
+        const key = `${ch.platform}:${ch.channel_id}`;
+        if (seen.has(key)) {
+          this.jsonResponse(res, 400, {
+            error: `Duplicate channel mapping: ${key} is assigned to both "${seen.get(key)}" and "${tenant.id}"`,
+          });
+          return true;
+        }
+        seen.set(key, tenant.id);
+      }
+    }
+
+    this.writeYaml(this.tenantsPath!, { tenants: body.tenants });
+    this.jsonResponse(res, 200, { ok: true, count: body.tenants.length });
+    if (this.onTenantsChanged) this.onTenantsChanged();
     return true;
   }
 
