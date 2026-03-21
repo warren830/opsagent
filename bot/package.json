@@ -11,12 +11,14 @@
   },
   "dependencies": {
     "adaptivecards": "^3.0.4",
+    "bcryptjs": "^3.0.3",
     "botbuilder": "^4.23.1",
     "botframework-connector": "^4.23.1",
     "js-yaml": "^4.1.0",
     "node-cron": "^3.0.3"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/jest": "^30.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.0",

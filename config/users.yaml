@@ -1,0 +1,13 @@
+users: []
+# Generate password hashes with: scripts/create-user.sh
+# Or manage users via Admin UI → Users tab
+#
+# Example:
+# - username: admin
+#   password_hash: "$2b$10$..."
+#   role: super_admin
+#
+# - username: alpha-ops
+#   password_hash: "$2b$10$..."
+#   role: tenant_admin
+#   tenant_id: team-alpha

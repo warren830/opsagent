@@ -351,7 +351,22 @@
 </head>
 <body>
 
-<div class="sidebar">
+<!-- Login Screen -->
+<div id="login-screen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:200;justify-content:center;align-items:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:40px;width:360px;text-align:center">
+    <h2 style="color:var(--accent);margin-bottom:8px">OpsAgent</h2>
+    <p style="color:var(--text2);font-size:13px;margin-bottom:24px">Admin Console</p>
+    <div style="text-align:left">
+      <div class="form-group"><label>Username</label><input id="login-username" placeholder="admin" autofocus></div>
+      <div class="form-group"><label>Password</label><input id="login-password" type="password" placeholder="password"
+        onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div id="login-error" style="color:var(--danger);font-size:13px;min-height:20px;margin-bottom:8px"></div>
+      <button class="btn btn-primary" style="width:100%;padding:10px" onclick="doLogin()">Login</button>
+    </div>
+  </div>
+</div>
+
+<div class="sidebar" id="app-sidebar" style="display:none">
   <h1>OpsAgent</h1>
   <nav>
     <a href="#chat" class="active" onclick="switchTab('chat')">Chat</a>
@@ -365,10 +380,15 @@
     <a href="#tenants" onclick="switchTab('tenants')">Tenants</a>
     <a href="#clusters" onclick="switchTab('clusters')">Clusters</a>
     <a href="#provider" onclick="switchTab('provider')">Provider</a>
+    <a href="#users" onclick="switchTab('users')">Users</a>
   </nav>
+  <div style="padding:16px 20px;border-top:1px solid var(--border);margin-top:auto;font-size:12px;color:var(--text2)">
+    <div id="current-user-display"></div>
+    <a href="#" onclick="doLogout();return false" id="logout-link" style="color:var(--accent);text-decoration:none;display:none">Logout</a>
+  </div>
 </div>
 
-<div class="main">
+<div class="main" id="app-main" style="display:none">
   <!-- Chat Tab -->
   <div id="tab-chat" class="visible">
     <h2>Chat</h2>
@@ -576,6 +596,15 @@
     <div class="section-title">Discovered Clusters</div>
     <div id="clusters-status" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
     <div id="discovered-clusters-list"></div>
+  </div>
+
+  <!-- Users Tab -->
+  <div id="tab-users" style="display:none">
+    <div class="toolbar">
+      <h2>Users</h2>
+      <button class="btn btn-primary" onclick="openUserModal()">+ Add User</button>
+    </div>
+    <div id="users-list"></div>
   </div>
 
   <div id="tab-provider" style="display:none">
@@ -1019,6 +1048,30 @@
   </div>
 </div>
 
+<!-- User Modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <h3>Add User</h3>
+    <div class="form-group"><label>Username</label><input id="u-username" placeholder="username"></div>
+    <div class="form-group"><label>Password</label><input id="u-password" type="password" placeholder="password"></div>
+    <div class="form-group">
+      <label>Role</label>
+      <select id="u-role" onchange="onUserRoleChange()" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px">
+        <option value="super_admin">Super Admin</option>
+        <option value="tenant_admin">Tenant Admin</option>
+      </select>
+    </div>
+    <div class="form-group" id="u-tenant-group" style="display:none">
+      <label>Tenant</label>
+      <select id="u-tenant-id" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px"></select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveUser()">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1028,9 +1081,13 @@ let accounts = { extra: [], overrides: {}, defaults: {} };
 let editingGlossaryKey = null;   // null = new, string = editing
 let editingAccountIdx = null;    // null = new, number = editing
 let editingOverrideId = null;    // null = new, string = editing
+let currentUser = null;          // { username, role, tenant_id } or null
 
 // ── Tab switching ──────────────────────────────────────────────────
-const allTabs = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'tenants', 'clusters', 'provider'];
+const ALL_TABS = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'tenants', 'clusters', 'provider', 'users'];
+const SUPER_TABS = ALL_TABS;
+const TENANT_TABS = ['chat', 'glossary', 'accounts', 'skills', 'knowledge', 'clusters'];
+const allTabs = [...ALL_TABS];
 function switchTab(tab) {
   allTabs.forEach(t => {
     const el = document.getElementById('tab-' + t);
@@ -3039,17 +3096,205 @@ function esc(s) {
   return div.innerHTML;
 }
 
-// ── Init ───────────────────────────────────────────────────────────
-loadGlossary();
-loadAccounts();
-loadPlatforms();
-loadKnowledge();
-loadSkills();
-loadScheduledJobs();
-loadPlugins();
-loadTenants();
-loadClustersConfig();
-loadProvider();
+// ── Auth: Login / Logout / Bootstrap ─────────────────────────────
+
+async function doLogin() {
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!username || !password) { errEl.textContent = 'Please enter username and password'; return; }
+  try {
+    const res = await fetch('/admin/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      currentUser = data.user;
+      showApp(currentUser);
+    } else {
+      errEl.textContent = data.error || 'Login failed';
+    }
+  } catch (e) {
+    errEl.textContent = 'Connection error';
+  }
+}
+
+async function doLogout() {
+  await fetch('/admin/api/auth/logout', { method: 'POST' });
+  currentUser = null;
+  document.getElementById('app-sidebar').style.display = 'none';
+  document.getElementById('app-main').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-password').value = '';
+}
+
+function showApp(user) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-sidebar').style.display = '';
+  document.getElementById('app-main').style.display = '';
+
+  const allowed = user?.role === 'tenant_admin' ? TENANT_TABS : SUPER_TABS;
+  allTabs.length = 0;
+  allTabs.push(...allowed);
+
+  // Show/hide nav links
+  document.querySelectorAll('#app-sidebar nav a').forEach(a => {
+    const tab = a.getAttribute('href').substring(1);
+    a.style.display = allowed.includes(tab) ? '' : 'none';
+  });
+
+  // Show user info + logout
+  const userDisplay = document.getElementById('current-user-display');
+  const logoutLink = document.getElementById('logout-link');
+  if (user) {
+    userDisplay.textContent = user.username + (user.tenant_id ? ` (${user.tenant_id})` : '');
+    logoutLink.style.display = '';
+  } else {
+    userDisplay.textContent = '';
+    logoutLink.style.display = 'none';
+  }
+
+  // Auto-scope tenant for tenant_admin
+  if (user?.role === 'tenant_admin' && user.tenant_id) {
+    // Hide tenant selector in chat
+    const tenantSelect = document.getElementById('chat-tenant-select');
+    if (tenantSelect) tenantSelect.parentElement.style.display = 'none';
+  }
+
+  switchTab('chat');
+  loadAppData();
+}
+
+function loadAppData() {
+  loadGlossary();
+  loadAccounts();
+  if (allTabs.includes('platforms')) loadPlatforms();
+  loadKnowledge();
+  loadSkills();
+  if (allTabs.includes('scheduled-jobs')) loadScheduledJobs();
+  if (allTabs.includes('plugins')) loadPlugins();
+  if (allTabs.includes('tenants')) loadTenants();
+  if (allTabs.includes('clusters')) loadClustersConfig();
+  if (allTabs.includes('provider')) loadProvider();
+  if (allTabs.includes('users')) loadUsersList();
+}
+
+// ── Users Management ──────────────────────────────────────────────
+let usersList = [];
+
+async function loadUsersList() {
+  try {
+    const res = await fetch('/admin/api/users');
+    const data = await res.json();
+    usersList = data.users || [];
+    renderUsersList();
+  } catch (e) { console.warn('Failed to load users', e); }
+}
+
+function renderUsersList() {
+  const container = document.getElementById('users-list');
+  if (!container) return;
+  if (usersList.length === 0) {
+    container.innerHTML = '<div class="empty">No users configured.</div>';
+    return;
+  }
+  container.innerHTML = usersList.map(u => {
+    const roleBadge = u.role === 'super_admin'
+      ? '<span class="badge-on">SUPER</span>'
+      : '<span class="tag">tenant: ' + esc(u.tenant_id || '?') + '</span>';
+    const isSelf = currentUser && u.username === currentUser.username;
+    return `<div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">${esc(u.username)}${roleBadge}</div>
+          <div class="card-subtitle">${esc(u.role)}</div>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="resetPassword('${esc(u.username)}')">Reset Password</button>
+          ${isSelf ? '' : '<button class="btn btn-danger btn-sm" onclick="deleteUserAction(\'' + esc(u.username) + '\')">Delete</button>'}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openUserModal() {
+  document.getElementById('u-username').value = '';
+  document.getElementById('u-password').value = '';
+  document.getElementById('u-role').value = 'super_admin';
+  onUserRoleChange();
+  // Populate tenant dropdown
+  const sel = document.getElementById('u-tenant-id');
+  sel.innerHTML = tenantsList.map(t => `<option value="${esc(t.id)}">${esc(t.name)} (${esc(t.id)})</option>`).join('');
+  openModal('user-modal');
+}
+
+function onUserRoleChange() {
+  const role = document.getElementById('u-role').value;
+  document.getElementById('u-tenant-group').style.display = role === 'tenant_admin' ? '' : 'none';
+}
+
+async function saveUser() {
+  const username = document.getElementById('u-username').value.trim();
+  const password = document.getElementById('u-password').value;
+  const role = document.getElementById('u-role').value;
+  if (!username || !password) return toast('Username and password are required', 'error');
+  const body = { username, password, role };
+  if (role === 'tenant_admin') body.tenant_id = document.getElementById('u-tenant-id').value;
+  const res = await fetch('/admin/api/users', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) {
+    toast('User created');
+    closeModal('user-modal');
+    loadUsersList();
+  } else {
+    const data = await res.json().catch(() => ({}));
+    toast(data.error || 'Failed to create user', 'error');
+  }
+}
+
+async function deleteUserAction(username) {
+  if (!confirm('Delete user "' + username + '"?')) return;
+  const res = await fetch('/admin/api/users/' + encodeURIComponent(username), { method: 'DELETE' });
+  if (res.ok) { toast('User deleted'); loadUsersList(); }
+  else toast('Failed to delete', 'error');
+}
+
+async function resetPassword(username) {
+  const newPass = prompt('New password for "' + username + '":');
+  if (!newPass) return;
+  const res = await fetch('/admin/api/users/' + encodeURIComponent(username) + '/password', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: newPass }),
+  });
+  if (res.ok) toast('Password reset');
+  else toast('Failed to reset password', 'error');
+}
+
+// ── Init (Bootstrap) ────────────────────────────────────────────
+async function bootstrap() {
+  try {
+    const res = await fetch('/admin/api/auth/me');
+    const data = await res.json();
+    if (data.user) {
+      currentUser = data.user;
+      showApp(currentUser);
+    } else if (data.mode === 'api_key') {
+      // Backward compat: no user auth, show app directly
+      showApp(null);
+    } else {
+      document.getElementById('login-screen').style.display = 'flex';
+    }
+  } catch {
+    // Server might not have auth endpoints — show app directly (backward compat)
+    showApp(null);
+  }
+}
+bootstrap();
 
 // Wire up cloud provider change to update extra fields
 document.getElementById('c-provider').addEventListener('change', updateCloudExtraFields);

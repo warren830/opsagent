@@ -13,6 +13,7 @@ import { AdminApi } from './admin-api';
 import { SchedulerManager } from './scheduler';
 import { KubeconfigManager } from './kubeconfig-manager';
 import { TenantResolver } from './tenant-resolver';
+import { SessionStore, loadUsers, verifyPassword, parseCookie, setSessionCookie, clearSessionCookie, UserRole } from './auth';
 
 const PORT = parseInt(process.env.PORT || '3978', 10);
 const WORK_DIR = process.env.WORK_DIR || path.resolve(__dirname, '../..');
@@ -49,6 +50,7 @@ const SCHEDULED_JOBS_CONFIG = process.env.SCHEDULED_JOBS_CONFIG || seedConfig('s
 const PROVIDERS_CONFIG = process.env.PROVIDERS_CONFIG || seedConfig('providers.yaml');
 const CLUSTERS_CONFIG = process.env.CLUSTERS_CONFIG || seedConfig('clusters.yaml');
 const TENANTS_CONFIG = process.env.TENANTS_CONFIG || seedConfig('tenants.yaml');
+const USERS_CONFIG = process.env.USERS_CONFIG || seedConfig('users.yaml');
 
 // Core components
 const claudeClient = new ClaudeClient({
@@ -63,7 +65,13 @@ const claudeClient = new ClaudeClient({
   tenantsConfigPath: TENANTS_CONFIG,
 });
 const auditLogger = new AuditLogger();
+const sessionStore = new SessionStore();
 const tenantResolver = new TenantResolver(TENANTS_CONFIG);
+
+function isUserAuthEnabled(): boolean {
+  const config = loadUsers(USERS_CONFIG);
+  return config !== null && config.users.length > 0;
+}
 const messageHandler = new MessageHandler(claudeClient, auditLogger, tenantResolver);
 
 // Scheduler (initialized after adapters are created below)
@@ -139,6 +147,7 @@ adminApi = new AdminApi({
   providerConfigPath: PROVIDERS_CONFIG,
   clustersConfigPath: CLUSTERS_CONFIG,
   tenantsConfigPath: TENANTS_CONFIG,
+  usersConfigPath: USERS_CONFIG,
   kubeconfigManager,
   onScheduledJobsChanged: () => scheduler.reload(),
   onTenantsChanged: () => tenantResolver.reload(),
@@ -257,6 +266,74 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // ── Auth endpoints (always accessible) ──────────────────────
+    if (url === '/admin/api/auth/login' && req.method === 'POST') {
+      if (!body?.username || !body?.password) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'username and password are required' }));
+        return;
+      }
+      const usersConfig = loadUsers(USERS_CONFIG);
+      if (!usersConfig) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'User authentication not configured' }));
+        return;
+      }
+      const user = usersConfig.users.find(u => u.username === body.username);
+      if (!user || !(await verifyPassword(body.password, user.password_hash))) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid username or password' }));
+        return;
+      }
+      const token = sessionStore.create({ username: user.username, role: user.role, tenant_id: user.tenant_id });
+      setSessionCookie(res, token);
+      console.log(`[index] User "${user.username}" logged in (${user.role})`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, user: { username: user.username, role: user.role, tenant_id: user.tenant_id } }));
+      return;
+    }
+
+    if (url === '/admin/api/auth/logout' && req.method === 'POST') {
+      const token = parseCookie(req.headers.cookie || '');
+      if (token) sessionStore.destroy(token);
+      clearSessionCookie(res);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    if (url === '/admin/api/auth/me' && req.method === 'GET') {
+      if (!isUserAuthEnabled()) {
+        // No user auth → backward compat mode, no user info
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ mode: 'api_key' }));
+        return;
+      }
+      const token = parseCookie(req.headers.cookie || '');
+      const session = token ? sessionStore.get(token) : null;
+      if (!session) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not authenticated' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ user: { username: session.username, role: session.role, tenant_id: session.tenant_id } }));
+      return;
+    }
+
+    // ── Session enforcement (when user auth is enabled) ──────────
+    let authUser: { username: string; role: UserRole; tenant_id?: string } | null = null;
+    if (isUserAuthEnabled()) {
+      const token = parseCookie(req.headers.cookie || '');
+      const session = token ? sessionStore.get(token) : null;
+      if (!session) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
+      authUser = { username: session.username, role: session.role, tenant_id: session.tenant_id };
+    }
+
     // Chat endpoint (non-streaming, kept for backward compatibility)
     if (url === '/admin/api/chat' && req.method === 'POST') {
       if (!body?.message) {
@@ -293,6 +370,11 @@ const server = http.createServer(async (req, res) => {
         message = body?.message;
         files = body?.files;
         tenantId = body?.tenantId;
+      }
+
+      // Auto-scope tenantId for tenant_admin users
+      if (!tenantId && authUser?.role === 'tenant_admin' && authUser.tenant_id) {
+        tenantId = authUser.tenant_id;
       }
 
       // Inject file paths into query if present
@@ -337,7 +419,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const handled = await adminApi.handleRequest(req, res, url, body);
+    const handled = await adminApi.handleRequest(req, res, url, body, authUser);
     if (handled) return;
   }
 

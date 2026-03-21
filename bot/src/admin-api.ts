@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 
 import { KubeconfigManager } from './kubeconfig-manager';
+import { UserRole, loadUsers, saveUsers, hashPassword } from './auth';
 
 export interface AdminApiOptions {
   glossaryConfigPath: string;
@@ -16,6 +17,7 @@ export interface AdminApiOptions {
   providerConfigPath?: string;
   clustersConfigPath?: string;
   tenantsConfigPath?: string;
+  usersConfigPath?: string;
   kubeconfigManager?: KubeconfigManager;
   onScheduledJobsChanged?: () => void;
   onTenantsChanged?: () => void;
@@ -32,6 +34,7 @@ export class AdminApi {
   private readonly providerPath?: string;
   private readonly clustersPath?: string;
   private readonly tenantsPath?: string;
+  private readonly usersPath?: string;
   private readonly kubeconfigManager?: KubeconfigManager;
   private readonly onScheduledJobsChanged?: () => void;
   private readonly onTenantsChanged?: () => void;
@@ -48,6 +51,7 @@ export class AdminApi {
     if (options.providerConfigPath) this.providerPath = path.resolve(options.providerConfigPath);
     if (options.clustersConfigPath) this.clustersPath = path.resolve(options.clustersConfigPath);
     if (options.tenantsConfigPath) this.tenantsPath = path.resolve(options.tenantsConfigPath);
+    if (options.usersConfigPath) this.usersPath = path.resolve(options.usersConfigPath);
     this.kubeconfigManager = options.kubeconfigManager;
     this.onScheduledJobsChanged = options.onScheduledJobsChanged;
     this.onTenantsChanged = options.onTenantsChanged;
@@ -58,6 +62,7 @@ export class AdminApi {
     res: http.ServerResponse,
     urlPath: string,
     body?: any,
+    authUser?: { username: string; role: UserRole; tenant_id?: string } | null,
   ): Promise<boolean> {
     // CORS headers for admin API
     const corsOrigin = process.env.ADMIN_CORS_ORIGIN || '*';
@@ -71,18 +76,63 @@ export class AdminApi {
       return true;
     }
 
-    // API key authentication
-    const adminApiKey = process.env.ADMIN_API_KEY;
-    if (adminApiKey) {
-      const providedKey = req.headers['x-admin-key'];
-      if (providedKey !== adminApiKey) {
-        this.jsonResponse(res, 401, { error: 'Unauthorized: invalid or missing X-Admin-Key header' });
+    // API key authentication (backward compat when no user auth)
+    if (!authUser) {
+      const adminApiKey = process.env.ADMIN_API_KEY;
+      if (adminApiKey) {
+        const providedKey = req.headers['x-admin-key'];
+        if (providedKey !== adminApiKey) {
+          this.jsonResponse(res, 401, { error: 'Unauthorized: invalid or missing X-Admin-Key header' });
+          return true;
+        }
+      } else {
+        if (!this.authWarningLogged) {
+          console.warn('[admin-api] WARNING: ADMIN_API_KEY is not set. Admin API is accessible without authentication.');
+          this.authWarningLogged = true;
+        }
+      }
+    }
+
+    // ── Role-based access control ──────────────────────────────
+    if (authUser?.role === 'tenant_admin') {
+      const allowed = ['/admin/api/glossary', '/admin/api/accounts', '/admin/api/skills',
+        '/admin/api/knowledge', '/admin/api/clusters', '/admin/api/chat', '/admin/api/upload'];
+      const isAllowed = allowed.some(prefix => urlPath.startsWith(prefix));
+      if (!isAllowed) {
+        this.jsonResponse(res, 403, { error: 'Forbidden: insufficient permissions' });
         return true;
       }
-    } else {
-      if (!this.authWarningLogged) {
-        console.warn('[admin-api] WARNING: ADMIN_API_KEY is not set. Admin API is accessible without authentication.');
-        this.authWarningLogged = true;
+
+      // Transparent tenant rewriting: redirect to tenant-scoped endpoints
+      const tid = authUser.tenant_id!;
+      if (urlPath === '/admin/api/glossary') {
+        const tenantGlossaryPath = path.join(this.knowledgeDir, '_tenants', tid, '_config', 'glossary.yaml');
+        if (req.method === 'GET') return this.getTenantYaml(res, tenantGlossaryPath, 'glossary', {});
+        if (req.method === 'PUT') return this.putTenantYaml(res, tenantGlossaryPath, 'glossary', body);
+      }
+      if (urlPath === '/admin/api/skills') {
+        const tenantSkillsPath = path.join(this.knowledgeDir, '_tenants', tid, '_config', 'skills.yaml');
+        if (req.method === 'GET') return this.getTenantYaml(res, tenantSkillsPath, 'skills', []);
+        if (req.method === 'PUT') return this.putTenantYaml(res, tenantSkillsPath, 'skills', body);
+      }
+      if (urlPath === '/admin/api/knowledge') {
+        const tenantDir = path.join(this.knowledgeDir, '_tenants', tid);
+        return this.listKnowledgeFiles(res, tenantDir);
+      }
+      const knMatch = urlPath.match(/^\/admin\/api\/knowledge\/(.+)$/);
+      if (knMatch) {
+        const tenantDir = path.join(this.knowledgeDir, '_tenants', tid);
+        const filename = decodeURIComponent(knMatch[1]);
+        if (filename.includes('..') || filename.includes('/')) {
+          this.jsonResponse(res, 400, { error: 'Invalid filename' });
+          return true;
+        }
+        if (req.method === 'GET') return this.getKnowledgeFile(res, filename, tenantDir);
+        if (req.method === 'PUT') return this.putKnowledgeFile(res, filename, body, tenantDir);
+        if (req.method === 'DELETE') return this.deleteKnowledgeFile(res, filename, tenantDir);
+      }
+      if (urlPath === '/admin/api/accounts') {
+        return this.getTenantAccounts(res, tid);
       }
     }
 
@@ -166,6 +216,22 @@ export class AdminApi {
           if (req.method === 'PUT') return this.putKnowledgeFile(res, subPath, body, tenantDir);
           if (req.method === 'DELETE') return this.deleteKnowledgeFile(res, subPath, tenantDir);
         }
+      }
+    }
+
+    // Users management (super_admin only)
+    if (urlPath === '/admin/api/users' && this.usersPath) {
+      if (req.method === 'GET') return this.getUsers(res);
+      if (req.method === 'POST') return await this.createUser(res, body);
+    }
+    const userMatch = urlPath.match(/^\/admin\/api\/users\/([^/]+)(?:\/password)?$/);
+    if (userMatch && this.usersPath) {
+      const username = decodeURIComponent(userMatch[1]);
+      if (urlPath.endsWith('/password') && req.method === 'PUT') {
+        return await this.resetUserPassword(res, username, body);
+      }
+      if (req.method === 'DELETE') {
+        return this.deleteUser(res, username, authUser?.username);
       }
     }
 
@@ -508,6 +574,107 @@ export class AdminApi {
     this.writeYaml(this.tenantsPath!, { tenants: body.tenants });
     this.jsonResponse(res, 200, { ok: true, count: body.tenants.length });
     if (this.onTenantsChanged) this.onTenantsChanged();
+    return true;
+  }
+
+  // ── Users ────────────────────────────────────────────────────
+
+  private getUsers(res: http.ServerResponse): boolean {
+    const config = loadUsers(this.usersPath!);
+    const users = (config?.users || []).map(u => ({
+      username: u.username,
+      role: u.role,
+      tenant_id: u.tenant_id,
+    }));
+    this.jsonResponse(res, 200, { users });
+    return true;
+  }
+
+  private async createUser(res: http.ServerResponse, body: any): Promise<boolean> {
+    if (!body?.username || !body?.password || !body?.role) {
+      this.jsonResponse(res, 400, { error: 'username, password, and role are required' });
+      return true;
+    }
+    if (body.role === 'tenant_admin' && !body.tenant_id) {
+      this.jsonResponse(res, 400, { error: 'tenant_id is required for tenant_admin role' });
+      return true;
+    }
+    const config = loadUsers(this.usersPath!) || { users: [] };
+    if (config.users.some(u => u.username === body.username)) {
+      this.jsonResponse(res, 400, { error: `User "${body.username}" already exists` });
+      return true;
+    }
+    const hash = await hashPassword(body.password);
+    const user: any = { username: body.username, password_hash: hash, role: body.role };
+    if (body.tenant_id) user.tenant_id = body.tenant_id;
+    config.users.push(user);
+    saveUsers(this.usersPath!, config);
+    console.log(`[admin-api] User "${body.username}" created (${body.role})`);
+    this.jsonResponse(res, 200, { ok: true, username: body.username });
+    return true;
+  }
+
+  private deleteUser(res: http.ServerResponse, username: string, currentUsername?: string): boolean {
+    if (username === currentUsername) {
+      this.jsonResponse(res, 400, { error: 'Cannot delete your own account' });
+      return true;
+    }
+    const config = loadUsers(this.usersPath!);
+    if (!config) {
+      this.jsonResponse(res, 404, { error: 'User not found' });
+      return true;
+    }
+    const idx = config.users.findIndex(u => u.username === username);
+    if (idx === -1) {
+      this.jsonResponse(res, 404, { error: 'User not found' });
+      return true;
+    }
+    config.users.splice(idx, 1);
+    saveUsers(this.usersPath!, config);
+    console.log(`[admin-api] User "${username}" deleted`);
+    this.jsonResponse(res, 200, { ok: true });
+    return true;
+  }
+
+  private async resetUserPassword(res: http.ServerResponse, username: string, body: any): Promise<boolean> {
+    if (!body?.password) {
+      this.jsonResponse(res, 400, { error: 'password is required' });
+      return true;
+    }
+    const config = loadUsers(this.usersPath!);
+    if (!config) {
+      this.jsonResponse(res, 404, { error: 'User not found' });
+      return true;
+    }
+    const user = config.users.find(u => u.username === username);
+    if (!user) {
+      this.jsonResponse(res, 404, { error: 'User not found' });
+      return true;
+    }
+    user.password_hash = await hashPassword(body.password);
+    saveUsers(this.usersPath!, config);
+    console.log(`[admin-api] Password reset for "${username}"`);
+    this.jsonResponse(res, 200, { ok: true });
+    return true;
+  }
+
+  // ── Tenant-scoped accounts (for tenant_admin) ─────────────────
+
+  private getTenantAccounts(res: http.ServerResponse, tenantId: string): boolean {
+    // Load tenant config to get aws_account_ids and alicloud
+    const tenantsData = this.readYaml(this.tenantsPath!);
+    const tenant = (tenantsData?.tenants || []).find((t: any) => t.id === tenantId);
+    if (!tenant) {
+      this.jsonResponse(res, 404, { error: 'Tenant not found' });
+      return true;
+    }
+    this.jsonResponse(res, 200, {
+      accounts: {
+        aws_account_ids: tenant.aws_account_ids || [],
+        alicloud: tenant.alicloud || [],
+      },
+      tenant_id: tenantId,
+    });
     return true;
   }
 
