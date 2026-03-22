@@ -64,9 +64,9 @@ export class AdminApi {
     body?: any,
     authUser?: { username: string; role: UserRole; tenant_id?: string } | null,
   ): Promise<boolean> {
-    // CORS headers for admin API
-    const corsOrigin = process.env.ADMIN_CORS_ORIGIN || '*';
-    res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+    // CORS headers — default to same-origin (no CORS) unless explicitly configured
+    const corsOrigin = process.env.ADMIN_CORS_ORIGIN;
+    if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Admin-Key');
 
@@ -691,7 +691,15 @@ export class AdminApi {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(filePath, yaml.dump(data, { lineWidth: 120, noRefs: true }), 'utf-8');
+    // Backup current file before overwrite
+    if (fs.existsSync(filePath)) {
+      const backupPath = filePath + '.bak';
+      try { fs.copyFileSync(filePath, backupPath); } catch { /* best effort */ }
+    }
+    // Atomic write: write to temp file, then rename (prevents corruption on crash)
+    const tmpPath = filePath + '.tmp.' + Date.now();
+    fs.writeFileSync(tmpPath, yaml.dump(data, { lineWidth: 120, noRefs: true }), 'utf-8');
+    fs.renameSync(tmpPath, filePath);
   }
 
   private jsonResponse(res: http.ServerResponse, status: number, data: any): void {

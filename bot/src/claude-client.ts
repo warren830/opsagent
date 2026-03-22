@@ -288,7 +288,7 @@ export class ClaudeClient {
       '--allowedTools', 'Bash(git*:deny),Read,Glob,Grep',
       '--output-format', 'json',
       '--max-turns', maxTurns,
-      '--dangerously-skip-permissions',
+      '--permission-mode', 'allowedTools',
       '--model', model,
     ];
 
@@ -321,6 +321,8 @@ export class ClaudeClient {
 
       const timer = setTimeout(() => {
         child.kill('SIGTERM');
+        // Escalate to SIGKILL if still alive after 5s
+        setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
         reject(new Error(`Claude Code timed out after ${timeout / 1000}s`));
       }, timeout);
 
@@ -375,7 +377,7 @@ export class ClaudeClient {
       '--output-format', 'stream-json',
       '--verbose',
       '--max-turns', maxTurns,
-      '--dangerously-skip-permissions',
+      '--permission-mode', 'allowedTools',
       '--model', model,
     ];
 
@@ -402,6 +404,7 @@ export class ClaudeClient {
     const streamTimeout = provider.timeout_ms || this.timeoutMs;
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
+      setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
       console.error(`[claude-client] Stream timed out, PID: ${child.pid}`);
     }, streamTimeout);
 

@@ -77,10 +77,10 @@ describe('AuditLogger', () => {
     assert.ok(metricNames.includes('QueryErrors'), 'should include QueryErrors metric on failure');
   });
 
-  it('truncates long query text to 200 characters', () => {
+  it('preserves full query text for audit trail', () => {
     const longQuery = 'a'.repeat(500);
     const lines = captureStdout(() => logger.log(makeEntry({ query: longQuery })));
     const audit = JSON.parse(lines[0]);
-    assert.equal(audit.query.length, 200, 'query should be truncated to 200 chars');
+    assert.equal(audit.query.length, 500, 'query should NOT be truncated');
   });
 });

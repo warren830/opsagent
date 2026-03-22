@@ -68,6 +68,21 @@ const auditLogger = new AuditLogger();
 const sessionStore = new SessionStore();
 const tenantResolver = new TenantResolver(TENANTS_CONFIG);
 
+// Rate limiting: max concurrent chat queries per user
+const MAX_CONCURRENT_QUERIES = 2;
+const activeQueries = new Map<string, number>();
+function acquireQuerySlot(userId: string): boolean {
+  const current = activeQueries.get(userId) || 0;
+  if (current >= MAX_CONCURRENT_QUERIES) return false;
+  activeQueries.set(userId, current + 1);
+  return true;
+}
+function releaseQuerySlot(userId: string): void {
+  const current = activeQueries.get(userId) || 0;
+  if (current <= 1) activeQueries.delete(userId);
+  else activeQueries.set(userId, current - 1);
+}
+
 function isUserAuthEnabled(): boolean {
   const config = loadUsers(USERS_CONFIG);
   return config !== null && config.users.length > 0;
@@ -207,8 +222,16 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && url === '/health') {
     const enabledPlatforms = Array.from(adapters.keys());
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', platforms: enabledPlatforms }));
+    const checks: Record<string, string> = {};
+    // Check CLAUDE.md exists
+    checks.claude_md = fs.existsSync(path.join(WORK_DIR, 'CLAUDE.md')) ? 'ok' : 'missing';
+    // Check config dir
+    checks.config = fs.existsSync(CONFIG_DIR) ? 'ok' : 'missing';
+    // Check tenants config
+    checks.tenants = fs.existsSync(TENANTS_CONFIG) ? 'ok' : 'missing';
+    const allOk = Object.values(checks).every(v => v === 'ok');
+    res.writeHead(allOk ? 200 : 503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: allOk ? 'ok' : 'degraded', platforms: enabledPlatforms, checks }));
     return;
   }
 
@@ -229,7 +252,10 @@ const server = http.createServer(async (req, res) => {
   if (url.startsWith('/admin/api/')) {
     // File upload endpoint for admin chat — must be handled BEFORE parseBody consumes the stream
     if (url === '/admin/api/upload' && req.method === 'POST') {
-      const fileName = decodeURIComponent(req.headers['x-file-name'] as string || 'upload');
+      let fileName = decodeURIComponent(req.headers['x-file-name'] as string || 'upload');
+      // Sanitize filename: strip path components to prevent directory traversal
+      fileName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, '_');
+      if (!fileName || fileName.startsWith('.')) fileName = 'upload';
       const dir = path.join('/tmp/opsagent-uploads', `admin-${Date.now()}`);
       fs.mkdirSync(dir, { recursive: true });
       const filePath = path.join(dir, fileName);
@@ -372,8 +398,8 @@ const server = http.createServer(async (req, res) => {
         tenantId = body?.tenantId;
       }
 
-      // Auto-scope tenantId for tenant_admin users
-      if (!tenantId && authUser?.role === 'tenant_admin' && authUser.tenant_id) {
+      // Enforce tenant scope for tenant_admin users (cannot override)
+      if (authUser?.role === 'tenant_admin' && authUser.tenant_id) {
         tenantId = authUser.tenant_id;
       }
 
@@ -382,8 +408,14 @@ const server = http.createServer(async (req, res) => {
         try {
           const fileList = JSON.parse(files) as Array<{ filePath: string; fileName: string }>;
           if (fileList.length > 0) {
-            const desc = fileList.map(f => `- ${f.fileName}: ${f.filePath}`).join('\n');
-            message += `\n\n用户附带了以下文件，请用 Read 工具查看并分析:\n${desc}`;
+            // Sanitize: only allow paths under /tmp/opsagent-uploads, strip any control chars
+            const safeList = fileList.filter(f =>
+              f.filePath && f.filePath.startsWith('/tmp/opsagent-uploads/') && !f.filePath.includes('..')
+            );
+            if (safeList.length > 0) {
+              const desc = safeList.map(f => `- ${f.fileName.replace(/[\n\r]/g, '')}: ${f.filePath}`).join('\n');
+              message += `\n\n用户附带了以下文件，请用 Read 工具查看并分析:\n${desc}`;
+            }
           }
         } catch { /* ignore bad JSON */ }
       }
@@ -405,6 +437,13 @@ const server = http.createServer(async (req, res) => {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
 
+      const queryUser = authUser?.username || 'admin';
+      if (!acquireQuerySlot(queryUser)) {
+        sendSSE('error', { error: 'Too many concurrent queries. Please wait for the current query to finish.' });
+        res.end();
+        return;
+      }
+
       console.log(`[index] Admin chat stream${tenantId ? ` [tenant=${tenantId}]` : ''}: ${message.substring(0, 100)}`);
 
       try {
@@ -414,6 +453,8 @@ const server = http.createServer(async (req, res) => {
       } catch (err: any) {
         console.error(`[index] Admin chat stream error: ${err.message}`);
         sendSSE('error', { error: err.message });
+      } finally {
+        releaseQuerySlot(queryUser);
       }
       res.end();
       return;

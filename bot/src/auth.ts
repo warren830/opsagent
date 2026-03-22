@@ -49,7 +49,10 @@ export function saveUsers(configPath: string, config: UsersConfig): void {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  fs.writeFileSync(configPath, yaml.dump(config, { lineWidth: 120, noRefs: true }), 'utf-8');
+  // Atomic write: temp file + rename
+  const tmpPath = configPath + '.tmp.' + Date.now();
+  fs.writeFileSync(tmpPath, yaml.dump(config, { lineWidth: 120, noRefs: true }), 'utf-8');
+  fs.renameSync(tmpPath, configPath);
 }
 
 // ── Password Hashing ─────────────────────────────────────────────
@@ -68,6 +71,13 @@ const SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 export class SessionStore {
   private sessions = new Map<string, SessionData>();
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor() {
+    // Periodic cleanup every 10 minutes to prevent memory leaks
+    this.cleanupTimer = setInterval(() => this.cleanup(), 10 * 60 * 1000);
+    if (this.cleanupTimer.unref) this.cleanupTimer.unref(); // Don't block process exit
+  }
 
   create(data: Omit<SessionData, 'createdAt'>): string {
     const token = crypto.randomUUID();
@@ -87,6 +97,15 @@ export class SessionStore {
 
   destroy(token: string): void {
     this.sessions.delete(token);
+  }
+
+  private cleanup(): void {
+    const now = Date.now();
+    for (const [token, session] of this.sessions) {
+      if (now - session.createdAt > SESSION_TTL_MS) {
+        this.sessions.delete(token);
+      }
+    }
   }
 }
 

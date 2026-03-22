@@ -123,12 +123,12 @@ describe('AdminApi CORS', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('sets Access-Control-Allow-Origin to * by default', async () => {
+  it('does not set Access-Control-Allow-Origin by default (same-origin only)', async () => {
     delete process.env.ADMIN_CORS_ORIGIN;
     const req = mockRequest('GET');
     const res = mockResponse();
     await api.handleRequest(req, res, '/admin/api/glossary');
-    assert.equal(res._headers['access-control-allow-origin'], '*');
+    assert.equal(res._headers['access-control-allow-origin'], undefined);
   });
 
   it('reflects ADMIN_CORS_ORIGIN env var in CORS header', async () => {

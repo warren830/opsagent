@@ -27,7 +27,7 @@ export class AuditLogger {
       platform: entry.platform,
       userId: entry.userId,
       userName: entry.userName,
-      query: entry.query.substring(0, 200),
+      query: entry.query,
       responseLength: entry.responseLength,
       durationMs: entry.durationMs,
       success: entry.success,
