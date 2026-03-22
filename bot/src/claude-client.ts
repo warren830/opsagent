@@ -288,7 +288,7 @@ export class ClaudeClient {
       '--allowedTools', 'Bash(git*:deny),Read,Glob,Grep',
       '--output-format', 'json',
       '--max-turns', maxTurns,
-      '--permission-mode', 'allowedTools',
+      '--permission-mode', 'bypassPermissions',
       '--model', model,
     ];
 
@@ -377,7 +377,7 @@ export class ClaudeClient {
       '--output-format', 'stream-json',
       '--verbose',
       '--max-turns', maxTurns,
-      '--permission-mode', 'allowedTools',
+      '--permission-mode', 'bypassPermissions',
       '--model', model,
     ];
 

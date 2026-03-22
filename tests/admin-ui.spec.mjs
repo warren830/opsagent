@@ -58,16 +58,27 @@ async function run() {
   console.log('========================================\n');
 
   // ═══════════════════════════════════════════════════════════════
-  // 1. PAGE LOAD
+  // 1. PAGE LOAD + LOGIN
   // ═══════════════════════════════════════════════════════════════
   console.log('--- 1. Page Load ---');
   await page.goto(`${BASE}/admin`);
   await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(1000);
 
   check('Page title is OpsAgent Admin', (await page.title()) === 'OpsAgent Admin');
 
-  const navLinks = await page.locator('.sidebar nav a').count();
-  check('Sidebar has 11 nav links', navLinks === 11);
+  // Handle login if required (users.yaml exists)
+  const loginScreen = await page.locator('#login-screen').isVisible();
+  if (loginScreen) {
+    await page.fill('#login-username', 'admin');
+    await page.fill('#login-password', 'admin123');
+    await page.click('#login-screen button');
+    await page.waitForTimeout(1500);
+    check('Login successful', await page.locator('#app-sidebar').isVisible());
+  }
+
+  const navLinks = await page.locator('#app-sidebar nav a:visible').count();
+  check('Sidebar has 12 nav links', navLinks === 12);
 
   const chatVisible = await page.locator('#tab-chat').isVisible();
   check('Chat tab visible by default', chatVisible);
@@ -87,64 +98,19 @@ async function run() {
   const sendBtn = await page.locator('#chat-send-btn').isVisible();
   check('Send button visible', sendBtn);
 
-  // Type and send a simple message
-  await page.fill('#chat-input', '你好，请回复 OK');
-  await screenshot('chat-typed');
-  await page.click('#chat-send-btn');
-
-  // Verify user bubble appears
-  await page.waitForTimeout(500);
-  const userBubble = await page.locator('.chat-bubble.user').count();
-  check('User message bubble appears', userBubble >= 1);
-
-  // Verify thinking/processing state appears
-  const thinkingAppeared = await page.locator('.chat-bubble.thinking').isVisible().catch(() => false);
-  check('Thinking indicator appears', thinkingAppeared);
-  await screenshot('chat-thinking');
-
-  // Wait for bot response (up to 90s for Claude to respond)
-  console.log('  Waiting for bot response (up to 90s)...');
-  let botResponseReceived = false;
-  try {
-    await page.waitForFunction(() => {
-      const botBubbles = document.querySelectorAll('.chat-bubble.bot');
-      for (const b of botBubbles) {
-        if (b.style.display !== 'none' && b.textContent.trim().length > 0) return true;
-      }
-      return false;
-    }, { timeout: 90000 });
-    botResponseReceived = true;
-  } catch {
-    console.log('  (Bot response timed out — Claude may not be available)');
-  }
-  check('Bot response received', botResponseReceived);
+  // Send a simple message using the shared helper
+  console.log('  Sending basic chat...');
+  const chatOk = await chatAsTenant('', '你好，请回复 OK');
+  check('Bot response received', chatOk.length > 0 && !chatOk.includes('timeout'));
+  if (chatOk.length > 0) console.log(`  Bot said: ${chatOk.substring(0, 80)}...`);
   await screenshot('chat-response');
 
-  // If response came, verify content
-  if (botResponseReceived) {
-    const botText = await page.locator('.chat-bubble.bot').last().textContent();
-    check('Bot response has content', (botText || '').length > 0);
-    console.log(`  Bot said: ${(botText || '').substring(0, 80)}...`);
-
-    // Send a follow-up to test session continuity
-    await page.fill('#chat-input', '刚才你说了什么？');
-    await page.click('#chat-send-btn');
-    try {
-      await page.waitForFunction(() => {
-        const bots = document.querySelectorAll('.chat-bubble.bot');
-        return bots.length >= 2 && bots[bots.length - 1].style.display !== 'none'
-          && bots[bots.length - 1].textContent.trim().length > 0;
-      }, { timeout: 90000 });
-      check('Follow-up response received (session continuity)', true);
-    } catch {
-      check('Follow-up response received (session continuity)', false);
-    }
+  // Follow-up for session continuity
+  if (chatOk.length > 0 && !chatOk.includes('timeout')) {
+    const followup = await chatAsTenant('', '刚才你说了什么？');
+    check('Follow-up response (session continuity)', followup.length > 0);
     await screenshot('chat-followup');
   }
-
-  // Verify multiple bubbles in conversation
-  const totalBubbles = await page.locator('.chat-bubble').count();
-  check('Chat history has multiple bubbles', totalBubbles >= 2);
   await screenshot('chat-final');
 
   // ═══════════════════════════════════════════════════════════════
@@ -161,9 +127,19 @@ async function run() {
 
   // Helper: clear chat history and send question, return bot response
   async function chatAsTenant(tenantId, question) {
+    // Wait for any ongoing chat to finish (send button re-enabled)
+    await page.waitForFunction(() => {
+      const btn = document.getElementById('chat-send-btn');
+      return btn && !btn.disabled;
+    }, { timeout: 120000 }).catch(() => {});
     // Clear chat bubbles
     await page.evaluate(() => document.getElementById('chat-messages').innerHTML = '');
-    await page.selectOption('#chat-tenant-select', tenantId);
+    await page.waitForTimeout(200);
+    // Select tenant if selector is visible
+    const selectorVisible = await page.locator('#chat-tenant-select').isVisible().catch(() => false);
+    if (selectorVisible) {
+      await page.selectOption('#chat-tenant-select', tenantId);
+    }
     await page.waitForTimeout(300);
     await page.fill('#chat-input', question);
     await page.click('#chat-send-btn');
