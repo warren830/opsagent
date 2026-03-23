@@ -68,6 +68,9 @@ const auditLogger = new AuditLogger();
 const sessionStore = new SessionStore();
 const tenantResolver = new TenantResolver(TENANTS_CONFIG);
 
+// Rate limiting: login attempts per username
+const loginAttempts = new Map<string, { count: number; first: number }>();
+
 // Rate limiting: max concurrent chat queries per user
 const MAX_CONCURRENT_QUERIES = 2;
 const activeQueries = new Map<string, number>();
@@ -168,12 +171,23 @@ adminApi = new AdminApi({
   onTenantsChanged: () => tenantResolver.reload(),
 });
 
-// HTTP request body parser
+// HTTP request body parser (max 10MB)
+const MAX_BODY_SIZE = 10 * 1024 * 1024;
 function parseBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+    let size = 0;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY_SIZE) {
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      data += chunk.toString();
+    });
     req.on('end', () => resolve(data));
+    req.on('error', () => resolve(''));
   });
 }
 
@@ -299,6 +313,18 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'username and password are required' }));
         return;
       }
+      // Rate limiting: max 5 failed attempts per username per 15 minutes
+      const loginKey = `login:${body.username}`;
+      const attempts = (loginAttempts.get(loginKey) || { count: 0, first: Date.now() });
+      if (Date.now() - attempts.first > 15 * 60 * 1000) {
+        attempts.count = 0;
+        attempts.first = Date.now();
+      }
+      if (attempts.count >= 5) {
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Too many login attempts. Try again in 15 minutes.' }));
+        return;
+      }
       const usersConfig = loadUsers(USERS_CONFIG);
       if (!usersConfig) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -307,10 +333,14 @@ const server = http.createServer(async (req, res) => {
       }
       const user = usersConfig.users.find(u => u.username === body.username);
       if (!user || !(await verifyPassword(body.password, user.password_hash))) {
+        attempts.count++;
+        loginAttempts.set(loginKey, attempts);
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid username or password' }));
         return;
       }
+      // Reset on successful login
+      loginAttempts.delete(loginKey);
       const token = sessionStore.create({ username: user.username, role: user.role, tenant_id: user.tenant_id });
       setSessionCookie(res, token);
       console.log(`[index] User "${user.username}" logged in (${user.role})`);
@@ -465,7 +495,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST') {
-    const rawBody = await parseBody(req);
+    let rawBody: string;
+    try {
+      rawBody = await parseBody(req);
+    } catch {
+      res.writeHead(413);
+      res.end('Request body too large');
+      return;
+    }
+    // Store raw body on request for Slack signature verification
+    (req as any)._rawBody = rawBody;
     let body: any;
     try {
       body = JSON.parse(rawBody);
@@ -502,4 +541,38 @@ server.listen(PORT, () => {
   console.log(`[index]   Feishu:  POST http://localhost:${PORT}/api/messages/feishu`);
   console.log(`[index]   Legacy:  POST http://localhost:${PORT}/api/messages`);
   console.log(`[index]   Admin:   GET  http://localhost:${PORT}/admin`);
+});
+
+// ── Graceful shutdown ─────────────────────────────────────────
+let shuttingDown = false;
+function gracefulShutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[index] ${signal} received, shutting down gracefully...`);
+
+  server.close(() => {
+    console.log('[index] HTTP server closed');
+    scheduler.stop();
+    process.exit(0);
+  });
+
+  // Force exit after 30s if connections don't drain
+  setTimeout(() => {
+    console.error('[index] Graceful shutdown timeout, forcing exit');
+    process.exit(1);
+  }, 30000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// ── Global error handlers ─────────────────────────────────────
+process.on('unhandledRejection', (reason) => {
+  console.error('[index] Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[index] Uncaught exception:', err);
+  // Exit on uncaught exception — process is in unknown state
+  gracefulShutdown('uncaughtException');
 });

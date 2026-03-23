@@ -26,11 +26,24 @@ export class SlackAdapter implements PlatformAdapter {
     res: http.ServerResponse,
     body: any,
   ): Promise<PlatformMessage | null> {
-    // Slack URL verification challenge
+    // Slack URL verification challenge (skip signature check for initial setup)
     if (body.type === 'url_verification') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ challenge: body.challenge }));
       return null;
+    }
+
+    // Verify Slack request signature
+    const timestamp = req.headers['x-slack-request-timestamp'] as string;
+    const signature = req.headers['x-slack-signature'] as string;
+    const rawBody = (req as any)._rawBody;
+    if (timestamp && signature && rawBody && this.signingSecret) {
+      if (!this.verifySignature(timestamp, rawBody, signature)) {
+        console.warn('[slack] Signature verification failed');
+        res.writeHead(401);
+        res.end('Invalid signature');
+        return null;
+      }
     }
 
     // Only handle event_callback with message events

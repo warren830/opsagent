@@ -120,7 +120,8 @@ export function parseCookie(cookieHeader: string, name: string = COOKIE_NAME): s
 }
 
 export function setSessionCookie(res: http.ServerResponse, token: string): void {
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/admin; Max-Age=14400`);
+  const secure = process.env.NODE_ENV === 'production' || process.env.SECURE_COOKIES === 'true' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/admin; Max-Age=14400${secure}`);
 }
 
 export function clearSessionCookie(res: http.ServerResponse): void {
