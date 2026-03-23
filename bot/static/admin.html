@@ -179,10 +179,11 @@
   .toast.success { background: var(--success); color: #000; }
   .toast.error { background: var(--danger); color: #fff; }
   /* Status badge */
+  /* Fix H: clearer skip badge */
   .badge-skip {
     display: inline-block;
     padding: 1px 6px;
-    background: var(--danger);
+    background: #64748b;
     color: #fff;
     border-radius: 4px;
     font-size: 11px;
@@ -347,6 +348,70 @@
     min-height: 44px;
   }
   .chat-input-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Fix B: Sidebar section headers */
+  .sidebar nav .nav-section {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text2); padding: 16px 20px 4px; opacity: 0.6;
+    pointer-events: none; user-select: none;
+  }
+
+  /* Fix A: Chat welcome card */
+  .chat-welcome {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 70%; color: var(--text2); text-align: center; gap: 16px;
+  }
+  .chat-welcome h3 { color: var(--text); font-size: 18px; margin: 0; }
+  .chat-welcome p { font-size: 13px; margin: 0; max-width: 360px; }
+  .chat-welcome .hint-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;
+  }
+  .chat-welcome .hint-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; font-size: 12px; color: var(--text); cursor: pointer;
+    text-align: left; transition: border-color 0.15s;
+  }
+  .chat-welcome .hint-card:hover { border-color: var(--accent); }
+
+  /* Fix C: Loading spinner */
+  .tab-loading {
+    display: flex; justify-content: center; padding: 48px 0; color: var(--text2);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    width: 20px; height: 20px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.6s linear infinite; display: inline-block; margin-right: 8px;
+    vertical-align: middle;
+  }
+
+  /* Fix D: Confirm modal */
+  .confirm-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 300;
+    display: flex; justify-content: center; align-items: center;
+  }
+  .confirm-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; width: 340px; text-align: center;
+  }
+  .confirm-box .msg { color: var(--text); font-size: 15px; margin-bottom: 20px; }
+  .confirm-box .actions { display: flex; gap: 8px; justify-content: center; }
+
+  /* Fix E: Sidebar footer */
+  .sidebar-footer {
+    padding: 12px 20px; border-top: 1px solid var(--border); margin-top: auto;
+  }
+  .sidebar-footer .user-info { font-size: 13px; color: var(--text); font-weight: 500; margin-bottom: 8px; }
+  .sidebar-footer .footer-links { display: flex; gap: 12px; }
+  .sidebar-footer .footer-links a {
+    font-size: 12px; color: var(--text2); text-decoration: none; padding: 4px 0;
+  }
+  .sidebar-footer .footer-links a:hover { color: var(--accent); }
+  .sidebar-footer .footer-links a.danger { color: var(--danger); }
+
+  /* Fix I: Markdown preview */
+  .md-preview-toggle { font-size: 12px; color: var(--accent); cursor: pointer; float: right; }
+  .md-preview { padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; max-height: 300px; overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -370,22 +435,28 @@
   <h1>OpsAgent</h1>
   <nav>
     <a href="#chat" class="active" onclick="switchTab('chat')">Chat</a>
+    <div class="nav-section">Data</div>
     <a href="#glossary" onclick="switchTab('glossary')">Glossary</a>
-    <a href="#accounts" onclick="switchTab('accounts')">Accounts</a>
-    <a href="#platforms" onclick="switchTab('platforms')">Platforms</a>
     <a href="#knowledge" onclick="switchTab('knowledge')">Knowledge</a>
     <a href="#skills" onclick="switchTab('skills')">Skills</a>
+    <div class="nav-section">Infrastructure</div>
+    <a href="#accounts" onclick="switchTab('accounts')">Accounts</a>
+    <a href="#clusters" onclick="switchTab('clusters')">Clusters</a>
+    <a href="#platforms" onclick="switchTab('platforms')">Platforms</a>
+    <div class="nav-section">Automation</div>
     <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
     <a href="#plugins" onclick="switchTab('plugins')">Plugins</a>
+    <div class="nav-section">Admin</div>
     <a href="#tenants" onclick="switchTab('tenants')">Tenants</a>
-    <a href="#clusters" onclick="switchTab('clusters')">Clusters</a>
     <a href="#provider" onclick="switchTab('provider')">Provider</a>
     <a href="#users" onclick="switchTab('users')">Users</a>
   </nav>
-  <div style="padding:16px 20px;border-top:1px solid var(--border);margin-top:auto;font-size:12px;color:var(--text2)">
-    <div id="current-user-display"></div>
-    <a href="#" onclick="doChangePassword();return false" id="change-pw-link" style="color:var(--text2);text-decoration:none;display:none;margin-right:12px">Change Password</a>
-    <a href="#" onclick="doLogout();return false" id="logout-link" style="color:var(--accent);text-decoration:none;display:none">Logout</a>
+  <div class="sidebar-footer">
+    <div class="user-info" id="current-user-display"></div>
+    <div class="footer-links">
+      <a href="#" onclick="doChangePassword();return false" id="change-pw-link" style="display:none">Password</a>
+      <a href="#" onclick="doLogout();return false" id="logout-link" class="danger" style="display:none">Logout</a>
+    </div>
   </div>
 </div>
 
@@ -393,7 +464,18 @@
   <!-- Chat Tab -->
   <div id="tab-chat" class="visible">
     <h2>Chat</h2>
-    <div class="chat-messages" id="chat-messages"></div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="chat-welcome" id="chat-welcome">
+        <h3>OpsAgent</h3>
+        <p>Ask anything about your cloud infrastructure — AWS resources, Kubernetes clusters, monitoring, and more.</p>
+        <div class="hint-grid">
+          <div class="hint-card" onclick="document.getElementById('chat-input').value='列出所有 EKS 集群的状态';sendChat()">List EKS clusters</div>
+          <div class="hint-card" onclick="document.getElementById('chat-input').value='检查所有集群中 Pending 的 Pod';sendChat()">Check pending pods</div>
+          <div class="hint-card" onclick="document.getElementById('chat-input').value='列出所有 S3 bucket';sendChat()">List S3 buckets</div>
+          <div class="hint-card" onclick="document.getElementById('chat-input').value='查看公司术语列表';sendChat()">Company glossary</div>
+        </div>
+      </div>
+    </div>
     <div id="chat-attachments" style="display:none;padding:4px 12px;font-size:12px;color:var(--text2);background:var(--surface2);border-radius:6px 6px 0 0;margin:0 0 -1px 0"></div>
     <div style="display:flex;align-items:center;gap:8px;padding-bottom:8px">
       <label style="font-size:12px;color:var(--text2);white-space:nowrap">Chat as:</label>
@@ -573,10 +655,12 @@
   <div id="tab-clusters" style="display:none">
     <div class="toolbar">
       <h2>Kubernetes Clusters</h2>
-      <button class="btn btn-primary" onclick="refreshClusters()" id="clusters-refresh-btn">Refresh Now</button>
     </div>
 
-    <div class="section-title">Auto Discovery</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      Auto Discovery
+      <button class="btn btn-primary btn-sm" onclick="refreshClusters()" id="clusters-refresh-btn">Refresh Now</button>
+    </div>
     <div class="defaults-card">
       <div class="inline-form">
         <div class="form-group" style="display:flex;align-items:center;gap:8px;flex:none">
@@ -905,8 +989,9 @@
       <div class="hint">Use .md extension for markdown files.</div>
     </div>
     <div class="form-group">
-      <label>Content</label>
-      <textarea id="k-content" style="min-height:300px;font-family:monospace;font-size:13px" placeholder="# Runbook Title&#10;&#10;Write your knowledge base content here..."></textarea>
+      <label>Content <span class="md-preview-toggle" id="k-preview-toggle" onclick="toggleKnowledgePreview()">Preview</span></label>
+      <textarea id="k-content" style="min-height:300px;font-family:monospace;font-size:13px" placeholder="# Runbook Title&#10;&#10;Write your knowledge base content here..." oninput="if(document.getElementById('k-preview-area').style.display!=='none')updateKnowledgePreview()"></textarea>
+      <div id="k-preview-area" class="md-preview" style="display:none;margin-top:8px"></div>
     </div>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="closeModal('knowledge-modal')">Cancel</button>
@@ -1126,6 +1211,25 @@ document.getElementById('toast').addEventListener('click', function() {
   if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
 });
 
+// ── Confirm modal (Fix D) ─────────────────────────────────────────
+function confirmAction(msg) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-overlay';
+    overlay.innerHTML = `<div class="confirm-box">
+      <div class="msg">${esc(msg)}</div>
+      <div class="actions">
+        <button class="btn btn-ghost" id="confirm-cancel">Cancel</button>
+        <button class="btn btn-danger" id="confirm-ok">Delete</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#confirm-cancel').onclick = () => { overlay.remove(); resolve(false); };
+    overlay.querySelector('#confirm-ok').onclick = () => { overlay.remove(); resolve(true); };
+    overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve(false); } });
+  });
+}
+
 // ── Modal helpers ──────────────────────────────────────────────────
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
@@ -1208,7 +1312,7 @@ function openGlossaryModal(key) {
 function editGlossary(key) { openGlossaryModal(key); }
 
 async function deleteGlossary(key) {
-  if (!confirm(`Delete "${key}"?`)) return;
+  if (!(await confirmAction(`Delete "${key}"?`))) return;
   delete glossary[key];
   await saveFullGlossary();
 }
@@ -1303,7 +1407,7 @@ function renderAccounts() {
       if (ov.alias) tags.push(`<span class="tag">alias: ${esc(ov.alias)}</span>`);
       if (ov.role_name) tags.push(`<span class="tag">role: ${esc(ov.role_name)}</span>`);
       if (ov.regions?.length) tags.push(`<span class="tag">regions: ${esc(ov.regions.join(', '))}</span>`);
-      const skipBadge = ov.skip ? '<span class="badge-skip">SKIP</span>' : '';
+      const skipBadge = ov.skip ? '<span class="badge-skip" title="Excluded from foreach-account.sh queries">Excluded</span>' : '';
       return `<div class="card">
         <div class="card-header">
           <div>
@@ -1380,7 +1484,7 @@ function editAccount(idx) { openAccountModal(idx); }
 
 async function deleteAccount(idx) {
   const a = accounts.extra[idx];
-  if (!confirm(`Delete account "${a.name || a.id}"?`)) return;
+  if (!(await confirmAction(`Delete account "${a.name || a.id}"?`))) return;
   accounts.extra.splice(idx, 1);
   await saveFullAccounts();
 }
@@ -1422,7 +1526,7 @@ function openOverrideModal(id) {
 function editOverride(id) { openOverrideModal(id); }
 
 async function deleteOverride(id) {
-  if (!confirm(`Delete override for "${id}"?`)) return;
+  if (!(await confirmAction(`Delete override for "${id}"?`))) return;
   delete accounts.overrides[id];
   await saveFullAccounts();
 }
@@ -1610,7 +1714,7 @@ function editPlatform(key) { openPlatformModal(key); }
 
 async function deletePlatform(key) {
   const label = platformMeta[key]?.label || key;
-  if (!confirm(`Remove ${label} integration?`)) return;
+  if (!(await confirmAction(`Remove ${label} integration?`))) return;
   delete platforms[key];
   await saveFullPlatforms();
 }
@@ -1799,6 +1903,9 @@ function handleChatPaste(e) {
 
 async function sendChat() {
   if (chatBusy) return;
+  // Hide welcome on first message
+  const welcome = document.getElementById('chat-welcome');
+  if (welcome) welcome.remove();
   const input = document.getElementById('chat-input');
   const text = input.value.trim();
   if (!text) return;
@@ -1946,7 +2053,11 @@ function loadChatHistory() {
     const raw = localStorage.getItem('opsagent_chat_history');
     if (!raw) return;
     const bubbles = JSON.parse(raw);
+    if (bubbles.length === 0) return;
     const container = document.getElementById('chat-messages');
+    // Remove welcome card if history exists
+    const welcome = document.getElementById('chat-welcome');
+    if (welcome) welcome.remove();
     for (const b of bubbles) {
       const el = document.createElement('div');
       el.className = 'chat-bubble ' + b.role;
@@ -2072,6 +2183,23 @@ function renderKnowledge() {
   }
 }
 
+function toggleKnowledgePreview() {
+  const area = document.getElementById('k-preview-area');
+  const toggle = document.getElementById('k-preview-toggle');
+  if (area.style.display === 'none') {
+    area.style.display = '';
+    toggle.textContent = 'Edit';
+    updateKnowledgePreview();
+  } else {
+    area.style.display = 'none';
+    toggle.textContent = 'Preview';
+  }
+}
+function updateKnowledgePreview() {
+  const content = document.getElementById('k-content').value;
+  document.getElementById('k-preview-area').innerHTML = renderMarkdown(content);
+}
+
 function openKnowledgeModal(filename) {
   editingKnowledgeFile = filename || null;
   document.getElementById('knowledge-modal-title').textContent = filename ? 'Edit File' : 'New File';
@@ -2114,7 +2242,7 @@ async function saveKnowledgeFile() {
 }
 
 async function deleteKnowledgeFile(filename) {
-  if (!confirm(`Delete "${filename}"?`)) return;
+  if (!(await confirmAction(`Delete "${filename}"?`))) return;
   const res = await fetch('/admin/api/knowledge/' + encodeURIComponent(filename), { method: 'DELETE' });
   if (res.ok) {
     toast('File deleted');
@@ -2184,7 +2312,7 @@ function editCloudAccount(provider, idx) { openCloudModal(provider, idx); }
 
 async function deleteCloudAccount(provider, idx) {
   const acct = (accounts.clouds[provider] || [])[idx];
-  if (!acct || !confirm(`Delete cloud account "${acct.name}"?`)) return;
+  if (!acct || !(await confirmAction(`Delete cloud account "${acct.name}"?`))) return;
   accounts.clouds[provider].splice(idx, 1);
   if (accounts.clouds[provider].length === 0) delete accounts.clouds[provider];
   await saveFullAccounts();
@@ -2283,7 +2411,7 @@ async function toggleSkill(idx) {
 
 async function deleteSkill(idx) {
   const s = skills[idx];
-  if (!confirm(`Delete skill "${s.name}"?`)) return;
+  if (!(await confirmAction(`Delete skill "${s.name}"?`))) return;
   skills.splice(idx, 1);
   await saveFullSkills();
 }
@@ -2395,7 +2523,7 @@ async function toggleJob(idx) {
 
 async function deleteJob(idx) {
   const j = scheduledJobs[idx];
-  if (!confirm(`Delete job "${j.name}"?`)) return;
+  if (!(await confirmAction(`Delete job "${j.name}"?`))) return;
   scheduledJobs.splice(idx, 1);
   await saveFullScheduledJobs();
 }
@@ -2624,7 +2752,7 @@ function renderTenants() {
   }
   container.innerHTML = tenantsList.map((t, i) => {
     const channels = (t.channels || []).map(c =>
-      `<span class="tag">${esc(c.platform)}:${esc(c.channel_id.substring(0, 12))}...</span>`
+      `<span class="tag" title="${esc(c.platform)}:${esc(c.channel_id)}">${esc(c.platform)}:${esc(c.channel_id.length > 16 ? c.channel_id.substring(0, 16) + '...' : c.channel_id)}</span>`
     ).join('');
     const awsTags = (t.aws_account_ids || []).map(a =>
       `<span class="tag">AWS ${esc(a)}</span>`
@@ -2719,7 +2847,7 @@ function openTenantModal(idx) {
 function editTenant(idx) { openTenantModal(idx); }
 
 async function deleteTenant(idx) {
-  if (!confirm(`Delete tenant "${tenantsList[idx].name}"?`)) return;
+  if (!(await confirmAction(`Delete tenant "${tenantsList[idx].name}"?`))) return;
   tenantsList.splice(idx, 1);
   await saveFullTenants();
 }
@@ -2849,7 +2977,7 @@ function openTdGlossaryModal(key) {
 function editTdGlossary(key) { openTdGlossaryModal(key); }
 
 async function deleteTdGlossary(key) {
-  if (!confirm('Delete "' + key + '"?')) return;
+  if (!(await confirmAction('Delete "' + key + '"?'))) return;
   delete tdGlossary[key];
   await saveTdGlossary();
 }
@@ -2918,7 +3046,7 @@ function openTdSkillModal(idx) {
 function editTdSkill(idx) { openTdSkillModal(idx); }
 
 async function deleteTdSkill(idx) {
-  if (!confirm('Delete skill "' + tdSkills[idx].name + '"?')) return;
+  if (!(await confirmAction('Delete skill "' + tdSkills[idx].name + '"?'))) return;
   tdSkills.splice(idx, 1);
   await saveTdSkills();
 }
@@ -2993,7 +3121,7 @@ function openTdKnowledgeModal(filename) {
 async function editTdKnowledge(filename) { openTdKnowledgeModal(filename); }
 
 async function deleteTdKnowledge(filename) {
-  if (!confirm('Delete "' + filename + '"?')) return;
+  if (!(await confirmAction('Delete "' + filename + '"?'))) return;
   await fetch('/admin/api/tenants/' + encodeURIComponent(tdTenantId) + '/knowledge/' + encodeURIComponent(filename), { method: 'DELETE' });
   toast('File deleted');
   loadTdKnowledge();
@@ -3112,7 +3240,7 @@ function openStaticClusterModal(idx) {
 function editStaticCluster(idx) { openStaticClusterModal(idx); }
 
 async function deleteStaticCluster(idx) {
-  if (!confirm('Delete this static cluster?')) return;
+  if (!(await confirmAction('Delete this static cluster?'))) return;
   clustersConfig.static.splice(idx, 1);
   await saveClustersConfig();
 }
@@ -3365,7 +3493,7 @@ async function saveUser() {
 }
 
 async function deleteUserAction(username) {
-  if (!confirm('Delete user "' + username + '"?')) return;
+  if (!(await confirmAction('Delete user "' + username + '"?'))) return;
   const res = await fetch('/admin/api/users/' + encodeURIComponent(username), { method: 'DELETE' });
   if (res.ok) { toast('User deleted'); loadUsersList(); }
   else toast('Failed to delete', 'error');
@@ -3479,9 +3607,7 @@ async function saveProvider() {
   });
   if (res.ok) {
     currentProvider = provider;
-    const status = document.getElementById('pv-status');
-    status.textContent = 'Saved! Changes take effect on next query.';
-    setTimeout(() => { status.textContent = ''; }, 3000);
+    toast('Provider saved! Changes take effect on next query.');
   } else {
     toast('Failed to save provider', 'error');
   }

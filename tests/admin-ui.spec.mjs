@@ -50,8 +50,16 @@ async function run() {
   browser = await chromium.launch({ headless: true });
   page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 
-  // Accept all confirm() dialogs
+  // Accept all confirm() dialogs (legacy) and custom confirm modals
   page.on('dialog', async d => await d.accept());
+  // Auto-click custom confirm modals when they appear
+  async function acceptConfirm() {
+    try {
+      await page.waitForSelector('.confirm-overlay #confirm-ok', { timeout: 2000 });
+      await page.click('.confirm-overlay #confirm-ok');
+      await page.waitForTimeout(300);
+    } catch { /* no confirm appeared */ }
+  }
 
   console.log('========================================');
   console.log(' OpsAgent Admin UI — E2E Test Suite');
@@ -227,6 +235,7 @@ async function run() {
 
   // Delete
   await page.click('#glossary-list .card:has-text("e2e-test-term") button:has-text("Delete")');
+  await acceptConfirm();
   await page.waitForTimeout(800);
   const afterDelete = await apiGet('/admin/api/glossary');
   check('Glossary term deleted', !('e2e-test-term' in afterDelete.glossary));
@@ -254,6 +263,7 @@ async function run() {
 
   // Delete
   await page.click('#extra-accounts-list .card:has-text("e2e-test-account") button:has-text("Delete")');
+  await acceptConfirm();
   await page.waitForTimeout(800);
   const acctApi = await apiGet('/admin/api/accounts');
   const acctRemains = (acctApi.accounts?.extra || []).some(a => a.id === '999999999999');
@@ -292,6 +302,7 @@ async function run() {
 
   // Delete
   await page.click('#knowledge-list .card:has-text("e2e-test-runbook.md") button:has-text("Delete")');
+  await acceptConfirm();
   await page.waitForTimeout(800);
   const knApi = await apiGet('/admin/api/knowledge');
   const knRemains = knApi.files?.some(f => f.name === 'e2e-test-runbook.md');
@@ -320,6 +331,7 @@ async function run() {
 
   // Delete
   await page.click('#skills-list .card:has-text("E2E Test Skill") button:has-text("Delete")');
+  await acceptConfirm();
   await page.waitForTimeout(800);
   const skillApi = await apiGet('/admin/api/skills');
   const skillRemains = skillApi.skills?.some(s => s.name === 'E2E Test Skill');
@@ -348,6 +360,7 @@ async function run() {
 
   // Delete
   await page.click('#jobs-list .card:has-text("e2e-test-job") button:has-text("Delete")');
+  await acceptConfirm();
   await page.waitForTimeout(800);
   const jobApi = await apiGet('/admin/api/scheduled-jobs');
   const jobRemains = jobApi.scheduled_jobs?.some(j => j.name === 'e2e-test-job');
@@ -475,6 +488,7 @@ async function run() {
   await page.click('#tenant-detail-view button:has-text("←")');
   await page.waitForTimeout(300);
   await page.locator('#tenants-list .card').filter({ hasText: 'E2E Test Team' }).locator('text="Delete"').click();
+  await acceptConfirm();
   await page.waitForTimeout(1000);
 
   const tenantAfterDel = await apiGet('/admin/api/tenants');
@@ -509,6 +523,7 @@ async function run() {
 
   // Delete
   await page.locator('#static-clusters-list .card').filter({ hasText: 'e2e-cluster' }).locator('text="Delete"').click();
+  await acceptConfirm();
   await page.waitForTimeout(800);
   const clApi = await apiGet('/admin/api/clusters');
   const clRemains = (clApi.clusters?.static || []).some(c => c.name === 'e2e-cluster');
