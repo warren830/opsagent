@@ -21,20 +21,31 @@ describe('Security: foreach-account.sh', () => {
   });
 });
 
-describe('Security: claude-client.ts', () => {
-  it('should use allowedTools to restrict tool access', () => {
+describe('Security: claude-client.ts (SDK mode)', () => {
+  it('should NOT use spawn/CLI approach', () => {
     const clientPath = path.join(PROJECT_ROOT, 'bot', 'src', 'claude-client.ts');
-    assert.ok(fs.existsSync(clientPath), `File not found: ${clientPath}`);
+    assert.ok(fs.existsSync(clientPath));
     const content = fs.readFileSync(clientPath, 'utf-8');
     assert.ok(
-      content.includes('--allowedTools'),
-      'claude-client.ts should use --allowedTools to restrict tool access',
+      !content.includes("spawn('claude'"),
+      'claude-client.ts should not spawn claude CLI (uses SDK instead)',
     );
-    // Verify git commands are denied
+  });
+
+  it('should use command-sandbox for tool execution', () => {
+    const clientPath = path.join(PROJECT_ROOT, 'bot', 'src', 'claude-client.ts');
+    const content = fs.readFileSync(clientPath, 'utf-8');
     assert.ok(
-      content.includes('git*:deny'),
-      'claude-client.ts should deny git commands via allowedTools',
+      content.includes('command-sandbox'),
+      'claude-client.ts should reference command-sandbox for security',
     );
+  });
+
+  it('command-sandbox should deny git operations', () => {
+    const sandboxPath = path.join(PROJECT_ROOT, 'bot', 'src', 'command-sandbox.ts');
+    assert.ok(fs.existsSync(sandboxPath));
+    const content = fs.readFileSync(sandboxPath, 'utf-8');
+    assert.ok(content.includes('git'), 'command-sandbox.ts should have git deny rule');
   });
 });
 

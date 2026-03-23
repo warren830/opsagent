@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import Anthropic from '@anthropic-ai/sdk';
+import AnthropicBedrock from '@anthropic-ai/bedrock-sdk';
 
 export type ProviderType = 'bedrock' | 'anthropic' | 'gateway' | 'bedrock-gateway' | 'vertex' | 'foundry';
 
@@ -89,4 +91,90 @@ export function buildProviderEnv(provider: ProviderConfig): Record<string, strin
   }
 
   return env;
+}
+
+// ── SDK client builder ──────────────────────────────────────────
+
+/** Unified client type wrapping both Anthropic and AnthropicBedrock */
+export type SdkClient = Anthropic | AnthropicBedrock;
+
+/**
+ * Build an Anthropic SDK client based on provider config.
+ * Returns either Anthropic (for API/gateway/vertex/foundry) or AnthropicBedrock.
+ */
+export function buildSdkClient(provider: ProviderConfig): SdkClient {
+  switch (provider.type) {
+    case 'bedrock':
+      return new AnthropicBedrock();
+
+    case 'bedrock-gateway':
+      return new AnthropicBedrock({
+        baseURL: provider.base_url,
+      });
+
+    case 'anthropic':
+      return new Anthropic({
+        apiKey: provider.api_key,
+        baseURL: provider.base_url,
+      });
+
+    case 'gateway':
+      return new Anthropic({
+        apiKey: provider.api_key || 'not-needed',
+        baseURL: provider.base_url,
+        defaultHeaders: provider.auth_token
+          ? { Authorization: `Bearer ${provider.auth_token}` }
+          : undefined,
+      });
+
+    case 'vertex':
+      // Vertex uses the standard Anthropic client with Google auth
+      return new Anthropic({
+        baseURL: provider.base_url,
+        apiKey: provider.api_key,
+      });
+
+    case 'foundry':
+      return new Anthropic({
+        apiKey: provider.api_key,
+        baseURL: provider.base_url,
+      });
+
+    default:
+      console.warn(`[provider-loader] Unknown provider type: ${provider.type}, falling back to Bedrock`);
+      return new AnthropicBedrock();
+  }
+}
+
+/** Model shorthand to full model ID mapping */
+const MODEL_MAP: Record<string, Record<string, string>> = {
+  bedrock: {
+    opus: 'us.anthropic.claude-opus-4-20250514-v1:0',
+    sonnet: 'us.anthropic.claude-sonnet-4-20250514-v1:0',
+    haiku: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+  },
+  'bedrock-gateway': {
+    opus: 'us.anthropic.claude-opus-4-20250514-v1:0',
+    sonnet: 'us.anthropic.claude-sonnet-4-20250514-v1:0',
+    haiku: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+  },
+  anthropic: {
+    opus: 'claude-opus-4-0-20250514',
+    sonnet: 'claude-sonnet-4-0-20250514',
+    haiku: 'claude-haiku-4-5-20251001',
+  },
+  gateway: {
+    opus: 'claude-opus-4-0-20250514',
+    sonnet: 'claude-sonnet-4-0-20250514',
+    haiku: 'claude-haiku-4-5-20251001',
+  },
+};
+
+/**
+ * Resolve a model shorthand (e.g. "opus") to a full model ID.
+ */
+export function resolveModelId(provider: ProviderConfig): string {
+  const shorthand = provider.model || 'sonnet';
+  const map = MODEL_MAP[provider.type] || MODEL_MAP.anthropic;
+  return map[shorthand] || shorthand; // passthrough if already a full ID
 }
