@@ -6,7 +6,7 @@ import {
   ConversationState,
   MemoryStorage,
 } from 'botbuilder';
-import { PlatformAdapter, PlatformMessage } from './types';
+import { PlatformAdapter, PlatformMessage, truncateForPlatform } from './types';
 
 export interface TeamsAdapterOptions {
   appId: string;
@@ -78,6 +78,7 @@ export class TeamsAdapter implements PlatformAdapter {
 
   async sendReply(msg: PlatformMessage, text: string): Promise<void> {
     const context = msg.replyContext as TurnContext;
+    text = truncateForPlatform(text, 'teams');
     if (text.length < 500 && !text.includes('|')) {
       await context.sendActivity(text);
     } else {

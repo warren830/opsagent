@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { PlatformAdapter, PlatformMessage } from './adapters/types';
 import { ClaudeClient } from './claude-client';
 import { AuditLogger } from './audit-logger';
@@ -48,7 +49,8 @@ export class MessageHandler {
   }
 
   async handleMessage(adapter: PlatformAdapter, msg: PlatformMessage): Promise<void> {
-    console.log(`[message-handler] [${msg.platform}] Received from ${msg.userName}: ${msg.text.substring(0, 100)}`);
+    msg.requestId = crypto.randomUUID().substring(0, 8);
+    console.log(`[message-handler] [${msg.requestId}] [${msg.platform}] Received from ${msg.userName}: ${msg.text.substring(0, 100)}`);
     if (msg.attachments?.length) {
       console.log(`[message-handler] Attachments: ${msg.attachments.map(a => a.fileName).join(', ')}`);
     }
@@ -152,6 +154,7 @@ export class MessageHandler {
         success: true,
         sessionId: msg.conversationId,
         tenantId: msg.tenantId,
+        requestId: msg.requestId,
       });
 
     } catch (error: unknown) {
@@ -170,6 +173,7 @@ export class MessageHandler {
         error: errMsg,
         sessionId: msg.conversationId,
         tenantId: msg.tenantId,
+        requestId: msg.requestId,
       });
 
       const errorText = errMsg.includes('timed out')
@@ -213,6 +217,7 @@ export class MessageHandler {
         success: true,
         sessionId: msg.conversationId,
         tenantId: msg.tenantId,
+        requestId: msg.requestId,
       });
 
       if (!result) {
@@ -237,6 +242,7 @@ export class MessageHandler {
         error: errMsg,
         sessionId: msg.conversationId,
         tenantId: msg.tenantId,
+        requestId: msg.requestId,
       });
 
       if (errMsg.includes('timed out')) {

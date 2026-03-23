@@ -1,7 +1,7 @@
 import * as http from 'http';
 import * as crypto from 'crypto';
 import * as https from 'https';
-import { PlatformAdapter, PlatformMessage } from './types';
+import { PlatformAdapter, PlatformMessage, truncateForPlatform } from './types';
 
 export interface SlackAdapterOptions {
   botToken: string;       // xoxb-...
@@ -96,7 +96,7 @@ export class SlackAdapter implements PlatformAdapter {
 
   async sendReply(msg: PlatformMessage, text: string): Promise<void> {
     const ctx = msg.replyContext as { channel: string; threadTs: string };
-    await this.postMessage(ctx.channel, text, ctx.threadTs);
+    await this.postMessage(ctx.channel, truncateForPlatform(text, 'slack'), ctx.threadTs);
   }
 
   /**
@@ -116,8 +116,69 @@ export class SlackAdapter implements PlatformAdapter {
     return crypto.timingSafeEqual(Buffer.from(mySignature), Buffer.from(signature));
   }
 
+  async updateReply(msg: PlatformMessage, text: string, messageId?: string): Promise<string> {
+    const ctx = msg.replyContext as { channel: string; threadTs: string };
+    text = truncateForPlatform(text, 'slack');
+
+    if (!messageId) {
+      // First call: post new message in thread, return its ts
+      const ts = await this.postMessageAndGetTs(ctx.channel, text, ctx.threadTs);
+      return ts;
+    }
+
+    // Subsequent calls: update existing message
+    await this.chatUpdate(ctx.channel, messageId, text);
+    return messageId;
+  }
+
   async sendToChannel(channelId: string, text: string): Promise<void> {
     await this.postMessage(channelId, text);
+  }
+
+  private postMessageAndGetTs(channel: string, text: string, threadTs?: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const payload = JSON.stringify({ channel, text, thread_ts: threadTs });
+      const req = https.request({
+        hostname: 'slack.com', path: '/api/chat.postMessage', method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${this.botToken}` },
+      }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const result = JSON.parse(data);
+            if (!result.ok) reject(new Error(`Slack API: ${result.error}`));
+            else resolve(result.ts || '');
+          } catch { reject(new Error('Slack API parse error')); }
+        });
+      });
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+  }
+
+  private chatUpdate(channel: string, ts: string, text: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const payload = JSON.stringify({ channel, ts, text });
+      const req = https.request({
+        hostname: 'slack.com', path: '/api/chat.update', method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${this.botToken}` },
+      }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const result = JSON.parse(data);
+            if (!result.ok) console.error(`[slack] chat.update error: ${result.error}`);
+            resolve();
+          } catch { resolve(); }
+        });
+      });
+      req.on('error', () => resolve());
+      req.write(payload);
+      req.end();
+    });
   }
 
   private postMessage(channel: string, text: string, threadTs?: string): Promise<void> {

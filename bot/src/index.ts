@@ -13,7 +13,7 @@ import { AdminApi } from './admin-api';
 import { SchedulerManager } from './scheduler';
 import { KubeconfigManager } from './kubeconfig-manager';
 import { TenantResolver } from './tenant-resolver';
-import { SessionStore, loadUsers, verifyPassword, parseCookie, setSessionCookie, clearSessionCookie, UserRole } from './auth';
+import { SessionStore, loadUsers, saveUsers, verifyPassword, hashPassword, parseCookie, setSessionCookie, clearSessionCookie, UserRole } from './auth';
 
 const PORT = parseInt(process.env.PORT || '3978', 10);
 const WORK_DIR = process.env.WORK_DIR || path.resolve(__dirname, '../..');
@@ -67,6 +67,32 @@ const claudeClient = new ClaudeClient({
 const auditLogger = new AuditLogger();
 const sessionStore = new SessionStore();
 const tenantResolver = new TenantResolver(TENANTS_CONFIG);
+
+// ── Config validation on startup ──────────────────────────────
+function validateConfigs(): void {
+  const yaml = require('js-yaml');
+  const configs: Array<{ name: string; path: string; required: string }> = [
+    { name: 'glossary', path: GLOSSARY_CONFIG, required: 'glossary' },
+    { name: 'accounts', path: ACCOUNTS_CONFIG, required: 'accounts' },
+    { name: 'platforms', path: PLATFORMS_CONFIG, required: 'platforms' },
+    { name: 'tenants', path: TENANTS_CONFIG, required: 'tenants' },
+    { name: 'providers', path: PROVIDERS_CONFIG, required: 'provider' },
+    { name: 'skills', path: SKILLS_CONFIG, required: 'skills' },
+  ];
+  for (const cfg of configs) {
+    if (!fs.existsSync(cfg.path)) continue;
+    try {
+      const content = fs.readFileSync(cfg.path, 'utf-8');
+      const data = yaml.load(content);
+      if (data && typeof data !== 'object') {
+        console.error(`[config] WARNING: ${cfg.name}.yaml is not a valid YAML object`);
+      }
+    } catch (err) {
+      console.error(`[config] ERROR: ${cfg.name}.yaml is malformed: ${(err as Error).message}`);
+    }
+  }
+}
+validateConfigs();
 
 // Rate limiting: login attempts per username
 const loginAttempts = new Map<string, { count: number; first: number }>();
@@ -374,6 +400,35 @@ const server = http.createServer(async (req, res) => {
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ user: { username: session.username, role: session.role, tenant_id: session.tenant_id } }));
+      return;
+    }
+
+    // Change own password (any authenticated user)
+    if (url === '/admin/api/auth/change-password' && req.method === 'PUT') {
+      const token = parseCookie(req.headers.cookie || '');
+      const session = token ? sessionStore.get(token) : null;
+      if (!session) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not authenticated' }));
+        return;
+      }
+      if (!body?.current_password || !body?.new_password) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'current_password and new_password are required' }));
+        return;
+      }
+      const usersConfig = loadUsers(USERS_CONFIG);
+      const user = usersConfig?.users.find(u => u.username === session.username);
+      if (!user || !(await verifyPassword(body.current_password, user.password_hash))) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Current password is incorrect' }));
+        return;
+      }
+      user.password_hash = await hashPassword(body.new_password);
+      saveUsers(USERS_CONFIG, usersConfig!);
+      console.log(`[index] User "${session.username}" changed their password`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
       return;
     }
 

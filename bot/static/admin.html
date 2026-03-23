@@ -384,6 +384,7 @@
   </nav>
   <div style="padding:16px 20px;border-top:1px solid var(--border);margin-top:auto;font-size:12px;color:var(--text2)">
     <div id="current-user-display"></div>
+    <a href="#" onclick="doChangePassword();return false" id="change-pw-link" style="color:var(--text2);text-decoration:none;display:none;margin-right:12px">Change Password</a>
     <a href="#" onclick="doLogout();return false" id="logout-link" style="color:var(--accent);text-decoration:none;display:none">Logout</a>
   </div>
 </div>
@@ -3130,6 +3131,21 @@ async function doLogout() {
   document.getElementById('login-password').value = '';
 }
 
+async function doChangePassword() {
+  const current = prompt('Current password:');
+  if (!current) return;
+  const newPw = prompt('New password:');
+  if (!newPw) return;
+  const confirm = prompt('Confirm new password:');
+  if (newPw !== confirm) return toast('Passwords do not match', 'error');
+  const res = await fetch('/admin/api/auth/change-password', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: current, new_password: newPw }),
+  });
+  if (res.ok) toast('Password changed');
+  else { const d = await res.json().catch(() => ({})); toast(d.error || 'Failed', 'error'); }
+}
+
 function showApp(user) {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-sidebar').style.display = '';
@@ -3148,12 +3164,15 @@ function showApp(user) {
   // Show user info + logout
   const userDisplay = document.getElementById('current-user-display');
   const logoutLink = document.getElementById('logout-link');
+  const changePwLink = document.getElementById('change-pw-link');
   if (user) {
     userDisplay.textContent = user.username + (user.tenant_id ? ` (${user.tenant_id})` : '');
     logoutLink.style.display = '';
+    changePwLink.style.display = '';
   } else {
     userDisplay.textContent = '';
     logoutLink.style.display = 'none';
+    changePwLink.style.display = 'none';
   }
 
   // Auto-scope tenant for tenant_admin

@@ -28,6 +28,8 @@ export interface PlatformMessage {
   attachments?: MessageAttachment[];
   /** Tenant ID (set by tenant resolver) */
   tenantId?: string;
+  /** Request correlation ID (set by message handler) */
+  requestId?: string;
 }
 
 /**
@@ -61,4 +63,19 @@ export interface PlatformAdapter {
 
   /** Send a proactive message to a channel (for scheduled jobs) */
   sendToChannel?(channelId: string, text: string): Promise<void>;
+}
+
+/** Platform message size limits */
+export const PLATFORM_LIMITS: Record<string, number> = {
+  teams: 28000,   // Adaptive Card body ~28KB
+  slack: 3900,    // Slack text limit 4000 chars with margin
+  feishu: 9500,   // Feishu card 10KB with margin for JSON wrapper
+};
+
+/** Truncate text to fit platform limits, adding a notice if truncated */
+export function truncateForPlatform(text: string, platform: string): string {
+  const limit = PLATFORM_LIMITS[platform];
+  if (!limit || text.length <= limit) return text;
+  const suffix = '\n\n...(response truncated due to platform message size limit)';
+  return text.substring(0, limit - suffix.length) + suffix;
 }

@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as path from 'path';
-import { MessageAttachment, PlatformAdapter, PlatformMessage } from './types';
+import { MessageAttachment, PlatformAdapter, PlatformMessage, truncateForPlatform } from './types';
 
 const UPLOAD_DIR = '/tmp/opsagent-uploads';
 
@@ -154,6 +154,7 @@ export class FeishuAdapter implements PlatformAdapter {
   }
 
   async sendReply(msg: PlatformMessage, text: string): Promise<void> {
+    text = truncateForPlatform(text, 'feishu');
     const ctx = msg.replyContext as { chatId: string; messageId: string };
     const token = await this.getTenantAccessToken();
 
