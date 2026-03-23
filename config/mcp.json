@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "confluence": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic-ai/mcp-remote",
+        "https://mcp.atlassian.com/v1/sse"
+      ],
+      "env": {
+        "MCP_HEADERS": "Authorization: Bearer "
+      }
+    },
+    "jira": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic-ai/mcp-remote",
+        "https://mcp.atlassian.com/v1/sse"
+      ],
+      "env": {
+        "MCP_HEADERS": "Authorization: Bearer "
+      }
+    }
+  }
+}

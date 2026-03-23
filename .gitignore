@@ -1,13 +1,40 @@
 node_modules/
 dist/
 cdk.out/
+cdk.out.*/
 *.js.map
 *.d.ts
 !bot/src/__tests__/*.test.ts
 .env
 .idea/
+.vscode/
+.DS_Store
 *.zip
 /tmp/
+
+# Auto-generated knowledge files
 knowledge/index.md
 knowledge/glossary.md
 knowledge/accounts.md
+knowledge/clusters.md
+
+# Runtime EFS config (seeded from config/ on first boot)
+knowledge/_config/
+knowledge/_tenants/
+
+# Auto-generated CLAUDE.md variants
+CLAUDE.md
+CLAUDE-*.md
+
+# Generated skills files
+skills/
+
+# Test artifacts
+tests/screenshots/
+tests/demo-screenshots/
+tests/demo-video/
+
+# Other
+docs/
+.gstack/
+*.bak
