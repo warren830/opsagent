@@ -409,6 +409,7 @@
         onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();sendChat()}"
         onpaste="handleChatPaste(event)"></textarea>
       <button class="btn btn-primary" id="chat-send-btn" onclick="sendChat()">Send</button>
+      <button class="btn btn-danger btn-sm" id="chat-stop-btn" onclick="stopChat()" style="display:none">Stop</button>
     </div>
   </div>
 
@@ -418,6 +419,7 @@
       <h2>Glossary</h2>
       <button class="btn btn-primary" onclick="openGlossaryModal()">+ New Term</button>
     </div>
+    <input id="glossary-search" placeholder="Search terms..." oninput="renderGlossary()" style="width:100%;padding:8px 12px;margin-bottom:12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px">
     <div id="glossary-list"></div>
   </div>
 
@@ -485,9 +487,10 @@
       Drop files here to upload
     </div>
     <div id="k-upload-progress" style="display:none;margin-bottom:16px"></div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+    <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
       Text files stored on EFS. Claude Code can read these during queries.
     </div>
+    <input id="knowledge-search" placeholder="Search files..." oninput="renderKnowledge()" style="width:100%;padding:8px 12px;margin-bottom:12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px">
     <div id="knowledge-list"></div>
   </div>
 
@@ -1080,6 +1083,9 @@
 let glossary = {};
 let accounts = { extra: [], overrides: {}, defaults: {} };
 let editingGlossaryKey = null;   // null = new, string = editing
+const PAGE_SIZE = 50;
+let glossaryShowAll = false;
+let knowledgeShowAll = false;
 let editingAccountIdx = null;    // null = new, number = editing
 let editingOverrideId = null;    // null = new, string = editing
 let currentUser = null;          // { username, role, tenant_id } or null
@@ -1138,11 +1144,24 @@ async function loadGlossary() {
 
 function renderGlossary() {
   const container = document.getElementById('glossary-list');
-  const keys = Object.keys(glossary);
+  const search = (document.getElementById('glossary-search')?.value || '').toLowerCase();
+  let keys = Object.keys(glossary);
+  if (search) {
+    keys = keys.filter(k => {
+      const e = glossary[k];
+      return k.includes(search) || (e.full_name || '').toLowerCase().includes(search)
+        || (e.description || '').toLowerCase().includes(search)
+        || (e.aliases || []).some(a => a.toLowerCase().includes(search));
+    });
+  }
   if (keys.length === 0) {
-    container.innerHTML = '<div class="empty">No terms yet. Click "+ New Term" to add one.</div>';
+    container.innerHTML = search
+      ? '<div class="empty">No matching terms.</div>'
+      : '<div class="empty">No terms yet. Click "+ New Term" to add one.</div>';
     return;
   }
+  const totalKeys = keys.length;
+  if (!glossaryShowAll && !search && keys.length > PAGE_SIZE) keys = keys.slice(0, PAGE_SIZE);
   container.innerHTML = keys.map(key => {
     const e = glossary[key];
     const tags = [
@@ -1165,6 +1184,11 @@ function renderGlossary() {
       ${tags ? '<div class="tags">' + tags + '</div>' : ''}
     </div>`;
   }).join('');
+  if (!glossaryShowAll && !search && totalKeys > PAGE_SIZE) {
+    container.innerHTML += `<div style="text-align:center;padding:12px">
+      <button class="btn btn-ghost" onclick="glossaryShowAll=true;renderGlossary()">Show all ${totalKeys} terms</button>
+    </div>`;
+  }
 }
 
 function openGlossaryModal(key) {
@@ -1650,6 +1674,19 @@ async function saveFullPlatforms() {
 // ── Chat ───────────────────────────────────────────────────────────
 let chatBusy = false;
 
+function stopChat() {
+  if (activeEventSource) {
+    activeEventSource.close();
+    activeEventSource = null;
+  }
+  chatBusy = false;
+  document.getElementById('chat-send-btn').disabled = false;
+  document.getElementById('chat-stop-btn').style.display = 'none';
+  // Remove thinking indicator if present
+  document.querySelectorAll('.chat-bubble.thinking').forEach(el => el.remove());
+  saveChatHistory();
+}
+
 function appendBubble(type, text) {
   const container = document.getElementById('chat-messages');
   const div = document.createElement('div');
@@ -1773,6 +1810,7 @@ async function sendChat() {
   const thinkingEl = appendBubble('thinking', 'Thinking...');
   chatBusy = true;
   document.getElementById('chat-send-btn').disabled = true;
+  document.getElementById('chat-stop-btn').style.display = '';
 
   // Create bot bubble for progressive updates
   const botEl = appendBubble('bot', '');
@@ -1878,8 +1916,45 @@ async function sendChat() {
     container.scrollTop = container.scrollHeight;
     chatBusy = false;
     document.getElementById('chat-send-btn').disabled = false;
+    document.getElementById('chat-stop-btn').style.display = 'none';
     input.focus();
+    saveChatHistory();
   }
+}
+
+// ── Chat history persistence (localStorage) ──────────────────
+function saveChatHistory() {
+  try {
+    const msgs = document.getElementById('chat-messages');
+    const bubbles = [];
+    for (const el of msgs.children) {
+      if (el.classList.contains('chat-bubble')) {
+        const role = el.classList.contains('user') ? 'user' : el.classList.contains('bot') ? 'bot' : null;
+        if (role && el.style.display !== 'none') {
+          bubbles.push({ role, html: el.innerHTML });
+        }
+      }
+    }
+    // Keep last 50 messages max
+    const toSave = bubbles.slice(-50);
+    localStorage.setItem('opsagent_chat_history', JSON.stringify(toSave));
+  } catch { /* quota exceeded or private mode */ }
+}
+
+function loadChatHistory() {
+  try {
+    const raw = localStorage.getItem('opsagent_chat_history');
+    if (!raw) return;
+    const bubbles = JSON.parse(raw);
+    const container = document.getElementById('chat-messages');
+    for (const b of bubbles) {
+      const el = document.createElement('div');
+      el.className = 'chat-bubble ' + b.role;
+      el.innerHTML = b.html;
+      container.appendChild(el);
+    }
+    container.scrollTop = container.scrollHeight;
+  } catch { /* ignore */ }
 }
 
 // ── Knowledge ──────────────────────────────────────────────────
@@ -1964,11 +2039,18 @@ function formatSize(bytes) {
 
 function renderKnowledge() {
   const container = document.getElementById('knowledge-list');
-  if (knowledgeFiles.length === 0) {
-    container.innerHTML = '<div class="empty">No knowledge files yet. Click "+ New File" to create one.</div>';
+  const search = (document.getElementById('knowledge-search')?.value || '').toLowerCase();
+  let files = knowledgeFiles;
+  if (search) files = files.filter(f => f.name.toLowerCase().includes(search));
+  if (files.length === 0) {
+    container.innerHTML = search
+      ? '<div class="empty">No matching files.</div>'
+      : '<div class="empty">No knowledge files yet. Click "+ New File" to create one.</div>';
     return;
   }
-  container.innerHTML = knowledgeFiles.map(f => {
+  const totalFiles = files.length;
+  if (!knowledgeShowAll && !search && files.length > PAGE_SIZE) files = files.slice(0, PAGE_SIZE);
+  container.innerHTML = files.map(f => {
     const modified = new Date(f.modified).toLocaleString();
     return `<div class="card">
       <div class="card-header">
@@ -1983,6 +2065,11 @@ function renderKnowledge() {
       </div>
     </div>`;
   }).join('');
+  if (!knowledgeShowAll && !search && totalFiles > PAGE_SIZE) {
+    container.innerHTML += `<div style="text-align:center;padding:12px">
+      <button class="btn btn-ghost" onclick="knowledgeShowAll=true;renderKnowledge()">Show all ${totalFiles} files</button>
+    </div>`;
+  }
 }
 
 function openKnowledgeModal(filename) {
@@ -3183,6 +3270,7 @@ function showApp(user) {
   }
 
   switchTab('chat');
+  loadChatHistory();
   loadAppData();
 }
 

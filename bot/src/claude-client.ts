@@ -247,7 +247,7 @@ export class ClaudeClient {
     const env: Record<string, string | undefined> = { ...process.env, ...buildProviderEnv(provider) };
 
     if (tenant?.alicloud && tenant.alicloud.length > 0) {
-      // Use the first alicloud account as default
+      // Inject first account as default credentials
       const ali = tenant.alicloud[0];
       const ak = process.env[ali.access_key_env];
       const sk = process.env[ali.secret_key_env];
@@ -257,6 +257,15 @@ export class ClaudeClient {
         env.ALICLOUD_REGION = ali.region;
       } else {
         console.warn(`[claude-client] Alicloud env vars not set for tenant ${tenant.id}: ${ali.access_key_env}, ${ali.secret_key_env}`);
+      }
+      // Also inject each account as named env vars so aliyun CLI profiles can be configured
+      for (const account of tenant.alicloud) {
+        const prefix = `ALICLOUD_${account.name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
+        const accAk = process.env[account.access_key_env];
+        const accSk = process.env[account.secret_key_env];
+        if (accAk) env[`${prefix}_AK`] = accAk;
+        if (accSk) env[`${prefix}_SK`] = accSk;
+        env[`${prefix}_REGION`] = account.region;
       }
     }
 

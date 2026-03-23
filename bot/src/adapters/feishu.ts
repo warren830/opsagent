@@ -264,6 +264,11 @@ export class FeishuAdapter implements PlatformAdapter {
    * Convert markdown tables to code blocks since Feishu card markdown
    * does not support table syntax. Preserves alignment in monospace.
    */
+  /**
+   * Convert Markdown tables to aligned plain-text tables for Feishu card.
+   * Feishu card markdown doesn't support | table syntax, so we render
+   * as a padded monospace block with clean column alignment.
+   */
   private convertTablesToCodeBlocks(text: string): string {
     const lines = text.split('\n');
     const result: string[] = [];
@@ -271,22 +276,35 @@ export class FeishuAdapter implements PlatformAdapter {
     let inTable = false;
 
     const flushTable = () => {
-      if (tableLines.length > 0) {
-        result.push('```');
-        result.push(...tableLines);
-        result.push('```');
-        tableLines = [];
+      if (tableLines.length === 0) { inTable = false; return; }
+      // Parse cells and compute column widths
+      const rows = tableLines
+        .filter(l => !/^\|[\s\-:|]+\|$/.test(l.trim())) // skip separator rows
+        .map(l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
+      if (rows.length === 0) { inTable = false; tableLines = []; return; }
+      const colCount = Math.max(...rows.map(r => r.length));
+      const widths = Array(colCount).fill(0);
+      for (const row of rows) {
+        for (let i = 0; i < colCount; i++) {
+          widths[i] = Math.max(widths[i], (row[i] || '').length);
+        }
       }
+      result.push('```');
+      for (let r = 0; r < rows.length; r++) {
+        const padded = rows[r].map((cell, i) => (cell || '').padEnd(widths[i] || 0)).join('  ');
+        result.push(padded);
+        // Add separator after header row
+        if (r === 0) result.push(widths.map(w => '-'.repeat(w)).join('  '));
+      }
+      result.push('```');
+      tableLines = [];
       inTable = false;
     };
 
     for (const line of lines) {
       const trimmed = line.trim();
-      // A table row starts and ends with | (or starts with |)
       const isTableRow = /^\|.+\|$/.test(trimmed);
-      // Separator row: |---|---|
       const isSeparator = /^\|[\s\-:|]+\|$/.test(trimmed);
-
       if (isTableRow || isSeparator) {
         if (!inTable) inTable = true;
         tableLines.push(line);

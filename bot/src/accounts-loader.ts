@@ -151,6 +151,10 @@ export function generateAlicloudPromptSection(alicloudAccounts: TenantAlicloudAc
   }
 
   lines.push('');
+  if (alicloudAccounts.length > 1) {
+    lines.push(`共 ${alicloudAccounts.length} 个阿里云账号。默认使用第一个（${alicloudAccounts[0].name}）。`);
+    lines.push('其他账号的凭证通过环境变量注入，变量名格式: ALICLOUD_{NAME}_AK/SK/REGION');
+  }
   lines.push('阿里云凭证已通过环境变量预配置，可直接使用 aliyun CLI。');
   lines.push('');
   lines.push('### aliyun CLI 常用命令');
