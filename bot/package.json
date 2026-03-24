@@ -12,12 +12,14 @@
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.26.4",
     "@anthropic-ai/sdk": "^0.80.0",
+    "@types/pg": "^8.20.0",
     "adaptivecards": "^3.0.4",
     "bcryptjs": "^3.0.3",
     "botbuilder": "^4.23.1",
     "botframework-connector": "^4.23.1",
     "js-yaml": "^4.1.0",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
