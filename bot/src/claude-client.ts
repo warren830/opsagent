@@ -240,6 +240,7 @@ export class ClaudeClient {
       hasGlossary: !!glossary && Object.keys(glossary || {}).length > 0,
       hasSkills: enabledSkills.length > 0,
       skillNames: enabledSkills.map((s: Skill) => s.name),
+      enableEnrichedTools: true,
     });
 
     // Tool executor config

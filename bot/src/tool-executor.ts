@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { validateCommand, SandboxConfig } from './command-sandbox';
 import { ApprovalStore } from './approval-store';
+import { executeEnrichedTool, ENRICHED_TOOLS } from './enriched-tools';
 
 const MAX_OUTPUT_BYTES = 100 * 1024; // 100KB max per tool result
 const DEFAULT_CMD_TIMEOUT = 60_000;
@@ -53,8 +54,18 @@ export async function executeTool(
         return executeLookupGlossary(input, config);
       case 'lookup_skill':
         return executeLookupSkill(input, config);
-      default:
+      default: {
+        // Check if it's an enriched tool
+        const isEnriched = ENRICHED_TOOLS.some(t => t.name === name);
+        if (isEnriched) {
+          return executeEnrichedTool(name, input, {
+            env: config.env as Record<string, string | undefined>,
+            workDir: config.workDir,
+            sandboxConfig: config.sandboxConfig,
+          });
+        }
         return { content: `Unknown tool: ${name}`, is_error: true };
+      }
     }
   } catch (err) {
     return { content: `Tool error: ${(err as Error).message}`, is_error: true };

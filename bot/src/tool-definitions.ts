@@ -4,11 +4,13 @@
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import type { TenantConfig } from './tenant-loader';
+import { ENRICHED_TOOLS } from './enriched-tools';
 
 export interface ToolContext {
   hasGlossary: boolean;
   hasSkills: boolean;
   skillNames?: string[];
+  enableEnrichedTools?: boolean;
 }
 
 const RUN_COMMAND: Anthropic.Tool = {
@@ -131,6 +133,11 @@ export function buildToolSet(ctx: ToolContext): Anthropic.Tool[] {
       ...LOOKUP_SKILL,
       description: LOOKUP_SKILL.description + `\n\n可用技能: ${ctx.skillNames.join(', ')}`,
     });
+  }
+
+  // Add enriched cloud tools when enabled
+  if (ctx.enableEnrichedTools) {
+    tools.push(...ENRICHED_TOOLS);
   }
 
   return tools;
