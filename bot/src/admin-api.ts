@@ -222,6 +222,101 @@ export class AdminApi {
       }
     }
 
+    // ── Issues API ─────────────────────────────────────────────────
+    if (urlPath === '/admin/api/issues' && req.method === 'GET') {
+      try {
+        const db = require('./db') as typeof import('./db');
+        const tenantFilter = authUser?.role === 'tenant_admin' ? authUser.tenant_id : undefined;
+        const params: any[] = [];
+        let where = '';
+        if (tenantFilter) { params.push(tenantFilter); where = `WHERE tenant_id = $${params.length}`; }
+        const issues = await db.query(
+          `SELECT id, resource_id, resource_type, severity, status, source, title, occurrence_count, account_name, tenant_id, created_at, updated_at, resolved_at FROM issues ${where} ORDER BY created_at DESC LIMIT 100`,
+          params,
+        );
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ issues }));
+        return true;
+      } catch (err: any) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ issues: [], db_error: err.message }));
+        return true;
+      }
+    }
+
+    const issueDetailMatch = urlPath.match(/^\/admin\/api\/issues\/(\d+)$/);
+    if (issueDetailMatch && req.method === 'GET') {
+      try {
+        const db = require('./db') as typeof import('./db');
+        const issueId = issueDetailMatch[1];
+        const issue = await db.queryOne('SELECT * FROM issues WHERE id = $1', [issueId]);
+        const rcaResults = await db.query('SELECT * FROM rca_results WHERE issue_id = $1 ORDER BY created_at DESC', [issueId]);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ issue, rca_results: rcaResults }));
+        return true;
+      } catch (err: any) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ issue: null, rca_results: [], db_error: err.message }));
+        return true;
+      }
+    }
+
+    const issueStatusMatch = urlPath.match(/^\/admin\/api\/issues\/(\d+)\/status$/);
+    if (issueStatusMatch && req.method === 'PUT') {
+      try {
+        const db = require('./db') as typeof import('./db');
+        const issueId = issueStatusMatch[1];
+        const newStatus = body?.status;
+        if (!newStatus) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'status is required' }));
+          return true;
+        }
+        const resolvedAt = newStatus === 'resolved' ? ', resolved_at = NOW()' : '';
+        await db.query(`UPDATE issues SET status = $1, updated_at = NOW()${resolvedAt} WHERE id = $2`, [newStatus, issueId]);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return true;
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+        return true;
+      }
+    }
+
+    // ── Resources API ─────────────────────────────────────────────
+    if (urlPath === '/admin/api/resources' && req.method === 'GET') {
+      try {
+        const db = require('./db') as typeof import('./db');
+        const resources = await db.query(
+          `SELECT resource_id, resource_type, name, provider, region, status, account_name, tenant_id, last_seen_at FROM resources ORDER BY last_seen_at DESC LIMIT 200`,
+        );
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ resources }));
+        return true;
+      } catch (err: any) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ resources: [], db_error: err.message }));
+        return true;
+      }
+    }
+
+    if (urlPath === '/admin/api/resources/summary' && req.method === 'GET') {
+      try {
+        const db = require('./db') as typeof import('./db');
+        const typeCounts = await db.query(`SELECT resource_type, COUNT(*) as count FROM resources GROUP BY resource_type ORDER BY count DESC`);
+        const providerCounts = await db.query(`SELECT provider, COUNT(*) as count FROM resources GROUP BY provider ORDER BY count DESC`);
+        const total = await db.queryOne(`SELECT COUNT(*) as count FROM resources`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ total: total?.count || 0, by_type: typeCounts, by_provider: providerCounts }));
+        return true;
+      } catch (err: any) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ total: 0, by_type: [], by_provider: [], db_error: err.message }));
+        return true;
+      }
+    }
+
     // ── Approvals ─────────────────────────────────────────────────
     if (urlPath === '/admin/api/approvals' && req.method === 'GET' && this.approvalStore) {
       const tenantFilter = authUser?.role === 'tenant_admin' ? authUser.tenant_id : undefined;

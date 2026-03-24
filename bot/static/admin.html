@@ -457,6 +457,9 @@
     <div class="nav-section">Automation</div>
     <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
     <a href="#plugins" onclick="switchTab('plugins')">Plugins</a>
+    <div class="nav-section">Ops</div>
+    <a href="#issues" onclick="switchTab('issues')">Issues <span id="issues-badge" class="nav-badge" style="display:none">0</span></a>
+    <a href="#resources" onclick="switchTab('resources')">Resources</a>
     <div class="nav-section">Admin</div>
     <a href="#approvals" onclick="switchTab('approvals')">Approvals <span id="approval-badge" class="nav-badge" style="display:none">0</span></a>
     <a href="#tenants" onclick="switchTab('tenants')">Tenants</a>
@@ -696,6 +699,46 @@
     <div class="section-title">Discovered Clusters</div>
     <div id="clusters-status" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
     <div id="discovered-clusters-list"></div>
+  </div>
+
+  <!-- Issues Tab -->
+  <div id="tab-issues" style="display:none">
+    <div class="toolbar">
+      <h2>Issues</h2>
+      <select id="issues-filter" onchange="loadIssues()" style="background:var(--surface);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:13px">
+        <option value="">All</option>
+        <option value="open" selected>Open</option>
+        <option value="investigating">Investigating</option>
+        <option value="root_cause_identified">RCA Done</option>
+        <option value="resolved">Resolved</option>
+      </select>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      Health issues discovered by patrol, alerts, or manual inspection. Click an issue to see RCA details.
+    </div>
+    <div id="issues-list"></div>
+
+    <!-- Issue Detail Modal -->
+    <div id="issue-detail-modal" class="modal-overlay" style="display:none">
+      <div class="modal" style="max-width:700px">
+        <div class="modal-header">
+          <h3 id="issue-detail-title">Issue Detail</h3>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('issue-detail-modal').style.display='none'">&times;</button>
+        </div>
+        <div id="issue-detail-content" style="max-height:70vh;overflow-y:auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Resources Tab -->
+  <div id="tab-resources" style="display:none">
+    <div class="toolbar">
+      <h2>Resources</h2>
+      <button class="btn btn-primary" onclick="triggerScan()">Scan Now</button>
+    </div>
+    <div id="resources-summary" style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap"></div>
+    <input id="resources-search" placeholder="Search resources..." oninput="renderResources()" style="width:100%;padding:8px 12px;margin-bottom:12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px">
+    <div id="resources-list"></div>
   </div>
 
   <!-- Approvals Tab -->
@@ -1207,7 +1250,7 @@ let editingOverrideId = null;    // null = new, string = editing
 let currentUser = null;          // { username, role, tenant_id } or null
 
 // ── Tab switching ──────────────────────────────────────────────────
-const ALL_TABS = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'approvals', 'tenants', 'clusters', 'provider', 'users'];
+const ALL_TABS = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'issues', 'resources', 'approvals', 'tenants', 'clusters', 'provider', 'users'];
 const SUPER_TABS = ALL_TABS;
 const TENANT_TABS = ['chat', 'glossary', 'accounts', 'skills', 'knowledge', 'clusters'];
 const allTabs = [...ALL_TABS];
@@ -3445,11 +3488,182 @@ function loadAppData() {
   if (allTabs.includes('clusters')) loadClustersConfig();
   if (allTabs.includes('provider')) loadProvider();
   if (allTabs.includes('users')) loadUsersList();
+  if (allTabs.includes('issues')) loadIssues();
+  if (allTabs.includes('resources')) loadResources();
   if (allTabs.includes('approvals')) loadApprovals();
 }
 
 // ── Users Management ──────────────────────────────────────────────
 let usersList = [];
+
+// ── Issues ──────────────────────────────────────────────────────
+let issuesList = [];
+
+async function loadIssues() {
+  try {
+    const res = await fetch('/admin/api/issues');
+    const data = await res.json();
+    issuesList = data.issues || [];
+    renderIssues();
+    // Update badge
+    const openCount = issuesList.filter(i => i.status === 'open').length;
+    const badge = document.getElementById('issues-badge');
+    if (badge) { badge.textContent = String(openCount); badge.style.display = openCount > 0 ? '' : 'none'; }
+  } catch { issuesList = []; renderIssues(); }
+}
+
+function renderIssues() {
+  const container = document.getElementById('issues-list');
+  if (!container) return;
+  const filter = document.getElementById('issues-filter')?.value || '';
+  let filtered = issuesList;
+  if (filter) filtered = filtered.filter(i => i.status === filter);
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="empty">No issues found. Run a health patrol or configure alert webhooks.</div>';
+    return;
+  }
+  container.innerHTML = filtered.map(i => {
+    const sevClass = i.severity === 'critical' ? 'color:#ef4444' : i.severity === 'high' ? 'color:#f59e0b' : i.severity === 'medium' ? 'color:#3b82f6' : 'color:var(--text2)';
+    const time = new Date(i.created_at).toLocaleString();
+    const statusBadge = `<span class="approval-status ${i.status === 'resolved' ? 'executed' : i.status === 'open' ? 'pending' : 'approved'}">${esc(i.status)}</span>`;
+    return `<div class="card" style="cursor:pointer" onclick="showIssueDetail(${i.id})">
+      <div class="card-header">
+        <div>
+          <div class="card-title"><span style="${sevClass};font-weight:600">[${esc(i.severity.toUpperCase())}]</span> ${esc(i.title)}</div>
+          <div class="card-subtitle">${esc(i.resource_id || '')} ${i.resource_type ? '(' + esc(i.resource_type) + ')' : ''} &middot; ${esc(i.source)} &middot; ${esc(time)}</div>
+        </div>
+        <div class="card-actions">
+          ${statusBadge}
+          ${i.occurrence_count > 1 ? '<span class="tag">×' + i.occurrence_count + '</span>' : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function showIssueDetail(id) {
+  try {
+    const res = await fetch('/admin/api/issues/' + id);
+    const data = await res.json();
+    const issue = data.issue;
+    const rcas = data.rca_results || [];
+    if (!issue) { toast('Issue not found', 'error'); return; }
+
+    let html = `<div style="margin-bottom:16px">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <span class="approval-status ${issue.status === 'resolved' ? 'executed' : 'pending'}">${esc(issue.status)}</span>
+        <span style="color:var(--text2);font-size:12px">${esc(issue.source)} &middot; ${new Date(issue.created_at).toLocaleString()}</span>
+      </div>
+      <p style="color:var(--text);font-size:14px">${esc(issue.description || 'No description')}</p>
+      ${issue.metric_data && Object.keys(issue.metric_data).length ? '<pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:12px;overflow:auto">' + esc(JSON.stringify(issue.metric_data, null, 2)) + '</pre>' : ''}
+    </div>`;
+
+    if (rcas.length > 0) {
+      html += '<h4 style="margin:16px 0 8px">RCA Results</h4>';
+      for (const rca of rcas) {
+        html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
+          <div style="font-weight:600;color:var(--text)">${esc(rca.root_cause)}</div>
+          <div style="display:flex;gap:12px;margin:8px 0;font-size:12px;color:var(--text2)">
+            <span>Confidence: <b>${(rca.confidence * 100).toFixed(0)}%</b></span>
+            <span>Risk: <b>${esc(rca.fix_risk_level || 'unknown')}</b></span>
+            <span>Duration: ${rca.duration_ms ? (rca.duration_ms / 1000).toFixed(1) + 's' : '-'}</span>
+          </div>
+          ${rca.contributing_factors?.length ? '<div style="font-size:12px"><b>Contributing factors:</b> ' + rca.contributing_factors.map(f => esc(f)).join(', ') + '</div>' : ''}
+          ${rca.recommendations?.length ? '<div style="font-size:12px;margin-top:4px"><b>Recommendations:</b><ul style="margin:4px 0">' + rca.recommendations.map(r => '<li>' + esc(r) + '</li>').join('') + '</ul></div>' : ''}
+        </div>`;
+      }
+    } else {
+      html += '<div style="color:var(--text2);font-size:13px;margin-top:12px">No RCA results yet. Trigger analysis from chat: "分析 Issue #' + id + ' 的根因"</div>';
+    }
+
+    html += '<div style="margin-top:16px;display:flex;gap:8px">';
+    if (issue.status !== 'resolved') html += '<button class="btn btn-primary btn-sm" onclick="updateIssueStatus(' + id + ',\'resolved\')">Resolve</button>';
+    if (issue.status === 'open') html += '<button class="btn btn-ghost btn-sm" onclick="updateIssueStatus(' + id + ',\'acknowledged\')">Acknowledge</button>';
+    html += '</div>';
+
+    document.getElementById('issue-detail-title').textContent = '#' + id + ' ' + issue.title;
+    document.getElementById('issue-detail-content').innerHTML = html;
+    document.getElementById('issue-detail-modal').style.display = '';
+  } catch (err) { toast('Failed to load issue', 'error'); }
+}
+
+async function updateIssueStatus(id, status) {
+  await fetch('/admin/api/issues/' + id + '/status', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+  toast('Issue updated');
+  document.getElementById('issue-detail-modal').style.display = 'none';
+  loadIssues();
+}
+
+// ── Resources ───────────────────────────────────────────────────
+let resourcesList = [];
+
+async function loadResources() {
+  try {
+    const [resRes, sumRes] = await Promise.all([
+      fetch('/admin/api/resources'),
+      fetch('/admin/api/resources/summary'),
+    ]);
+    const resData = await resRes.json();
+    const sumData = await sumRes.json();
+    resourcesList = resData.resources || [];
+    renderResourcesSummary(sumData);
+    renderResources();
+  } catch { resourcesList = []; renderResources(); }
+}
+
+function renderResourcesSummary(summary) {
+  const container = document.getElementById('resources-summary');
+  if (!container) return;
+  const total = summary.total || 0;
+  const byType = summary.by_type || [];
+  const byProvider = summary.by_provider || [];
+  container.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 16px;min-width:100px">
+      <div style="font-size:11px;text-transform:uppercase;color:var(--text2)">Total</div>
+      <div style="font-size:24px;font-weight:300;font-family:monospace">${total}</div>
+    </div>
+    ${byProvider.map(p => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 16px;min-width:80px">
+      <div style="font-size:11px;text-transform:uppercase;color:var(--text2)">${esc(p.provider)}</div>
+      <div style="font-size:24px;font-weight:300;font-family:monospace">${p.count}</div>
+    </div>`).join('')}
+    ${byType.slice(0, 5).map(t => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 16px;min-width:80px">
+      <div style="font-size:11px;text-transform:uppercase;color:var(--text2)">${esc(t.resource_type)}</div>
+      <div style="font-size:24px;font-weight:300;font-family:monospace">${t.count}</div>
+    </div>`).join('')}
+  `;
+}
+
+function renderResources() {
+  const container = document.getElementById('resources-list');
+  if (!container) return;
+  const search = (document.getElementById('resources-search')?.value || '').toLowerCase();
+  let filtered = resourcesList;
+  if (search) filtered = filtered.filter(r => (r.resource_id || '').toLowerCase().includes(search) || (r.name || '').toLowerCase().includes(search) || (r.resource_type || '').toLowerCase().includes(search));
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="empty">No resources found. Click "Scan Now" or ask in chat: "扫描所有 AWS 资源"</div>';
+    return;
+  }
+  // Render as compact table
+  const header = '<div style="display:grid;grid-template-columns:1fr 80px 120px 80px 100px 100px;gap:8px;padding:8px 12px;font-size:11px;text-transform:uppercase;color:var(--text2);border-bottom:1px solid var(--border)">'+
+    '<div>Resource</div><div>Type</div><div>Provider</div><div>Region</div><div>Status</div><div>Account</div></div>';
+  const rows = filtered.slice(0, 100).map(r =>
+    `<div style="display:grid;grid-template-columns:1fr 80px 120px 80px 100px 100px;gap:8px;padding:8px 12px;font-size:13px;border-bottom:1px solid var(--border)" title="${esc(r.resource_id)}">
+      <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name || r.resource_id)}</div>
+      <div><span class="tag">${esc(r.resource_type)}</span></div>
+      <div>${esc(r.provider)}</div>
+      <div style="font-size:11px">${esc(r.region || '-')}</div>
+      <div style="font-size:12px">${esc(r.status || '-')}</div>
+      <div style="font-size:11px">${esc(r.account_name || '-')}</div>
+    </div>`
+  ).join('');
+  container.innerHTML = header + rows;
+  if (filtered.length > 100) container.innerHTML += `<div style="text-align:center;padding:12px;color:var(--text2);font-size:12px">Showing 100 of ${filtered.length} resources</div>`;
+}
+
+async function triggerScan() {
+  toast('Scan triggered — check chat for progress');
+  // TODO: trigger scan_resources tool via Claude
+}
 
 // ── Approvals ────────────────────────────────────────────────────
 let approvalsList = [];
