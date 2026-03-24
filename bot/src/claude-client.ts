@@ -16,6 +16,7 @@ import { buildSystemPrompt, SystemPromptConfig } from './system-prompt-builder';
 import { buildToolSet, ToolContext } from './tool-definitions';
 import { executeTool, ToolExecutorConfig } from './tool-executor';
 import { SandboxConfig } from './command-sandbox';
+import { ApprovalStore } from './approval-store';
 
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_MAX_TURNS = 20;
@@ -58,6 +59,7 @@ export class ClaudeClient {
   private readonly tenantsConfigPath: string;
   private readonly timeoutMs: number;
   private readonly sessions = new Map<string, SessionEntry>();
+  public approvalStore?: ApprovalStore;
 
   constructor(options: ClaudeClientOptions) {
     this.workDir = options.workDir;
@@ -81,7 +83,7 @@ export class ClaudeClient {
     userId = '',
     tenantId?: string,
   ): Promise<string> {
-    const ctx = this.prepareContext(tenantId);
+    const ctx = this.prepareContext(tenantId, platform, userId);
     const session = this.getOrCreateSession(platform, userId, tenantId);
     session.messages.push({ role: 'user', content: userMessage });
 
@@ -128,7 +130,7 @@ export class ClaudeClient {
     userId = '',
     tenantId?: string,
   ): AsyncGenerator<StreamChunk> {
-    const ctx = this.prepareContext(tenantId);
+    const ctx = this.prepareContext(tenantId, platform, userId);
     const session = this.getOrCreateSession(platform, userId, tenantId);
     session.messages.push({ role: 'user', content: userMessage });
 
@@ -200,7 +202,7 @@ export class ClaudeClient {
 
   // ── Private helpers ──────────────────────────────────────────
 
-  private prepareContext(tenantId?: string) {
+  private prepareContext(tenantId?: string, platform?: string, userId?: string) {
     const provider = this.loadProviderConfig();
     const client = buildSdkClient(provider);
     const model = resolveModelId(provider);
@@ -274,6 +276,12 @@ export class ClaudeClient {
       env,
       glossary: glossary as Record<string, any> | undefined,
       skills: skillsConfig?.skills,
+      approvalStore: this.approvalStore,
+      userId,
+      userName: userId,
+      platform,
+      channelId: '',
+      tenantId,
     };
 
     const providerLabel = `${provider.type}/${model.split('-').slice(0, 2).join('-')}`;

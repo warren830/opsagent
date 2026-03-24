@@ -409,6 +409,17 @@
   .sidebar-footer .footer-links a:hover { color: var(--accent); }
   .sidebar-footer .footer-links a.danger { color: var(--danger); }
 
+  /* Approval badge */
+  .nav-badge {
+    display: inline-block; background: var(--danger); color: #fff; font-size: 10px;
+    min-width: 16px; height: 16px; line-height: 16px; text-align: center;
+    border-radius: 8px; padding: 0 4px; margin-left: 6px; vertical-align: middle;
+  }
+  .approval-status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+  .approval-status.pending { background: #f59e0b; color: #000; }
+  .approval-status.approved, .approval-status.executed { background: #22c55e; color: #fff; }
+  .approval-status.rejected, .approval-status.failed { background: var(--danger); color: #fff; }
+
   /* Fix I: Markdown preview */
   .md-preview-toggle { font-size: 12px; color: var(--accent); cursor: pointer; float: right; }
   .md-preview { padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; max-height: 300px; overflow-y: auto; }
@@ -447,6 +458,7 @@
     <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
     <a href="#plugins" onclick="switchTab('plugins')">Plugins</a>
     <div class="nav-section">Admin</div>
+    <a href="#approvals" onclick="switchTab('approvals')">Approvals <span id="approval-badge" class="nav-badge" style="display:none">0</span></a>
     <a href="#tenants" onclick="switchTab('tenants')">Tenants</a>
     <a href="#provider" onclick="switchTab('provider')">Provider</a>
     <a href="#users" onclick="switchTab('users')">Users</a>
@@ -684,6 +696,25 @@
     <div class="section-title">Discovered Clusters</div>
     <div id="clusters-status" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
     <div id="discovered-clusters-list"></div>
+  </div>
+
+  <!-- Approvals Tab -->
+  <div id="tab-approvals" style="display:none">
+    <div class="toolbar">
+      <h2>Approvals</h2>
+      <select id="approval-filter" onchange="loadApprovals()" style="background:var(--surface);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:13px">
+        <option value="">All</option>
+        <option value="pending" selected>Pending</option>
+        <option value="approved">Approved</option>
+        <option value="executed">Executed</option>
+        <option value="rejected">Rejected</option>
+        <option value="failed">Failed</option>
+      </select>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      kubectl write operations require admin approval before execution.
+    </div>
+    <div id="approvals-list"></div>
   </div>
 
   <!-- Users Tab -->
@@ -1176,7 +1207,7 @@ let editingOverrideId = null;    // null = new, string = editing
 let currentUser = null;          // { username, role, tenant_id } or null
 
 // ── Tab switching ──────────────────────────────────────────────────
-const ALL_TABS = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'tenants', 'clusters', 'provider', 'users'];
+const ALL_TABS = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'approvals', 'tenants', 'clusters', 'provider', 'users'];
 const SUPER_TABS = ALL_TABS;
 const TENANT_TABS = ['chat', 'glossary', 'accounts', 'skills', 'knowledge', 'clusters'];
 const allTabs = [...ALL_TABS];
@@ -3414,10 +3445,97 @@ function loadAppData() {
   if (allTabs.includes('clusters')) loadClustersConfig();
   if (allTabs.includes('provider')) loadProvider();
   if (allTabs.includes('users')) loadUsersList();
+  if (allTabs.includes('approvals')) loadApprovals();
 }
 
 // ── Users Management ──────────────────────────────────────────────
 let usersList = [];
+
+// ── Approvals ────────────────────────────────────────────────────
+let approvalsList = [];
+
+async function loadApprovals() {
+  const status = document.getElementById('approval-filter')?.value || '';
+  const qs = status ? `?status=${status}` : '';
+  const res = await fetch('/admin/api/approvals' + qs);
+  const data = await res.json();
+  approvalsList = data.approvals || [];
+  renderApprovals();
+  loadApprovalBadge();
+}
+
+async function loadApprovalBadge() {
+  try {
+    const res = await fetch('/admin/api/approvals/pending-count');
+    const data = await res.json();
+    const badge = document.getElementById('approval-badge');
+    if (badge) {
+      if (data.count > 0) {
+        badge.textContent = String(data.count);
+        badge.style.display = '';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+function renderApprovals() {
+  const container = document.getElementById('approvals-list');
+  if (!container) return;
+  if (approvalsList.length === 0) {
+    container.innerHTML = '<div class="empty">No approval requests.</div>';
+    return;
+  }
+  container.innerHTML = approvalsList.map(a => {
+    const time = new Date(a.createdAt).toLocaleString();
+    const statusClass = a.status;
+    const actions = a.status === 'pending'
+      ? `<button class="btn btn-primary btn-sm" onclick="approveRequest('${esc(a.id)}')">Approve</button>
+         <button class="btn btn-danger btn-sm" onclick="rejectRequest('${esc(a.id)}')">Reject</button>`
+      : '';
+    const result = a.executionResult
+      ? `<pre style="margin:8px 0 0;padding:8px;background:var(--bg);border-radius:4px;font-size:12px;max-height:150px;overflow:auto;white-space:pre-wrap">${esc(a.executionResult.substring(0, 500))}</pre>`
+      : '';
+    const resolvedInfo = a.resolvedBy
+      ? `<span style="color:var(--text2);font-size:12px">by ${esc(a.resolvedBy)} at ${new Date(a.resolvedAt).toLocaleString()}</span>`
+      : '';
+    return `<div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">#${esc(a.id)} <span class="approval-status ${statusClass}">${esc(a.status)}</span></div>
+          <div class="card-subtitle">${esc(a.requestedByName)} (${esc(a.platform)}) &middot; ${esc(time)}${a.tenantId ? ' &middot; ' + esc(a.tenantId) : ''}</div>
+        </div>
+        <div class="card-actions">${actions}</div>
+      </div>
+      <div style="font-family:monospace;font-size:13px;padding:4px 0;color:var(--text)">${esc(a.command)}</div>
+      ${resolvedInfo}
+      ${a.rejectReason ? '<div style="color:var(--danger);font-size:12px">Reason: ' + esc(a.rejectReason) + '</div>' : ''}
+      ${result}
+    </div>`;
+  }).join('');
+}
+
+async function approveRequest(id) {
+  if (!(await confirmAction('Approve and execute this command?'))) return;
+  const res = await fetch('/admin/api/approvals/' + id + '/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  if (res.ok) { toast('Approved — executing command'); loadApprovals(); }
+  else toast('Failed to approve', 'error');
+}
+
+async function rejectRequest(id) {
+  const reason = prompt('Rejection reason (optional):');
+  if (reason === null) return;
+  const res = await fetch('/admin/api/approvals/' + id + '/reject', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
+  if (res.ok) { toast('Rejected'); loadApprovals(); }
+  else toast('Failed to reject', 'error');
+}
+
+// Poll for new approvals every 15 seconds
+setInterval(() => { if (document.getElementById('tab-approvals')?.style.display !== 'none') loadApprovals(); else loadApprovalBadge(); }, 15000);
 
 async function loadUsersList() {
   try {

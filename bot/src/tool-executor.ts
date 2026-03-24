@@ -6,6 +6,7 @@ import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { validateCommand, SandboxConfig } from './command-sandbox';
+import { ApprovalStore } from './approval-store';
 
 const MAX_OUTPUT_BYTES = 100 * 1024; // 100KB max per tool result
 const DEFAULT_CMD_TIMEOUT = 60_000;
@@ -18,6 +19,13 @@ export interface ToolExecutorConfig {
   env: Record<string, string | undefined>;
   glossary?: Record<string, any>;
   skills?: Array<{ name: string; description: string; instructions: string; enabled: boolean }>;
+  // Approval context (optional — when set, kubectl write ops create approval requests)
+  approvalStore?: ApprovalStore;
+  userId?: string;
+  userName?: string;
+  platform?: string;
+  channelId?: string;
+  tenantId?: string;
 }
 
 export interface ToolResult {
@@ -64,6 +72,20 @@ async function executeRunCommand(
 
   const validation = validateCommand(command, config.sandboxConfig);
   if (!validation.allowed) {
+    if (validation.needsApproval && config.approvalStore) {
+      const approval = config.approvalStore.create({
+        command,
+        requestedBy: config.userId || 'unknown',
+        requestedByName: config.userName || 'unknown',
+        platform: config.platform || 'admin',
+        channelId: config.channelId || '',
+        tenantId: config.tenantId,
+      });
+      return {
+        content: `⚠️ 此操作需要管理员批准，已提交审批请求 #${approval.id}。\n命令: ${command}\n审批通过后会自动执行并通知你。`,
+        is_error: false,
+      };
+    }
     if (validation.needsApproval) {
       return { content: `⚠️ 此操作需要管理员批准: ${validation.reason}`, is_error: false };
     }

@@ -39,6 +39,9 @@ export class AdminApi {
   private readonly onScheduledJobsChanged?: () => void;
   private readonly onTenantsChanged?: () => void;
   private authWarningLogged = false;
+  public approvalStore?: import('./approval-store').ApprovalStore;
+  public onApprovalApproved?: (approvalId: string) => void;
+  public onApprovalRejected?: (approvalId: string) => void;
 
   constructor(options: AdminApiOptions) {
     this.glossaryPath = path.resolve(options.glossaryConfigPath);
@@ -217,6 +220,54 @@ export class AdminApi {
           if (req.method === 'DELETE') return this.deleteKnowledgeFile(res, subPath, tenantDir);
         }
       }
+    }
+
+    // ── Approvals ─────────────────────────────────────────────────
+    if (urlPath === '/admin/api/approvals' && req.method === 'GET' && this.approvalStore) {
+      const tenantFilter = authUser?.role === 'tenant_admin' ? authUser.tenant_id : undefined;
+      const status = (new URL(req.url || '', 'http://localhost').searchParams.get('status')) || undefined;
+      const list = this.approvalStore.list({ status, tenantId: tenantFilter });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ approvals: list }));
+      return true;
+    }
+
+    if (urlPath === '/admin/api/approvals/pending-count' && req.method === 'GET' && this.approvalStore) {
+      const tenantFilter = authUser?.role === 'tenant_admin' ? authUser.tenant_id : undefined;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ count: this.approvalStore.pendingCount(tenantFilter) }));
+      return true;
+    }
+
+    const approvalMatch = urlPath.match(/^\/admin\/api\/approvals\/(\d+)\/(approve|reject)$/);
+    if (approvalMatch && req.method === 'POST' && this.approvalStore) {
+      const id = approvalMatch[1];
+      const action = approvalMatch[2];
+      const approval = this.approvalStore.get(id);
+      if (!approval) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Approval not found' }));
+        return true;
+      }
+      // Tenant admin can only approve within their tenant
+      if (authUser?.role === 'tenant_admin' && authUser.tenant_id !== approval.tenantId) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Cannot approve requests from other tenants' }));
+        return true;
+      }
+      if (action === 'approve') {
+        const result = this.approvalStore.approve(id, authUser?.username || 'admin');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ approval: result }));
+        if (this.onApprovalApproved) this.onApprovalApproved(id);
+      } else {
+        const reason = body?.reason || '';
+        const result = this.approvalStore.reject(id, authUser?.username || 'admin', reason);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ approval: result }));
+        if (this.onApprovalRejected) this.onApprovalRejected(id);
+      }
+      return true;
     }
 
     // Users management (super_admin only)

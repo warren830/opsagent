@@ -86,7 +86,7 @@ async function run() {
   }
 
   const navLinks = await page.locator('#app-sidebar nav a:visible').count();
-  check('Sidebar has 12 nav links', navLinks === 12);
+  check('Sidebar has 13 nav links', navLinks === 13);
 
   const chatVisible = await page.locator('#tab-chat').isVisible();
   check('Chat tab visible by default', chatVisible);

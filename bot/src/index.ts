@@ -13,6 +13,7 @@ import { AdminApi } from './admin-api';
 import { SchedulerManager } from './scheduler';
 import { KubeconfigManager } from './kubeconfig-manager';
 import { TenantResolver } from './tenant-resolver';
+import { ApprovalStore } from './approval-store';
 import { SessionStore, loadUsers, saveUsers, verifyPassword, hashPassword, parseCookie, setSessionCookie, clearSessionCookie, UserRole } from './auth';
 
 const PORT = parseInt(process.env.PORT || '3978', 10);
@@ -67,6 +68,8 @@ const claudeClient = new ClaudeClient({
 const auditLogger = new AuditLogger();
 const sessionStore = new SessionStore();
 const tenantResolver = new TenantResolver(TENANTS_CONFIG);
+const approvalStore = new ApprovalStore(path.join(CONFIG_DIR, 'approvals.json'));
+claudeClient.approvalStore = approvalStore;
 
 // ── Config validation on startup ──────────────────────────────
 function validateConfigs(): void {
@@ -196,6 +199,53 @@ adminApi = new AdminApi({
   onScheduledJobsChanged: () => scheduler.reload(),
   onTenantsChanged: () => tenantResolver.reload(),
 });
+adminApi.approvalStore = approvalStore;
+
+// ── Approval execution callbacks ──────────────────────────────
+adminApi.onApprovalApproved = async (approvalId: string) => {
+  const approval = approvalStore.get(approvalId);
+  if (!approval) return;
+  console.log(`[index] Executing approved command #${approvalId}: ${approval.command}`);
+  try {
+    const { execFile } = require('child_process');
+    const result: string = await new Promise((resolve, reject) => {
+      execFile('/bin/sh', ['-c', approval.command], {
+        cwd: WORK_DIR, timeout: 180_000, maxBuffer: 100 * 1024,
+        env: process.env,
+      }, (err: any, stdout: string, stderr: string) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve(stdout || '(no output)');
+      });
+    });
+    approvalStore.markExecuted(approvalId, result);
+    // Notify user via IM if possible
+    const adapter = adapters.get(approval.platform);
+    if (adapter?.sendToChannel && approval.channelId) {
+      adapter.sendToChannel(approval.channelId,
+        `✅ 审批 #${approvalId} 已通过并执行完成:\n命令: ${approval.command}\n结果: ${result.substring(0, 500)}\n批准人: ${approval.resolvedBy}`,
+      );
+    }
+  } catch (err: any) {
+    approvalStore.markFailed(approvalId, err.message);
+    const adapter = adapters.get(approval.platform);
+    if (adapter?.sendToChannel && approval.channelId) {
+      adapter.sendToChannel(approval.channelId,
+        `❌ 审批 #${approvalId} 已批准但执行失败:\n命令: ${approval.command}\n错误: ${err.message}`,
+      );
+    }
+  }
+};
+
+adminApi.onApprovalRejected = (approvalId: string) => {
+  const approval = approvalStore.get(approvalId);
+  if (!approval) return;
+  const adapter = adapters.get(approval.platform);
+  if (adapter?.sendToChannel && approval.channelId) {
+    adapter.sendToChannel(approval.channelId,
+      `🚫 审批 #${approvalId} 已被拒绝:\n命令: ${approval.command}\n拒绝人: ${approval.resolvedBy}${approval.rejectReason ? '\n原因: ' + approval.rejectReason : ''}`,
+    );
+  }
+};
 
 // HTTP request body parser (max 10MB)
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
