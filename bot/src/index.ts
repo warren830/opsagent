@@ -14,6 +14,9 @@ import { SchedulerManager } from './scheduler';
 import { KubeconfigManager } from './kubeconfig-manager';
 import { TenantResolver } from './tenant-resolver';
 import { ApprovalStore } from './approval-store';
+import { normalizeAlert } from './alert-webhook';
+import { createIssue, saveIssueToDB } from './patrol';
+import { buildRcaPrompt } from './rca';
 import { SessionStore, loadUsers, saveUsers, verifyPassword, hashPassword, parseCookie, setSessionCookie, clearSessionCookie, UserRole } from './auth';
 
 const PORT = parseInt(process.env.PORT || '3978', 10);
@@ -616,6 +619,52 @@ const server = http.createServer(async (req, res) => {
     } catch {
       res.writeHead(400);
       res.end('Invalid JSON');
+      return;
+    }
+
+    // Alert webhook: POST /api/alerts
+    if (url === '/api/alerts') {
+      const alert = normalizeAlert(body);
+      if (!alert) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unrecognized alert format' }));
+        return;
+      }
+      console.log(`[index] Alert received: ${alert.source} — ${alert.title} (${alert.severity})`);
+
+      // Create issue from alert
+      const issue = createIssue({
+        resource_id: alert.resource_id,
+        resource_type: alert.resource_type,
+        severity: alert.severity,
+        source: `alert:${alert.source}`,
+        title: alert.title,
+        description: alert.description,
+        metric_data: alert.metric_data,
+      });
+
+      // Try to save to DB (fire-and-forget if DB not available)
+      try {
+        const saved = await saveIssueToDB(issue);
+        console.log(`[index] Issue #${saved.id} created from alert`);
+
+        // Trigger RCA in background
+        const rcaPrompt = buildRcaPrompt({
+          issueId: saved.id, title: saved.title, resource_id: saved.resource_id || '',
+          severity: saved.severity, description: saved.description || '',
+          regions: [],
+        });
+        claudeClient.query(rcaPrompt, 'alert', 'system').catch(err => {
+          console.error(`[index] Background RCA failed: ${err.message}`);
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, issue_id: saved.id, source: alert.source }));
+      } catch (dbErr: any) {
+        console.warn(`[index] DB unavailable, alert logged but not persisted: ${dbErr.message}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, persisted: false, source: alert.source }));
+      }
       return;
     }
 
