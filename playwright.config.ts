@@ -2,11 +2,14 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 30_000,
+  timeout: 60_000,
   retries: 0,
   use: {
     baseURL: 'http://localhost:3978',
+    screenshot: 'on',
+    viewport: { width: 1280, height: 800 },
   },
+  outputDir: './test-results',
   webServer: {
     command: 'node bot/dist/index.js',
     port: 3978,

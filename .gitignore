@@ -33,6 +33,8 @@ skills/
 tests/screenshots/
 tests/demo-screenshots/
 tests/demo-video/
+test-results/
+test-screenshots/
 
 # Other
 docs/
