@@ -1,26 +1,42 @@
-/**
- * ClaudeClient — Anthropic SDK based agent loop.
- * Replaces the old CLI-spawn approach with direct API calls.
- *
- * Public interface is unchanged: query() and queryStream() return
- * the same types consumed by message-handler.ts and index.ts.
- */
+import { ChildProcess, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import Anthropic from '@anthropic-ai/sdk';
-import { loadProvider, buildSdkClient, resolveModelId, SdkClient, ProviderConfig } from './provider-loader';
-import { loadGlossary } from './glossary-loader';
-import { loadSkills, Skill } from './skills-loader';
-import { loadTenants, TenantConfig } from './tenant-loader';
-import { buildSystemPrompt, SystemPromptConfig } from './system-prompt-builder';
-import { buildToolSet, ToolContext } from './tool-definitions';
-import { executeTool, ToolExecutorConfig } from './tool-executor';
-import { SandboxConfig } from './command-sandbox';
+import { loadPlugins, generateMcpConfig } from './plugin-loader';
+import { loadGlossary, generateGlossaryKnowledge } from './glossary-loader';
+import { loadAccounts, generateAccountsKnowledge, generateAlicloudPromptSection } from './accounts-loader';
+import { loadSkills, generateSkillsPrompt } from './skills-loader';
+import { scanKnowledgeFiles, generateKnowledgeIndex, generateKnowledgeIndexFile } from './knowledge-loader';
+import { loadProvider, buildProviderEnv, ProviderConfig } from './provider-loader';
+import { loadTenants, TenantConfig, TenantAlicloudAccount } from './tenant-loader';
 import { ApprovalStore } from './approval-store';
 
-const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const DEFAULT_MAX_TURNS = 20;
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
+const CLAUDE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes idle -> expire session
+
+const BASE_SYSTEM_PROMPT = `你是 OpsAgent，一个多云基础设施查询助手。
+支持 AWS、阿里云、Azure、GCP 等多云平台。
+使用 aws cli 查询 AWS 资源，使用 aliyun cli 查询阿里云资源，使用 az cli 查询 Azure 资源，使用 gcloud 查询 GCP 资源。
+使用 kubectl 查询 Kubernetes 集群。
+使用 MCP 工具查询 Confluence 文档、Jira 工单等外部数据源。
+AWS 跨账号查询时使用 ./scripts/foreach-account.sh 自动遍历所有 Organizations 账号。
+阿里云多账号查询时使用 aliyun configure 切换 profile。
+knowledge/ 目录包含公司的知识库文件。CLAUDE.md 末尾有知识库索引，列出所有可用文件。遇到基础设施问题时，先根据索引用 Read 读取相关知识文件，而不是盲目搜索。
+始终返回结构化、易读的 Markdown 表格结果。
+
+## CRITICAL: kubectl 使用规则
+kubeconfig 已预配置，可直接使用 kubectl。按以下步骤操作：
+1. 用 Read 工具读取 knowledge/clusters.md 获取所有集群信息和 context 名称
+2. 直接用 --context 参数执行 kubectl 命令，无需手动配置 kubeconfig
+   kubectl --context <context-name> get pods -A
+3. 或使用 ./scripts/kubectl-all.sh 一次查询所有集群
+4. 汇总所有集群的结果到一张表中，表中必须包含「集群」列
+
+重要：除非用户明确指定了某个集群，否则必须查询所有集群并汇总结果。
+
+## kubectl 写操作审批
+kubectl 写操作（apply/create/delete/patch/edit/scale/rollout/drain/cordon/taint 等）必须使用 ./scripts/kubectl-safe.sh 替代直接 kubectl。
+例如: ./scripts/kubectl-safe.sh --context prod-cluster delete pod my-pod
+该脚本会自动将写操作提交审批，读操作则直接执行。`;
 
 export interface ClaudeClientOptions {
   workDir: string;
@@ -45,12 +61,14 @@ export interface StreamChunk {
 }
 
 interface SessionEntry {
-  messages: Anthropic.MessageParam[];
+  sessionId: string;
   lastActiveAt: number;
 }
 
 export class ClaudeClient {
   private readonly workDir: string;
+  private readonly pluginsConfigPath: string;
+  private readonly mcpConfigPath: string;
   private readonly glossaryConfigPath: string;
   private readonly accountsConfigPath: string;
   private readonly skillsConfigPath: string;
@@ -58,195 +76,187 @@ export class ClaudeClient {
   private readonly providerConfigPath: string;
   private readonly tenantsConfigPath: string;
   private readonly timeoutMs: number;
-  private readonly sessions = new Map<string, SessionEntry>();
+
+  /** Approval store for kubectl write operations (used by wrapper script) */
   public approvalStore?: ApprovalStore;
+
+  /** Map of "platform:userId" -> session info */
+  private readonly sessions = new Map<string, SessionEntry>();
 
   constructor(options: ClaudeClientOptions) {
     this.workDir = options.workDir;
+    this.pluginsConfigPath = options.pluginsConfigPath;
+    this.mcpConfigPath = options.mcpConfigPath;
     this.glossaryConfigPath = options.glossaryConfigPath ?? path.join(this.workDir, 'config/glossary.yaml');
     this.accountsConfigPath = options.accountsConfigPath ?? path.join(this.workDir, 'config/accounts.yaml');
     this.skillsConfigPath = options.skillsConfigPath ?? path.join(this.workDir, 'config/skills.yaml');
     this.knowledgeDir = options.knowledgeDir ?? path.join(this.workDir, 'knowledge');
     this.providerConfigPath = options.providerConfigPath ?? path.join(this.workDir, 'config/providers.yaml');
     this.tenantsConfigPath = options.tenantsConfigPath ?? path.join(this.workDir, 'config/tenants.yaml');
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  }
-
-  // ── Public API ──────────────────────────────────────────────
-
-  /**
-   * Non-streaming query. Returns final text response.
-   */
-  async query(
-    userMessage: string,
-    platform = '',
-    userId = '',
-    tenantId?: string,
-  ): Promise<string> {
-    const ctx = this.prepareContext(tenantId, platform, userId);
-    const session = this.getOrCreateSession(platform, userId, tenantId);
-    session.messages.push({ role: 'user', content: userMessage });
-
-    const startTime = Date.now();
-    let turn = 0;
-
-    while (turn < ctx.maxTurns) {
-      // Timeout check
-      if (Date.now() - startTime > this.timeoutMs) {
-        throw new Error(`Query timed out after ${this.timeoutMs / 1000}s`);
-      }
-
-      const response = await ctx.client.messages.create({
-        model: ctx.model,
-        max_tokens: 16384,
-        system: ctx.systemPrompt,
-        tools: ctx.tools,
-        messages: session.messages,
-      });
-
-      session.messages.push({ role: 'assistant', content: response.content });
-
-      if (response.stop_reason === 'end_turn' || !this.hasToolUse(response.content)) {
-        session.lastActiveAt = Date.now();
-        return this.extractText(response.content);
-      }
-
-      // Execute tools and continue loop
-      const toolResults = await this.executeToolCalls(response.content, ctx.toolConfig);
-      session.messages.push({ role: 'user', content: toolResults });
-      turn++;
-    }
-
-    return 'Reached maximum tool call turns.';
+    this.timeoutMs = options.timeoutMs ?? CLAUDE_TIMEOUT_MS;
   }
 
   /**
-   * Streaming query. Yields StreamChunk objects compatible with
-   * message-handler.ts and the admin SSE endpoint.
+   * Generate CLAUDE.md in workDir — Claude Code reads this natively.
+   * Also generates knowledge files (glossary.md, accounts.md) and skills/*.md.
    */
-  async *queryStream(
-    userMessage: string,
-    platform = '',
-    userId = '',
-    tenantId?: string,
-  ): AsyncGenerator<StreamChunk> {
-    const ctx = this.prepareContext(tenantId, platform, userId);
-    const session = this.getOrCreateSession(platform, userId, tenantId);
-    session.messages.push({ role: 'user', content: userMessage });
-
-    const sessionKey = this.getSessionKey(platform, userId, tenantId);
-    yield { type: 'init', content: '', sessionId: sessionKey, turn: 0 };
-
-    const startTime = Date.now();
-    let turn = 0;
-    let fullText = '';
-
-    while (turn < ctx.maxTurns) {
-      if (Date.now() - startTime > this.timeoutMs) {
-        yield { type: 'text', content: '\n\n(Query timed out)', turn };
-        break;
-      }
-
-      const stream = ctx.client.messages.stream({
-        model: ctx.model,
-        max_tokens: 16384,
-        system: ctx.systemPrompt,
-        tools: ctx.tools,
-        messages: session.messages,
-      });
-
-      // Stream text deltas to the caller
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta') {
-          const delta = event.delta as any;
-          if (delta.type === 'text_delta') {
-            fullText += delta.text;
-            yield { type: 'text', content: delta.text, turn };
-          } else if (delta.type === 'thinking_delta') {
-            yield { type: 'thinking', content: (delta.thinking || '').substring(0, 200), turn };
-          }
-        }
-      }
-
-      const finalMessage = await stream.finalMessage();
-      session.messages.push({ role: 'assistant', content: finalMessage.content });
-
-      // Check if done
-      if (finalMessage.stop_reason === 'end_turn' || !this.hasToolUse(finalMessage.content)) {
-        break;
-      }
-
-      // Execute tools
-      const toolUseBlocks = finalMessage.content.filter(
-        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
-      );
-      for (const block of toolUseBlocks) {
-        yield { type: 'tool_use', content: `Calling ${block.name}`, toolName: block.name, turn };
-      }
-
-      const toolResults = await this.executeToolCalls(finalMessage.content, ctx.toolConfig);
-      session.messages.push({ role: 'user', content: toolResults });
-      turn++;
-    }
-
-    session.lastActiveAt = Date.now();
-
-    yield {
-      type: 'done',
-      content: fullText,
-      sessionId: sessionKey,
-      turn,
-      durationMs: Date.now() - startTime,
-    };
+  private findTenant(tenantId: string): TenantConfig | null {
+    const file = loadTenants(this.tenantsConfigPath);
+    if (!file) return null;
+    return file.tenants.find(t => t.id === tenantId) || null;
   }
 
-  // ── Private helpers ──────────────────────────────────────────
+  /**
+   * Get the tenant data directory: knowledge/_tenants/{tenantId}/
+   * Contains tenant-specific glossary, skills, and knowledge files.
+   */
+  private getTenantDir(tenantId: string): string {
+    return path.join(this.knowledgeDir, '_tenants', tenantId);
+  }
 
-  private prepareContext(tenantId?: string, platform?: string, userId?: string) {
-    const provider = this.loadProviderConfig();
-    const client = buildSdkClient(provider);
-    const model = resolveModelId(provider);
-    const maxTurns = provider.max_turns || DEFAULT_MAX_TURNS;
+  private generateClaudeMd(tenantId?: string): void {
+    const parts: string[] = [BASE_SYSTEM_PROMPT];
     const tenant = tenantId ? this.findTenant(tenantId) : null;
 
-    // Load data for system prompt and tools
-    const tenantDir = tenantId ? path.join(this.knowledgeDir, '_tenants', tenantId) : null;
+    // Determine paths: tenant-specific or shared
+    const tenantDir = tenantId ? this.getTenantDir(tenantId) : null;
     const tenantConfigDir = tenantDir ? path.join(tenantDir, '_config') : null;
-    const glossaryPath = tenantConfigDir && fs.existsSync(path.join(tenantConfigDir, 'glossary.yaml'))
-      ? path.join(tenantConfigDir, 'glossary.yaml')
-      : this.glossaryConfigPath;
-    const skillsPath = tenantConfigDir && fs.existsSync(path.join(tenantConfigDir, 'skills.yaml'))
-      ? path.join(tenantConfigDir, 'skills.yaml')
-      : this.skillsConfigPath;
+    const glossaryPath = tenantConfigDir ? path.join(tenantConfigDir, 'glossary.yaml') : this.glossaryConfigPath;
+    const skillsPath = tenantConfigDir ? path.join(tenantConfigDir, 'skills.yaml') : this.skillsConfigPath;
+    const knowledgeDir = tenantDir || this.knowledgeDir;
+    const skillsDir = tenantDir ? path.join(tenantDir, 'skills') : path.join(this.workDir, 'skills');
 
-    const glossaryConfig = loadGlossary(glossaryPath);
-    const glossary = glossaryConfig?.glossary || null;
-    const skillsConfig = loadSkills(skillsPath);
-    const enabledSkills = skillsConfig?.skills?.filter((s: Skill) => s.enabled) || [];
+    // Ensure tenant dirs exist
+    if (tenantDir && !fs.existsSync(tenantDir)) {
+      fs.mkdirSync(tenantDir, { recursive: true });
+    }
+    if (tenantConfigDir && !fs.existsSync(tenantConfigDir)) {
+      fs.mkdirSync(tenantConfigDir, { recursive: true });
+    }
 
-    // System prompt
-    const systemPrompt = buildSystemPrompt({
-      workDir: this.workDir,
-      glossaryConfigPath: glossaryPath,
-      accountsConfigPath: this.accountsConfigPath,
-      skillsConfigPath: skillsPath,
-      knowledgeDir: tenantDir && fs.existsSync(tenantDir) ? tenantDir : this.knowledgeDir,
-      tenantId,
-      tenant,
-    });
+    // Glossary summary (tenant-scoped)
+    const glossary = loadGlossary(glossaryPath);
+    if (glossary) {
+      const summary = generateGlossaryKnowledge(glossary, knowledgeDir);
+      if (summary) {
+        parts.push('');
+        parts.push('## 公司术语速查');
+        parts.push(summary);
+        parts.push(`完整术语详情见 ${tenantId ? 'knowledge/_tenants/' + tenantId + '/glossary.md' : 'knowledge/glossary.md'} 文件。`);
+      }
+    }
 
-    // Tools
-    const tools = buildToolSet({
-      hasGlossary: !!glossary && Object.keys(glossary || {}).length > 0,
-      hasSkills: enabledSkills.length > 0,
-      skillNames: enabledSkills.map((s: Skill) => s.name),
-      enableEnrichedTools: true,
-    });
+    // Accounts summary (filtered by tenant)
+    const accounts = loadAccounts(this.accountsConfigPath);
+    if (accounts) {
+      if (tenant?.aws_account_ids) {
+        const allowedIds = new Set(tenant.aws_account_ids);
+        if (accounts.accounts.extra) {
+          accounts.accounts.extra = accounts.accounts.extra.filter(a => allowedIds.has(a.id));
+        }
+        if (accounts.accounts.overrides) {
+          const filtered: Record<string, any> = {};
+          for (const [id, override] of Object.entries(accounts.accounts.overrides)) {
+            if (allowedIds.has(id)) filtered[id] = override;
+          }
+          accounts.accounts.overrides = filtered;
+        }
+      }
+      const summary = generateAccountsKnowledge(accounts, knowledgeDir);
+      if (summary) {
+        parts.push('');
+        parts.push('## 已配置的云账号');
+        parts.push(summary);
+      }
+    }
 
-    // Tool executor config
-    const env: Record<string, string | undefined> = { ...process.env };
-    // Inject alicloud creds for tenant
+    // Alicloud section for tenant
     if (tenant?.alicloud && tenant.alicloud.length > 0) {
+      const aliSection = generateAlicloudPromptSection(tenant.alicloud);
+      if (aliSection) {
+        parts.push('');
+        parts.push(aliSection);
+      }
+    }
+
+    // Tenant scope info
+    if (tenant) {
+      parts.push('');
+      parts.push(`## 当前租户: ${tenant.name} (${tenant.id})`);
+      if (tenant.aws_account_ids?.length) {
+        parts.push(`仅查询以下 AWS 账号: ${tenant.aws_account_ids.join(', ')}`);
+        parts.push(`使用 foreach-account.sh 时必须加 --accounts ${tenant.aws_account_ids.join(',')} 参数限制范围。`);
+      }
+    }
+
+    // Skills (tenant-scoped)
+    const skillsConfig = loadSkills(skillsPath);
+    if (skillsConfig) {
+      const skillsPrompt = generateSkillsPrompt(skillsConfig, skillsDir);
+      if (skillsPrompt) {
+        parts.push('');
+        parts.push('## 技能指引');
+        parts.push(skillsPrompt);
+      }
+    }
+
+    // Knowledge index (tenant-scoped)
+    const knowledgeEntries = scanKnowledgeFiles(knowledgeDir);
+    if (knowledgeEntries.length > 0) {
+      generateKnowledgeIndexFile(knowledgeEntries, knowledgeDir);
+      const knowledgeIndex = generateKnowledgeIndex(knowledgeEntries);
+      if (knowledgeIndex) {
+        parts.push('');
+        parts.push('## 知识库索引');
+        parts.push(knowledgeIndex);
+      }
+    }
+
+    // Always write to CLAUDE.md — Claude Code only reads this file.
+    // Tenant-scoped content overwrites it before each query.
+    const claudeMdPath = path.join(this.workDir, 'CLAUDE.md');
+    fs.writeFileSync(claudeMdPath, parts.join('\n'), 'utf-8');
+    console.log(`[claude-client] Generated CLAUDE.md${tenantId ? ` [tenant=${tenantId}]` : ''} (${parts.join('\n').length} bytes)`);
+  }
+
+  private getSessionKey(platform: string, userId: string, tenantId?: string): string {
+    return tenantId ? `tenant:${tenantId}:${platform}:${userId}` : `${platform}:${userId}`;
+  }
+
+  private getSession(platform: string, userId: string, tenantId?: string): string | null {
+    const key = this.getSessionKey(platform, userId, tenantId);
+    const entry = this.sessions.get(key);
+    if (!entry) return null;
+    // Expire stale sessions
+    if (Date.now() - entry.lastActiveAt > SESSION_TTL_MS) {
+      this.sessions.delete(key);
+      console.log(`[claude-client] Session expired for ${key}`);
+      return null;
+    }
+    return entry.sessionId;
+  }
+
+  private setSession(platform: string, userId: string, sessionId: string, tenantId?: string): void {
+    const key = this.getSessionKey(platform, userId, tenantId);
+    this.sessions.set(key, { sessionId, lastActiveAt: Date.now() });
+    console.log(`[claude-client] Session stored for ${key}: ${sessionId}`);
+  }
+
+  private touchSession(platform: string, userId: string, tenantId?: string): void {
+    const key = this.getSessionKey(platform, userId, tenantId);
+    const entry = this.sessions.get(key);
+    if (entry) entry.lastActiveAt = Date.now();
+  }
+
+  private getProvider(): ProviderConfig {
+    return loadProvider(this.providerConfigPath);
+  }
+
+  private buildSpawnEnv(provider: ProviderConfig, tenant?: TenantConfig | null): Record<string, string | undefined> {
+    const env: Record<string, string | undefined> = { ...process.env, ...buildProviderEnv(provider) };
+
+    if (tenant?.alicloud && tenant.alicloud.length > 0) {
+      // Inject first account as default credentials
       const ali = tenant.alicloud[0];
       const ak = process.env[ali.access_key_env];
       const sk = process.env[ali.secret_key_env];
@@ -254,7 +264,10 @@ export class ClaudeClient {
         env.ALICLOUD_ACCESS_KEY_ID = ak;
         env.ALICLOUD_SECRET_ACCESS_KEY = sk;
         env.ALICLOUD_REGION = ali.region;
+      } else {
+        console.warn(`[claude-client] Alicloud env vars not set for tenant ${tenant.id}: ${ali.access_key_env}, ${ali.secret_key_env}`);
       }
+      // Also inject each account as named env vars so aliyun CLI profiles can be configured
       for (const account of tenant.alicloud) {
         const prefix = `ALICLOUD_${account.name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
         const accAk = process.env[account.access_key_env];
@@ -265,96 +278,289 @@ export class ClaudeClient {
       }
     }
 
-    const sandboxConfig: SandboxConfig = {
-      allowedAwsAccountIds: tenant?.aws_account_ids,
-      kubectlReadOnly: true, // default: write ops need approval
-    };
-
-    const toolConfig: ToolExecutorConfig = {
-      workDir: this.workDir,
-      knowledgeDir: tenantDir && fs.existsSync(tenantDir) ? tenantDir : this.knowledgeDir,
-      sandboxConfig,
-      env,
-      glossary: glossary as Record<string, any> | undefined,
-      skills: skillsConfig?.skills,
-      approvalStore: this.approvalStore,
-      userId,
-      userName: userId,
-      platform,
-      channelId: '',
-      tenantId,
-    };
-
-    const providerLabel = `${provider.type}/${model.split('-').slice(0, 2).join('-')}`;
-    console.log(`[claude-client] SDK query (provider=${providerLabel}${tenantId ? `, tenant=${tenantId}` : ''}, tools=${tools.length})`);
-
-    return { client, model, maxTurns, systemPrompt, tools, toolConfig };
-  }
-
-  private loadProviderConfig(): ProviderConfig {
-    return loadProvider(this.providerConfigPath);
-  }
-
-  private findTenant(tenantId: string): TenantConfig | null {
-    const tenantsFile = loadTenants(this.tenantsConfigPath);
-    return tenantsFile?.tenants?.find(t => t.id === tenantId) || null;
-  }
-
-  private getSessionKey(platform: string, userId: string, tenantId?: string): string {
-    return tenantId ? `tenant:${tenantId}:${platform}:${userId}` : `${platform}:${userId}`;
-  }
-
-  private getOrCreateSession(platform: string, userId: string, tenantId?: string): SessionEntry {
-    const key = this.getSessionKey(platform, userId, tenantId);
-    const existing = this.sessions.get(key);
-
-    if (existing && Date.now() - existing.lastActiveAt < SESSION_TTL_MS) {
-      return existing;
+    // Strip other tenants' alicloud env vars for isolation
+    for (const key of Object.keys(env)) {
+      if (key.startsWith('ALICLOUD_') && key.endsWith('_AK')) delete env[key];
+      if (key.startsWith('ALICLOUD_') && key.endsWith('_SK')) delete env[key];
     }
 
-    // New session or expired
-    const session: SessionEntry = { messages: [], lastActiveAt: Date.now() };
-    this.sessions.set(key, session);
-    return session;
+    return env;
   }
 
-  private hasToolUse(content: Anthropic.ContentBlock[]): boolean {
-    return content.some(b => b.type === 'tool_use');
+  private prepareQuery(platform: string, userId: string, tenantId?: string): string | null {
+    const plugins = loadPlugins(this.pluginsConfigPath);
+    generateMcpConfig(plugins, this.mcpConfigPath);
+    this.generateClaudeMd(tenantId);
+    return this.getSession(platform, userId, tenantId);
   }
 
-  private extractText(content: Anthropic.ContentBlock[]): string {
-    return content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map(b => b.text)
-      .join('');
-  }
+  async query(userMessage: string, platform: string = '', userId: string = '', tenantId?: string): Promise<string> {
+    const existingSessionId = this.prepareQuery(platform, userId, tenantId);
+    const provider = this.getProvider();
+    const model = provider.model || 'opus';
+    const maxTurns = String(provider.max_turns || 20);
+    const timeout = provider.timeout_ms || this.timeoutMs;
 
-  private async executeToolCalls(
-    content: Anthropic.ContentBlock[],
-    config: ToolExecutorConfig,
-  ): Promise<Anthropic.ToolResultBlockParam[]> {
-    const toolUseBlocks = content.filter(
-      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
-    );
+    const args = [
+      '-p', userMessage,
+      '--allowedTools', 'Bash(git*:deny),Read,Glob,Grep',
+      '--output-format', 'json',
+      '--max-turns', maxTurns,
+      '--permission-mode', 'bypassPermissions',
+      '--model', model,
+    ];
 
-    const results: Anthropic.ToolResultBlockParam[] = [];
+    if (existingSessionId) {
+      args.push('--resume', existingSessionId);
+      console.log(`[claude-client] Resuming session ${existingSessionId} for ${platform}:${userId}`);
+    } else {
+      console.log(`[claude-client] Starting new session for ${platform}:${userId}`);
+    }
 
-    for (const block of toolUseBlocks) {
-      console.log(`[claude-client] Tool call: ${block.name}(${JSON.stringify(block.input).substring(0, 100)})`);
-      const result = await executeTool(
-        block.name,
-        block.input as Record<string, any>,
-        config,
+    console.log(`[claude-client] Executing query (provider=${provider.type}, model=${model}): ${userMessage.substring(0, 100)}...`);
+
+    const rawOutput = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        'claude',
+        args,
+        {
+          cwd: this.workDir,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: this.buildSpawnEnv(provider, tenantId ? this.findTenant(tenantId) : null),
+        },
       );
-      console.log(`[claude-client] Tool result: ${result.is_error ? 'ERROR' : 'OK'} (${result.content.length} chars)`);
-      results.push({
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: result.content,
-        is_error: result.is_error,
+
+      console.log(`[claude-client] Spawned claude process PID: ${child.pid}`);
+
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+      child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        // Escalate to SIGKILL if still alive after 5s
+        setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
+        reject(new Error(`Claude Code timed out after ${timeout / 1000}s`));
+      }, timeout);
+
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) {
+          console.error(`[claude-client] stderr: ${stderr}`);
+          reject(new Error(`Claude Code exited with code ${code}: ${stderr}`));
+        } else {
+          resolve(stdout.trim());
+        }
       });
+
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        reject(new Error(`Claude Code spawn error: ${err.message}`));
+      });
+    });
+
+    // Parse JSON output to extract session_id and result text
+    const { text, sessionId } = this.parseJsonOutput(rawOutput);
+
+    // Store/update session
+    if (sessionId && platform && userId) {
+      this.setSession(platform, userId, sessionId, tenantId);
+    } else if (platform && userId) {
+      this.touchSession(platform, userId, tenantId);
     }
 
-    return results;
+    console.log(`[claude-client] Query completed, response length: ${text.length}`);
+    return text;
+  }
+
+  /**
+   * Streaming query — returns an AsyncGenerator of StreamChunk.
+   * Uses --output-format stream-json --verbose.
+   */
+  async *queryStream(
+    userMessage: string,
+    platform: string = '',
+    userId: string = '',
+    tenantId?: string,
+  ): AsyncGenerator<StreamChunk> {
+    const existingSessionId = this.prepareQuery(platform, userId, tenantId);
+    const provider = this.getProvider();
+    const model = provider.model || 'opus';
+    const maxTurns = String(provider.max_turns || 20);
+
+    const args = [
+      '-p', userMessage,
+      '--allowedTools', 'Bash(git*:deny),Read,Glob,Grep',
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--max-turns', maxTurns,
+      '--permission-mode', 'bypassPermissions',
+      '--model', model,
+    ];
+
+    if (existingSessionId) {
+      args.push('--resume', existingSessionId);
+    }
+
+    console.log(`[claude-client] Stream query (provider=${provider.type}, model=${model}): ${userMessage.substring(0, 100)}...`);
+
+    const child = spawn('claude', args, {
+      cwd: this.workDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: this.buildSpawnEnv(provider, tenantId ? this.findTenant(tenantId) : null),
+    });
+
+    let stderr = '';
+    let sessionId: string | null = null;
+    let fullText = '';
+    let buffer = '';
+    let turn = 0;
+
+    child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+    const streamTimeout = provider.timeout_ms || this.timeoutMs;
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
+      console.error(`[claude-client] Stream timed out, PID: ${child.pid}`);
+    }, streamTimeout);
+
+    const chunks = this.childStdoutIterator(child);
+
+    try {
+      for await (const raw of chunks) {
+        buffer += raw;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+
+            if (event.type === 'system' && event.subtype === 'init') {
+              sessionId = event.session_id || null;
+              yield { type: 'init', content: '', sessionId, turn: 0 };
+            } else if (event.type === 'assistant' && event.message?.content) {
+              for (const block of event.message.content) {
+                if (block.type === 'thinking' && block.thinking) {
+                  yield { type: 'thinking', content: block.thinking.substring(0, 200), turn };
+                } else if (block.type === 'text' && block.text) {
+                  fullText += block.text;
+                  yield { type: 'text', content: block.text, turn };
+                } else if (block.type === 'tool_use') {
+                  yield {
+                    type: 'tool_use',
+                    content: `Using ${block.name}`,
+                    toolName: block.name,
+                    turn,
+                  };
+                }
+              }
+              turn++;
+            } else if (event.type === 'result') {
+              sessionId = event.session_id || sessionId;
+              const durationMs = event.duration_ms || 0;
+              if (event.result && !fullText) {
+                fullText = typeof event.result === 'string'
+                  ? event.result
+                  : JSON.stringify(event.result);
+                yield { type: 'text', content: fullText, turn };
+              }
+              if (sessionId && platform && userId) {
+                this.setSession(platform, userId, sessionId, tenantId);
+              } else if (platform && userId) {
+                this.touchSession(platform, userId, tenantId);
+              }
+              yield { type: 'done', content: fullText, sessionId, turn, durationMs };
+              console.log(`[claude-client] Stream completed, length: ${fullText.length}, turns: ${turn}`);
+            }
+          } catch {
+            // Non-JSON line, skip
+          }
+        }
+      }
+
+      // Process remaining buffer
+      if (buffer.trim()) {
+        try {
+          const event = JSON.parse(buffer);
+          if (event.type === 'result') {
+            sessionId = event.session_id || sessionId;
+            if (event.result && !fullText) {
+              fullText = typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
+            }
+            if (sessionId && platform && userId) {
+              this.setSession(platform, userId, sessionId, tenantId);
+            }
+            yield { type: 'done', content: fullText, sessionId, turn, durationMs: event.duration_ms || 0 };
+          }
+        } catch { /* ignore */ }
+      }
+    } finally {
+      clearTimeout(timer);
+      if (!child.killed) child.kill('SIGTERM');
+    }
+  }
+
+  /**
+   * Async iterator over child process stdout chunks.
+   */
+  private async *childStdoutIterator(child: ChildProcess): AsyncGenerator<string> {
+    const buffer: string[] = [];
+    let resolve: (() => void) | null = null;
+    let done = false;
+
+    child.stdout!.on('data', (data: Buffer) => {
+      buffer.push(data.toString());
+      if (resolve) { resolve(); resolve = null; }
+    });
+
+    child.on('close', () => {
+      done = true;
+      if (resolve) { resolve(); resolve = null; }
+    });
+
+    child.on('error', () => {
+      done = true;
+      if (resolve) { resolve(); resolve = null; }
+    });
+
+    while (true) {
+      if (buffer.length > 0) {
+        yield buffer.shift()!;
+      } else if (done) {
+        break;
+      } else {
+        await new Promise<void>(r => { resolve = r; });
+      }
+    }
+  }
+
+  private parseJsonOutput(raw: string): { text: string; sessionId: string | null } {
+    try {
+      const parsed = JSON.parse(raw);
+
+      // Claude Code JSON output format: { result: "...", session_id: "..." }
+      const sessionId = parsed.session_id || null;
+
+      // Extract text from result
+      let text = '';
+      if (typeof parsed.result === 'string') {
+        text = parsed.result;
+      } else if (typeof parsed === 'string') {
+        text = parsed;
+      } else {
+        // Fallback: stringify
+        text = JSON.stringify(parsed.result ?? parsed, null, 2);
+      }
+
+      return { text, sessionId };
+    } catch {
+      // If JSON parsing fails, return raw output
+      console.warn(`[claude-client] Failed to parse JSON output, using raw text`);
+      return { text: raw, sessionId: null };
+    }
   }
 }
