@@ -73,6 +73,7 @@ const sessionStore = new SessionStore();
 const tenantResolver = new TenantResolver(TENANTS_CONFIG);
 const approvalStore = new ApprovalStore(path.join(CONFIG_DIR, 'approvals.json'));
 claudeClient.approvalStore = approvalStore;
+claudeClient.init();
 
 // ── Config validation on startup ──────────────────────────────
 function validateConfigs(): void {
