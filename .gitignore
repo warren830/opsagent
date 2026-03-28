@@ -40,3 +40,7 @@ test-screenshots/
 docs/
 .gstack/
 *.bak
+*.pptx
+
+# Super-AIDLC working artifacts
+aidlc-docs/
