@@ -18,10 +18,35 @@ import { normalizeAlert } from './alert-webhook';
 import { createIssue, saveIssueToDB } from './patrol';
 import { buildRcaPrompt } from './rca';
 import { SessionStore, loadUsers, saveUsers, verifyPassword, hashPassword, parseCookie, setSessionCookie, clearSessionCookie, UserRole } from './auth';
+import { buildFeishuAuthUrl, buildTeamsAuthUrl, findUserByPlatformId, upsertOAuthUser } from './oauth';
 
 const PORT = parseInt(process.env.PORT || '3978', 10);
 const WORK_DIR = process.env.WORK_DIR || path.resolve(__dirname, '../..');
 const KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || path.join(WORK_DIR, 'knowledge');
+
+/** Simple fetch wrapper for OAuth API calls. */
+async function fetchJson(url: string, options: { method: string; headers: Record<string, string>; body?: string }): Promise<any> {
+  const { default: https } = await import('https');
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(url);
+    const req = https.request({
+      hostname: parsedUrl.hostname,
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: options.method,
+      headers: options.headers,
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk: Buffer) => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch { reject(new Error(`Invalid JSON response from ${url}`)); }
+      });
+    });
+    req.on('error', reject);
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+}
 const STATIC_DIR = path.join(__dirname, '../static');
 
 // Admin-editable configs are stored on EFS (knowledge/_config/) so they persist across deploys.
@@ -123,7 +148,7 @@ function isUserAuthEnabled(): boolean {
   const config = loadUsers(USERS_CONFIG);
   return config !== null && config.users.length > 0;
 }
-const messageHandler = new MessageHandler(claudeClient, auditLogger, tenantResolver);
+const messageHandler = new MessageHandler(claudeClient, auditLogger, tenantResolver, USERS_CONFIG);
 
 // Scheduler (initialized after adapters are created below)
 let scheduler: SchedulerManager;
@@ -177,7 +202,7 @@ if (isPlatformEnabled(platformsConfig, 'feishu')) {
 }
 
 // Initialize scheduler
-scheduler = new SchedulerManager(adapters, claudeClient, SCHEDULED_JOBS_CONFIG);
+scheduler = new SchedulerManager(adapters, claudeClient, SCHEDULED_JOBS_CONFIG, KNOWLEDGE_DIR);
 scheduler.start();
 
 // Initialize KubeconfigManager (async — runs in background, does not block startup)
@@ -486,6 +511,150 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // ── OAuth login ──────────────────────────────────────────────
+    if (url === '/admin/api/oauth/feishu' && req.method === 'GET') {
+      const feishuAppId = platformsConfig?.platforms?.feishu?.credentials?.app_id;
+      if (!feishuAppId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Feishu app not configured' }));
+        return;
+      }
+      const state = require('crypto').randomUUID();
+      const baseUrl = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3978';
+      const proto = req.headers['x-forwarded-proto'] || 'https';
+      const redirectUri = `${proto}://${baseUrl}/admin/api/oauth/feishu/callback`;
+      const authUrl = buildFeishuAuthUrl(feishuAppId, redirectUri, state);
+      res.writeHead(302, { Location: authUrl });
+      res.end();
+      return;
+    }
+
+    if (url?.startsWith('/admin/api/oauth/feishu/callback') && req.method === 'GET') {
+      const urlObj = new URL(url, `http://${req.headers.host}`);
+      const code = urlObj.searchParams.get('code');
+      if (!code) {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end('<h1>OAuth Error</h1><p>No authorization code</p>');
+        return;
+      }
+      try {
+        // Exchange code for user info via Feishu API
+        const feishuAdapter = adapters.get('feishu');
+        const feishuAppId = platformsConfig?.platforms?.feishu?.credentials?.app_id;
+        const feishuAppSecret = platformsConfig?.platforms?.feishu?.credentials?.app_secret;
+        if (!feishuAppId || !feishuAppSecret) throw new Error('Feishu app not configured');
+
+        const tokenRes = await fetchJson('https://open.feishu.cn/open-apis/authen/v1/oidc/access_token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ grant_type: 'authorization_code', code, app_id: feishuAppId, app_secret: feishuAppSecret }),
+        });
+        if (tokenRes.code !== 0) throw new Error(`Feishu token error: ${tokenRes.msg}`);
+
+        const userInfo = await fetchJson('https://open.feishu.cn/open-apis/authen/v1/user_info', {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${tokenRes.data.access_token}` },
+        });
+        if (userInfo.code !== 0) throw new Error(`Feishu user info error: ${userInfo.msg}`);
+
+        const openId = userInfo.data.open_id;
+        const name = userInfo.data.name || 'Unknown';
+        const email = userInfo.data.email || userInfo.data.enterprise_email || '';
+
+        // Find or create user
+        const user = upsertOAuthUser(USERS_CONFIG, {
+          platform: 'feishu', platformId: openId, name, email,
+        });
+
+        // Create session
+        const token = sessionStore.create({ username: user.username, role: user.role, tenant_id: user.tenant_id });
+        setSessionCookie(res, token);
+        console.log(`[index] OAuth login: "${user.username}" via Feishu (${openId})`);
+        res.writeHead(302, { Location: '/admin' });
+        res.end();
+      } catch (err: any) {
+        console.error(`[index] Feishu OAuth error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'text/html' });
+        res.end(`<h1>OAuth Error</h1><p>${err.message}</p><a href="/admin">Back</a>`);
+      }
+      return;
+    }
+
+    if (url === '/admin/api/oauth/teams' && req.method === 'GET') {
+      const teamsClientId = platformsConfig?.platforms?.teams?.credentials?.client_id || process.env.TEAMS_CLIENT_ID;
+      const teamsTenantId = platformsConfig?.platforms?.teams?.credentials?.tenant_id || process.env.TEAMS_TENANT_ID || 'common';
+      if (!teamsClientId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Teams OAuth not configured' }));
+        return;
+      }
+      const state = require('crypto').randomUUID();
+      const baseUrl = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3978';
+      const proto = req.headers['x-forwarded-proto'] || 'https';
+      const redirectUri = `${proto}://${baseUrl}/admin/api/oauth/teams/callback`;
+      const authUrl = buildTeamsAuthUrl(teamsClientId, redirectUri, state, teamsTenantId);
+      res.writeHead(302, { Location: authUrl });
+      res.end();
+      return;
+    }
+
+    if (url?.startsWith('/admin/api/oauth/teams/callback') && req.method === 'GET') {
+      const urlObj = new URL(url, `http://${req.headers.host}`);
+      const code = urlObj.searchParams.get('code');
+      if (!code) {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end('<h1>OAuth Error</h1><p>No authorization code</p>');
+        return;
+      }
+      try {
+        const teamsClientId = platformsConfig?.platforms?.teams?.credentials?.client_id || process.env.TEAMS_CLIENT_ID;
+        const teamsClientSecret = platformsConfig?.platforms?.teams?.credentials?.client_secret || process.env.TEAMS_CLIENT_SECRET;
+        const teamsTenantId = platformsConfig?.platforms?.teams?.credentials?.tenant_id || process.env.TEAMS_TENANT_ID || 'common';
+        if (!teamsClientId || !teamsClientSecret) throw new Error('Teams OAuth not configured');
+
+        const baseUrl = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3978';
+        const proto = req.headers['x-forwarded-proto'] || 'https';
+        const redirectUri = `${proto}://${baseUrl}/admin/api/oauth/teams/callback`;
+
+        // Exchange code for tokens
+        const tokenRes = await fetchJson(`https://login.microsoftonline.com/${teamsTenantId}/oauth2/v2.0/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: teamsClientId, client_secret: teamsClientSecret,
+            code, redirect_uri: redirectUri, grant_type: 'authorization_code',
+            scope: 'openid profile email User.Read',
+          }).toString(),
+        });
+        if (tokenRes.error) throw new Error(`Teams token error: ${tokenRes.error_description || tokenRes.error}`);
+
+        // Get user info from Microsoft Graph
+        const graphRes = await fetchJson('https://graph.microsoft.com/v1.0/me', {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${tokenRes.access_token}` },
+        });
+
+        const aadObjectId = graphRes.id;
+        const name = graphRes.displayName || 'Unknown';
+        const email = graphRes.mail || graphRes.userPrincipalName || '';
+
+        const user = upsertOAuthUser(USERS_CONFIG, {
+          platform: 'teams', platformId: aadObjectId, name, email,
+        });
+
+        const token = sessionStore.create({ username: user.username, role: user.role, tenant_id: user.tenant_id });
+        setSessionCookie(res, token);
+        console.log(`[index] OAuth login: "${user.username}" via Teams (${aadObjectId})`);
+        res.writeHead(302, { Location: '/admin' });
+        res.end();
+      } catch (err: any) {
+        console.error(`[index] Teams OAuth error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'text/html' });
+        res.end(`<h1>OAuth Error</h1><p>${err.message}</p><a href="/admin">Back</a>`);
+      }
+      return;
+    }
+
     // ── Session enforcement (when user auth is enabled) ──────────
     let authUser: { username: string; role: UserRole; tenant_id?: string } | null = null;
     if (isUserAuthEnabled()) {
@@ -508,7 +677,8 @@ const server = http.createServer(async (req, res) => {
       }
       try {
         console.log(`[index] Admin chat query: ${body.message.substring(0, 100)}`);
-        const reply = await claudeClient.query(body.message, 'admin', 'admin');
+        const queryUser = authUser?.username || 'admin';
+        const reply = await claudeClient.query(body.message, 'admin', queryUser, authUser?.tenant_id, queryUser);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ reply: reply || '' }));
       } catch (err: any) {
@@ -586,7 +756,7 @@ const server = http.createServer(async (req, res) => {
       console.log(`[index] Admin chat stream${tenantId ? ` [tenant=${tenantId}]` : ''}: ${message.substring(0, 100)}`);
 
       try {
-        for await (const chunk of claudeClient.queryStream(message, 'admin', 'admin', tenantId)) {
+        for await (const chunk of claudeClient.queryStream(message, 'admin', queryUser, tenantId, queryUser)) {
           sendSSE(chunk.type, chunk);
         }
       } catch (err: any) {

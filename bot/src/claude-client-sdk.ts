@@ -82,8 +82,9 @@ export class ClaudeClient {
     platform = '',
     userId = '',
     tenantId?: string,
+    username?: string,
   ): Promise<string> {
-    const ctx = this.prepareContext(tenantId, platform, userId);
+    const ctx = this.prepareContext(tenantId, platform, userId, username);
     const session = this.getOrCreateSession(platform, userId, tenantId);
     session.messages.push({ role: 'user', content: userMessage });
 
@@ -129,8 +130,9 @@ export class ClaudeClient {
     platform = '',
     userId = '',
     tenantId?: string,
+    username?: string,
   ): AsyncGenerator<StreamChunk> {
-    const ctx = this.prepareContext(tenantId, platform, userId);
+    const ctx = this.prepareContext(tenantId, platform, userId, username);
     const session = this.getOrCreateSession(platform, userId, tenantId);
     session.messages.push({ role: 'user', content: userMessage });
 
@@ -202,7 +204,7 @@ export class ClaudeClient {
 
   // ── Private helpers ──────────────────────────────────────────
 
-  private prepareContext(tenantId?: string, platform?: string, userId?: string) {
+  private prepareContext(tenantId?: string, platform?: string, userId?: string, username?: string) {
     const provider = this.loadProviderConfig();
     const client = buildSdkClient(provider);
     const model = resolveModelId(provider);
@@ -230,9 +232,10 @@ export class ClaudeClient {
       glossaryConfigPath: glossaryPath,
       accountsConfigPath: this.accountsConfigPath,
       skillsConfigPath: skillsPath,
-      knowledgeDir: tenantDir && fs.existsSync(tenantDir) ? tenantDir : this.knowledgeDir,
+      knowledgeDir: this.knowledgeDir,
       tenantId,
       tenant,
+      username,
     });
 
     // Tools

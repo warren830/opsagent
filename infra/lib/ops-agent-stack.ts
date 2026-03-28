@@ -301,6 +301,8 @@ export class OpsAgentStack extends cdk.Stack {
         healthyThresholdCount: 2,
         unhealthyThresholdCount: 3,
       },
+      // Sticky session: route same user to same ECS task for session continuity
+      stickinessCookieDuration: cdk.Duration.days(1),
     });
 
     // Restrict ALB security group to CloudFront managed prefix list only
@@ -319,6 +321,17 @@ export class OpsAgentStack extends cdk.Stack {
     // Allow ECS tasks to access EFS (NFS port 2049)
     fileSystem.connections.allowDefaultPortFrom(service, 'ECS to EFS');
 
+    // Cookie-aware origin request policy: forward AWSALB sticky session cookie + auth cookie
+    const cookieForwardPolicy = new cloudfront.OriginRequestPolicy(this, 'OpsAgentCookieForward', {
+      originRequestPolicyName: 'OpsAgent-CookieForward',
+      comment: 'Forward ALB sticky session cookie and auth cookies to origin',
+      cookieBehavior: cloudfront.OriginRequestCookieBehavior.all(),
+      headerBehavior: cloudfront.OriginRequestHeaderBehavior.allowList(
+        'Accept', 'Accept-Language', 'Content-Type',
+      ),
+      queryStringBehavior: cloudfront.OriginRequestQueryStringBehavior.all(),
+    });
+
     // CloudFront distribution in front of ALB
     const distribution = new cloudfront.Distribution(this, 'OpsAgentCF', {
       comment: 'OpsAgent - CloudFront in front of ALB',
@@ -328,7 +341,7 @@ export class OpsAgentStack extends cdk.Stack {
         }),
         allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
         cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
-        originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        originRequestPolicy: cookieForwardPolicy,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       },
     });

@@ -6,6 +6,8 @@ import { loadGlossary, generateGlossaryKnowledge } from './glossary-loader';
 import { loadAccounts, generateAccountsKnowledge, generateAlicloudPromptSection } from './accounts-loader';
 import { loadSkills, generateSkillsPrompt } from './skills-loader';
 import { scanKnowledgeFiles, generateKnowledgeIndex, generateKnowledgeIndexFile } from './knowledge-loader';
+import { scanMergedKnowledge } from './personal-knowledge';
+import { loadMergedSkills } from './personal-skills';
 import { loadProvider, buildProviderEnv, ProviderConfig } from './provider-loader';
 import { loadTenants, TenantConfig, TenantAlicloudAccount } from './tenant-loader';
 import { ApprovalStore } from './approval-store';
@@ -126,7 +128,7 @@ export class ClaudeClient {
     return path.join(this.knowledgeDir, '_tenants', tenantId);
   }
 
-  private generateClaudeMd(tenantId?: string): void {
+  private generateClaudeMd(tenantId?: string, username?: string): void {
     const parts: string[] = [BASE_SYSTEM_PROMPT];
     const tenant = tenantId ? this.findTenant(tenantId) : null;
 
@@ -201,10 +203,10 @@ export class ClaudeClient {
       }
     }
 
-    // Skills (tenant-scoped)
-    const skillsConfig = loadSkills(skillsPath);
-    if (skillsConfig) {
-      const skillsPrompt = generateSkillsPrompt(skillsConfig, skillsDir);
+    // Skills (three-layer merge: global -> tenant -> user)
+    const mergedSkills = loadMergedSkills(this.skillsConfigPath, this.knowledgeDir, tenantId, username);
+    if (mergedSkills.skills.length > 0) {
+      const skillsPrompt = generateSkillsPrompt(mergedSkills, skillsDir);
       if (skillsPrompt) {
         parts.push('');
         parts.push('## 技能指引');
@@ -212,8 +214,8 @@ export class ClaudeClient {
       }
     }
 
-    // Knowledge index (tenant-scoped)
-    const knowledgeEntries = scanKnowledgeFiles(knowledgeDir);
+    // Knowledge index (three-layer merge: global -> tenant -> user)
+    const knowledgeEntries = scanMergedKnowledge(this.knowledgeDir, tenantId, username);
     if (knowledgeEntries.length > 0) {
       generateKnowledgeIndexFile(knowledgeEntries, knowledgeDir);
       const knowledgeIndex = generateKnowledgeIndex(knowledgeEntries);
@@ -299,15 +301,15 @@ export class ClaudeClient {
     return env;
   }
 
-  private prepareQuery(platform: string, userId: string, tenantId?: string): string | null {
+  private prepareQuery(platform: string, userId: string, tenantId?: string, username?: string): string | null {
     const plugins = loadPlugins(this.pluginsConfigPath);
     generateMcpConfig(plugins, this.mcpConfigPath);
-    this.generateClaudeMd(tenantId);
+    this.generateClaudeMd(tenantId, username);
     return this.getSession(platform, userId, tenantId);
   }
 
-  async query(userMessage: string, platform: string = '', userId: string = '', tenantId?: string): Promise<string> {
-    const existingSessionId = this.prepareQuery(platform, userId, tenantId);
+  async query(userMessage: string, platform: string = '', userId: string = '', tenantId?: string, username?: string): Promise<string> {
+    const existingSessionId = this.prepareQuery(platform, userId, tenantId, username);
     const provider = this.getProvider();
     const model = provider.model || 'opus';
     const maxTurns = String(provider.max_turns || 20);
@@ -395,8 +397,9 @@ export class ClaudeClient {
     platform: string = '',
     userId: string = '',
     tenantId?: string,
+    username?: string,
   ): AsyncGenerator<StreamChunk> {
-    const existingSessionId = this.prepareQuery(platform, userId, tenantId);
+    const existingSessionId = this.prepareQuery(platform, userId, tenantId, username);
     const provider = this.getProvider();
     const model = provider.model || 'opus';
     const maxTurns = String(provider.max_turns || 20);

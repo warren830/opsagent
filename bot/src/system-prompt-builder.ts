@@ -7,7 +7,8 @@ import * as path from 'path';
 import { loadGlossary, generateGlossaryKnowledge } from './glossary-loader';
 import { loadAccounts, generateAccountsKnowledge, generateAlicloudPromptSection } from './accounts-loader';
 import { loadSkills } from './skills-loader';
-import { scanKnowledgeFiles, generateKnowledgeIndex } from './knowledge-loader';
+import { generateKnowledgeIndex } from './knowledge-loader';
+import { scanMergedKnowledge } from './personal-knowledge';
 import { TenantConfig } from './tenant-loader';
 
 const BASE_PROMPT = `你是 OpsAgent，一个多云基础设施查询助手。
@@ -39,6 +40,7 @@ export interface SystemPromptConfig {
   knowledgeDir: string;
   tenantId?: string;
   tenant?: TenantConfig | null;
+  username?: string;
 }
 
 /**
@@ -118,7 +120,8 @@ export function buildSystemPrompt(config: SystemPromptConfig): string {
   }
 
   // Knowledge index (brief — content via read_file tool)
-  const knowledgeEntries = scanKnowledgeFiles(knowledgeDir);
+  // Three-layer merge: global -> tenant -> user
+  const knowledgeEntries = scanMergedKnowledge(config.knowledgeDir, config.tenantId, config.username);
   if (knowledgeEntries.length > 0) {
     const index = generateKnowledgeIndex(knowledgeEntries);
     if (index) {

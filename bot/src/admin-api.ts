@@ -5,6 +5,7 @@ import * as yaml from 'js-yaml';
 
 import { KubeconfigManager } from './kubeconfig-manager';
 import { UserRole, loadUsers, saveUsers, hashPassword } from './auth';
+import { getUserKnowledgeDir, getUserConfigPath, sanitizeUsername } from './user-config-loader';
 
 export interface AdminApiOptions {
   glossaryConfigPath: string;
@@ -99,7 +100,8 @@ export class AdminApi {
     // ── Role-based access control ──────────────────────────────
     if (authUser?.role === 'tenant_admin') {
       const allowed = ['/admin/api/glossary', '/admin/api/accounts', '/admin/api/skills',
-        '/admin/api/knowledge', '/admin/api/clusters', '/admin/api/chat', '/admin/api/upload'];
+        '/admin/api/knowledge', '/admin/api/clusters', '/admin/api/chat', '/admin/api/upload',
+        '/admin/api/me/'];
       const isAllowed = allowed.some(prefix => urlPath.startsWith(prefix));
       if (!isAllowed) {
         this.jsonResponse(res, 403, { error: 'Forbidden: insufficient permissions' });
@@ -406,6 +408,48 @@ export class AdminApi {
       if (req.method === 'GET') return this.getKnowledgeFile(res, filename);
       if (req.method === 'PUT') return this.putKnowledgeFile(res, filename, body);
       if (req.method === 'DELETE') return this.deleteKnowledgeFile(res, filename);
+    }
+
+    // ── Personal config: /admin/api/me/* ──────────────────────────
+    if (urlPath.startsWith('/admin/api/me/') && authUser?.username) {
+      const username = authUser.username;
+
+      // Personal knowledge files
+      if (urlPath === '/admin/api/me/knowledge') {
+        const userDir = getUserKnowledgeDir(this.knowledgeDir, username);
+        if (req.method === 'GET') return this.listKnowledgeFiles(res, userDir);
+      }
+      const meKnMatch = urlPath.match(/^\/admin\/api\/me\/knowledge\/(.+)$/);
+      if (meKnMatch) {
+        const userDir = getUserKnowledgeDir(this.knowledgeDir, username);
+        const filename = decodeURIComponent(meKnMatch[1]);
+        if (filename.includes('..') || filename.includes('/')) {
+          this.jsonResponse(res, 400, { error: 'Invalid filename' });
+          return true;
+        }
+        if (req.method === 'GET') return this.getKnowledgeFile(res, filename, userDir);
+        if (req.method === 'PUT') return this.putKnowledgeFile(res, filename, body, userDir);
+        if (req.method === 'DELETE') return this.deleteKnowledgeFile(res, filename, userDir);
+      }
+
+      // Personal skills config
+      if (urlPath === '/admin/api/me/skills') {
+        const configPath = getUserConfigPath(this.knowledgeDir, username, 'skills.yaml');
+        if (req.method === 'GET') return this.getPersonalYaml(res, configPath);
+        if (req.method === 'PUT') return this.putPersonalYaml(res, configPath, body);
+      }
+
+      // Personal scheduled jobs
+      if (urlPath === '/admin/api/me/scheduled-jobs') {
+        const configPath = getUserConfigPath(this.knowledgeDir, username, 'scheduled-jobs.yaml');
+        if (req.method === 'GET') return this.getPersonalYaml(res, configPath);
+        if (req.method === 'PUT') return this.putPersonalYaml(res, configPath, body);
+      }
+
+      // Personal job results
+      if (urlPath === '/admin/api/me/job-results') {
+        if (req.method === 'GET') return this.listJobResults(res, username);
+      }
     }
 
     return false;
@@ -821,6 +865,43 @@ export class AdminApi {
       },
       tenant_id: tenantId,
     });
+    return true;
+  }
+
+  // ── Personal config helpers ────────────────────────────────────
+
+  private getPersonalYaml(res: http.ServerResponse, configPath: string): boolean {
+    const data = this.readYaml(configPath);
+    this.jsonResponse(res, 200, data || {});
+    return true;
+  }
+
+  private putPersonalYaml(res: http.ServerResponse, configPath: string, body: any): boolean {
+    if (!body || typeof body !== 'object') {
+      this.jsonResponse(res, 400, { error: 'Request body must be a JSON object' });
+      return true;
+    }
+    this.writeYaml(configPath, body);
+    this.jsonResponse(res, 200, { ok: true });
+    return true;
+  }
+
+  private listJobResults(res: http.ServerResponse, username: string): boolean {
+    const resultsDir = path.join(this.knowledgeDir, '_users', username, '_job_results');
+    if (!fs.existsSync(resultsDir)) {
+      this.jsonResponse(res, 200, { results: [] });
+      return true;
+    }
+    const files = fs.readdirSync(resultsDir)
+      .filter(f => f.endsWith('.md'))
+      .sort()
+      .reverse()
+      .slice(0, 50); // Limit to 50 most recent
+    const results = files.map(f => {
+      const content = fs.readFileSync(path.join(resultsDir, f), 'utf-8');
+      return { filename: f, content, size: content.length };
+    });
+    this.jsonResponse(res, 200, { results });
     return true;
   }
 

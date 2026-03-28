@@ -1,8 +1,10 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import * as yaml from 'js-yaml';
 import * as cron from 'node-cron';
 import { PlatformAdapter } from './adapters/types';
 import { ClaudeClient } from './claude-client';
+import { loadUserScheduledJobs, saveJobResult, cleanupOldResults, UserScheduledJob } from './personal-scheduler';
 
 export interface ScheduledJobTarget {
   platform: string;
@@ -24,18 +26,22 @@ export class SchedulerManager {
   private readonly adapters: Map<string, PlatformAdapter>;
   private readonly claudeClient: ClaudeClient;
   private readonly configPath: string;
+  private knowledgeDir?: string;
 
   constructor(
     adapters: Map<string, PlatformAdapter>,
     claudeClient: ClaudeClient,
     configPath: string,
+    knowledgeDir?: string,
   ) {
     this.adapters = adapters;
     this.claudeClient = claudeClient;
     this.configPath = configPath;
+    this.knowledgeDir = knowledgeDir;
   }
 
   start(): void {
+    // Global jobs
     const jobs = this.loadJobs();
     for (const job of jobs) {
       if (!job.enabled) continue;
@@ -53,7 +59,53 @@ export class SchedulerManager {
       this.tasks.push(task);
       console.log(`[scheduler] Registered job "${job.name}" (${job.cron}, tz=${job.timezone || 'UTC'})`);
     }
-    console.log(`[scheduler] Started with ${this.tasks.length} active job(s)`);
+
+    // User-scoped jobs
+    const userJobCount = this.loadUserJobs();
+
+    console.log(`[scheduler] Started with ${this.tasks.length} active job(s) (${userJobCount} user)`);
+  }
+
+  private loadUserJobs(): number {
+    if (!this.knowledgeDir) return 0;
+    const usersDir = path.join(this.knowledgeDir, '_users');
+    if (!fs.existsSync(usersDir)) return 0;
+
+    let count = 0;
+    const userDirs = fs.readdirSync(usersDir).filter(d => {
+      try { return fs.statSync(path.join(usersDir, d)).isDirectory() && !d.startsWith('_'); }
+      catch { return false; }
+    });
+
+    for (const username of userDirs) {
+      const userJobs = loadUserScheduledJobs(this.knowledgeDir, username);
+      for (const job of userJobs) {
+        const task = cron.schedule(job.cron, () => {
+          this.executeUserJob(username, job).catch(err => {
+            console.error(`[scheduler] Error executing user job "${job.name}" for ${username}: ${err}`);
+          });
+        }, {
+          timezone: job.timezone || 'UTC',
+        });
+        this.tasks.push(task);
+        count++;
+        console.log(`[scheduler] Registered user job "${job.name}" for ${username} (${job.cron})`);
+      }
+    }
+    return count;
+  }
+
+  private async executeUserJob(username: string, job: UserScheduledJob): Promise<void> {
+    console.log(`[scheduler] Executing user job "${job.name}" for ${username}`);
+    try {
+      const result = await this.claudeClient.query(job.query, 'scheduler', username, undefined, username);
+      if (result && this.knowledgeDir) {
+        saveJobResult(this.knowledgeDir, username, job.name, result);
+        cleanupOldResults(this.knowledgeDir, username, job.name);
+      }
+    } catch (err) {
+      console.error(`[scheduler] Claude query failed for user job "${job.name}" (${username}): ${err}`);
+    }
   }
 
   reload(): void {

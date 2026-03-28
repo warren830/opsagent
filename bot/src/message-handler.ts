@@ -4,6 +4,7 @@ import { PlatformAdapter, PlatformMessage } from './adapters/types';
 import { ClaudeClient } from './claude-client';
 import { AuditLogger } from './audit-logger';
 import { TenantResolver } from './tenant-resolver';
+import { findUserByPlatformId } from './oauth';
 
 const STREAM_UPDATE_INTERVAL_MS = 2000; // Throttle IM updates to every 2 seconds
 
@@ -11,11 +12,20 @@ export class MessageHandler {
   private readonly claudeClient: ClaudeClient;
   private readonly auditLogger: AuditLogger;
   private readonly tenantResolver?: TenantResolver;
+  private readonly usersConfigPath?: string;
 
-  constructor(claudeClient: ClaudeClient, auditLogger: AuditLogger, tenantResolver?: TenantResolver) {
+  constructor(claudeClient: ClaudeClient, auditLogger: AuditLogger, tenantResolver?: TenantResolver, usersConfigPath?: string) {
     this.claudeClient = claudeClient;
     this.auditLogger = auditLogger;
     this.tenantResolver = tenantResolver;
+    this.usersConfigPath = usersConfigPath;
+  }
+
+  /** Resolve platform userId to admin username for personal config. */
+  private resolveUsername(platform: string, userId: string): string | undefined {
+    if (!this.usersConfigPath) return undefined;
+    const user = findUserByPlatformId(this.usersConfigPath, platform, userId);
+    return user?.username;
   }
 
   /**
@@ -94,7 +104,8 @@ export class MessageHandler {
 
     try {
       const query = this.buildQuery(msg);
-      for await (const chunk of this.claudeClient.queryStream(query, msg.platform, msg.userId, msg.tenantId)) {
+      const username = this.resolveUsername(msg.platform, msg.userId);
+      for await (const chunk of this.claudeClient.queryStream(query, msg.platform, msg.userId, msg.tenantId, username)) {
         const now = Date.now();
 
         if (chunk.type === 'text') {
@@ -202,7 +213,8 @@ export class MessageHandler {
 
     try {
       const query = this.buildQuery(msg);
-      const result = await this.claudeClient.query(query, msg.platform, msg.userId, msg.tenantId);
+      const username = this.resolveUsername(msg.platform, msg.userId);
+      const result = await this.claudeClient.query(query, msg.platform, msg.userId, msg.tenantId, username);
       const durationMs = Date.now() - startTime;
 
       console.log(`[message-handler] Claude Code result: ${result.substring(0, 200)}`);
