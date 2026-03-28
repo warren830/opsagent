@@ -97,6 +97,18 @@ export class ClaudeClient {
   }
 
   /**
+   * Initialize CLAUDE.md and MCP config at startup.
+   * Called once during server boot so the health check passes
+   * before any user query arrives.
+   */
+  init(): void {
+    const plugins = loadPlugins(this.pluginsConfigPath);
+    generateMcpConfig(plugins, this.mcpConfigPath);
+    this.generateClaudeMd();
+    console.log('[claude-client] init() complete — CLAUDE.md generated');
+  }
+
+  /**
    * Generate CLAUDE.md in workDir — Claude Code reads this natively.
    * Also generates knowledge files (glossary.md, accounts.md) and skills/*.md.
    */
