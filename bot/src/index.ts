@@ -349,7 +349,7 @@ const server = http.createServer(async (req, res) => {
     // Check tenants config
     checks.tenants = fs.existsSync(TENANTS_CONFIG) ? 'ok' : 'missing';
     const allOk = Object.values(checks).every(v => v === 'ok');
-    res.writeHead(allOk ? 200 : 503, { 'Content-Type': 'application/json' });
+    res.writeHead(allOk ? 200 : 503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache, no-store, must-revalidate' });
     res.end(JSON.stringify({ status: allOk ? 'ok' : 'degraded', platforms: enabledPlatforms, checks }));
     return;
   }
@@ -358,7 +358,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && (url === '/admin' || url === '/admin/')) {
     const htmlPath = path.join(STATIC_DIR, 'admin.html');
     if (fs.existsSync(htmlPath)) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
       res.end(fs.readFileSync(htmlPath, 'utf-8'));
     } else {
       res.writeHead(404);
@@ -367,8 +367,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Admin API
+  // Admin API — disable caching for all API responses
   if (url.startsWith('/admin/api/')) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     // File upload endpoint for admin chat — must be handled BEFORE parseBody consumes the stream
     if (url === '/admin/api/upload' && req.method === 'POST') {
       let fileName = decodeURIComponent(req.headers['x-file-name'] as string || 'upload');
