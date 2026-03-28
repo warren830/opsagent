@@ -29,11 +29,14 @@
   }
   /* Sidebar */
   .sidebar {
-    width: 200px;
+    width: 220px;
     background: var(--surface);
     border-right: 1px solid var(--border);
     padding: 24px 0;
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
   }
   .sidebar h1 {
     font-size: 16px;
@@ -41,12 +44,13 @@
     border-bottom: 1px solid var(--border);
     color: var(--accent);
   }
+  .sidebar nav { flex: 1; }
   .sidebar nav a {
     display: block;
-    padding: 12px 20px;
+    padding: 8px 20px 8px 36px;
     color: var(--text2);
     text-decoration: none;
-    font-size: 14px;
+    font-size: 13px;
     border-left: 3px solid transparent;
     transition: all 0.15s;
   }
@@ -56,12 +60,86 @@
     border-left-color: var(--accent);
     background: var(--surface2);
   }
+  /* Multi-level nav categories */
+  .nav-category {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px 10px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text2);
+    user-select: none;
+    transition: color 0.15s;
+  }
+  .nav-category:hover { color: var(--text); }
+  .nav-category .arrow {
+    font-size: 10px;
+    transition: transform 0.2s;
+  }
+  .nav-category.collapsed .arrow { transform: rotate(-90deg); }
+  .nav-category.collapsed + .nav-children { display: none; }
+  .nav-children { }
   /* Main */
   .main {
     flex: 1;
     padding: 32px 40px;
     max-width: 960px;
+    overflow-y: auto;
   }
+  /* Chat Panel (right side, collapsible) */
+  .chat-panel {
+    width: 440px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    transition: width 0.25s ease, opacity 0.2s ease;
+    overflow: hidden;
+  }
+  .chat-panel.collapsed {
+    width: 0;
+    opacity: 0;
+    border-left: none;
+  }
+  .chat-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .chat-panel-header h3 { font-size: 14px; font-weight: 600; }
+  .chat-panel-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 0 12px;
+    overflow: hidden;
+  }
+  .chat-toggle-btn {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    z-index: 100;
+    display: none;
+    transition: background 0.15s;
+  }
+  .chat-toggle-btn:hover { background: var(--accent-hover); }
   .main h2 {
     font-size: 20px;
     margin-bottom: 20px;
@@ -283,8 +361,7 @@
   .upload-item .done { color: var(--success); }
   .upload-item .fail { color: var(--danger); }
   /* Chat */
-  #tab-chat { display: none; height: calc(100vh - 64px); display: none; flex-direction: column; }
-  #tab-chat.visible { display: flex; }
+  #tab-chat { display: flex; height: 100%; flex-direction: column; }
   .chat-messages {
     flex: 1;
     overflow-y: auto;
@@ -349,12 +426,8 @@
   }
   .chat-input-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  /* Fix B: Sidebar section headers */
-  .sidebar nav .nav-section {
-    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
-    color: var(--text2); padding: 16px 20px 4px; opacity: 0.6;
-    pointer-events: none; user-select: none;
-  }
+  /* Fix B: Sidebar section headers (legacy, kept for compat) */
+  .sidebar nav .nav-section { display: none; }
 
   /* Fix A: Chat welcome card */
   .chat-welcome {
@@ -445,26 +518,35 @@
 <div class="sidebar" id="app-sidebar" style="display:none">
   <h1>OpsAgent</h1>
   <nav>
-    <a href="#chat" class="active" onclick="switchTab('chat')">Chat</a>
-    <div class="nav-section">Data</div>
-    <a href="#glossary" onclick="switchTab('glossary')">Glossary</a>
-    <a href="#knowledge" onclick="switchTab('knowledge')">Knowledge</a>
-    <a href="#skills" onclick="switchTab('skills')">Skills</a>
-    <div class="nav-section">Infrastructure</div>
-    <a href="#accounts" onclick="switchTab('accounts')">Accounts</a>
-    <a href="#clusters" onclick="switchTab('clusters')">Clusters</a>
-    <a href="#platforms" onclick="switchTab('platforms')">Platforms</a>
-    <div class="nav-section">Automation</div>
-    <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
-    <a href="#plugins" onclick="switchTab('plugins')">Plugins</a>
-    <div class="nav-section">Ops</div>
-    <a href="#issues" onclick="switchTab('issues')">Issues <span id="issues-badge" class="nav-badge" style="display:none">0</span></a>
-    <a href="#resources" onclick="switchTab('resources')">Resources</a>
-    <div class="nav-section">Admin</div>
-    <a href="#approvals" onclick="switchTab('approvals')">Approvals <span id="approval-badge" class="nav-badge" style="display:none">0</span></a>
-    <a href="#tenants" onclick="switchTab('tenants')">Tenants</a>
-    <a href="#provider" onclick="switchTab('provider')">Provider</a>
-    <a href="#users" onclick="switchTab('users')">Users</a>
+    <div class="nav-category" onclick="toggleCategory(this)">Data <span class="arrow">&#9660;</span></div>
+    <div class="nav-children">
+      <a href="#glossary" onclick="switchTab('glossary')">Glossary</a>
+      <a href="#knowledge" onclick="switchTab('knowledge')">Knowledge</a>
+      <a href="#skills" onclick="switchTab('skills')">Skills</a>
+    </div>
+    <div class="nav-category" onclick="toggleCategory(this)">Infrastructure <span class="arrow">&#9660;</span></div>
+    <div class="nav-children">
+      <a href="#accounts" onclick="switchTab('accounts')">Accounts</a>
+      <a href="#clusters" onclick="switchTab('clusters')">Clusters</a>
+      <a href="#platforms" onclick="switchTab('platforms')">Platforms</a>
+    </div>
+    <div class="nav-category" onclick="toggleCategory(this)">Automation <span class="arrow">&#9660;</span></div>
+    <div class="nav-children">
+      <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
+      <a href="#plugins" onclick="switchTab('plugins')">Plugins</a>
+    </div>
+    <div class="nav-category" onclick="toggleCategory(this)">Ops <span class="arrow">&#9660;</span></div>
+    <div class="nav-children">
+      <a href="#issues" onclick="switchTab('issues')">Issues <span id="issues-badge" class="nav-badge" style="display:none">0</span></a>
+      <a href="#resources" onclick="switchTab('resources')">Resources</a>
+    </div>
+    <div class="nav-category" onclick="toggleCategory(this)">Admin <span class="arrow">&#9660;</span></div>
+    <div class="nav-children">
+      <a href="#approvals" onclick="switchTab('approvals')">Approvals <span id="approval-badge" class="nav-badge" style="display:none">0</span></a>
+      <a href="#tenants" onclick="switchTab('tenants')">Tenants</a>
+      <a href="#provider" onclick="switchTab('provider')">Provider</a>
+      <a href="#users" onclick="switchTab('users')">Users</a>
+    </div>
   </nav>
   <div class="sidebar-footer">
     <div class="user-info" id="current-user-display"></div>
@@ -476,40 +558,6 @@
 </div>
 
 <div class="main" id="app-main" style="display:none">
-  <!-- Chat Tab -->
-  <div id="tab-chat" class="visible">
-    <h2>Chat</h2>
-    <div class="chat-messages" id="chat-messages">
-      <div class="chat-welcome" id="chat-welcome">
-        <h3>OpsAgent</h3>
-        <p>Ask anything about your cloud infrastructure — AWS resources, Kubernetes clusters, monitoring, and more.</p>
-        <div class="hint-grid">
-          <div class="hint-card" onclick="document.getElementById('chat-input').value='列出所有 EKS 集群的状态';sendChat()">List EKS clusters</div>
-          <div class="hint-card" onclick="document.getElementById('chat-input').value='检查所有集群中 Pending 的 Pod';sendChat()">Check pending pods</div>
-          <div class="hint-card" onclick="document.getElementById('chat-input').value='列出所有 S3 bucket';sendChat()">List S3 buckets</div>
-          <div class="hint-card" onclick="document.getElementById('chat-input').value='查看公司术语列表';sendChat()">Company glossary</div>
-        </div>
-      </div>
-    </div>
-    <div id="chat-attachments" style="display:none;padding:4px 12px;font-size:12px;color:var(--text2);background:var(--surface2);border-radius:6px 6px 0 0;margin:0 0 -1px 0"></div>
-    <div style="display:flex;align-items:center;gap:8px;padding-bottom:8px">
-      <label style="font-size:12px;color:var(--text2);white-space:nowrap">Chat as:</label>
-      <select id="chat-tenant-select" style="background:var(--surface);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:12px" onchange="onChatTenantChange()">
-        <option value="">Global (Admin)</option>
-      </select>
-      <span id="chat-tenant-hint" style="font-size:11px;color:var(--text2)"></span>
-    </div>
-    <div class="chat-input-bar">
-      <input type="file" id="chat-file-input" multiple style="display:none" onchange="handleChatFiles(this.files)">
-      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('chat-file-input').click()" title="Attach file" style="font-size:18px;padding:4px 8px;min-width:auto">+</button>
-      <textarea id="chat-input" placeholder="Ask OpsAgent anything... (paste image or drag file)" rows="1"
-        onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();sendChat()}"
-        onpaste="handleChatPaste(event)"></textarea>
-      <button class="btn btn-primary" id="chat-send-btn" onclick="sendChat()">Send</button>
-      <button class="btn btn-danger btn-sm" id="chat-stop-btn" onclick="stopChat()" style="display:none">Stop</button>
-    </div>
-  </div>
-
   <!-- Glossary Tab -->
   <div id="tab-glossary" style="display:none">
     <div class="toolbar">
@@ -807,6 +855,49 @@
     </div>
   </div>
 </div>
+
+<!-- Chat Panel (right side, collapsible) -->
+<div class="chat-panel" id="chat-panel" style="display:none">
+  <div class="chat-panel-header">
+    <h3>Chat</h3>
+    <button class="btn btn-ghost btn-sm" onclick="toggleChatPanel()" title="Close chat">&times;</button>
+  </div>
+  <div class="chat-panel-body">
+    <div id="tab-chat">
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-welcome" id="chat-welcome">
+          <h3>OpsAgent</h3>
+          <p>Ask anything about your cloud infrastructure.</p>
+          <div class="hint-grid">
+            <div class="hint-card" onclick="document.getElementById('chat-input').value='列出所有 EKS 集群的状态';sendChat()">List EKS clusters</div>
+            <div class="hint-card" onclick="document.getElementById('chat-input').value='检查所有集群中 Pending 的 Pod';sendChat()">Check pending pods</div>
+            <div class="hint-card" onclick="document.getElementById('chat-input').value='列出所有 S3 bucket';sendChat()">List S3 buckets</div>
+            <div class="hint-card" onclick="document.getElementById('chat-input').value='查看公司术语列表';sendChat()">Company glossary</div>
+          </div>
+        </div>
+      </div>
+      <div id="chat-attachments" style="display:none;padding:4px 12px;font-size:12px;color:var(--text2);background:var(--surface2);border-radius:6px 6px 0 0;margin:0 0 -1px 0"></div>
+      <div style="display:flex;align-items:center;gap:8px;padding-bottom:8px;flex-shrink:0">
+        <label style="font-size:12px;color:var(--text2);white-space:nowrap">Chat as:</label>
+        <select id="chat-tenant-select" style="background:var(--surface);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:12px;flex:1" onchange="onChatTenantChange()">
+          <option value="">Global (Admin)</option>
+        </select>
+      </div>
+      <div class="chat-input-bar" style="flex-shrink:0">
+        <input type="file" id="chat-file-input" multiple style="display:none" onchange="handleChatFiles(this.files)">
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('chat-file-input').click()" title="Attach file" style="font-size:18px;padding:4px 8px;min-width:auto">+</button>
+        <textarea id="chat-input" placeholder="Ask OpsAgent..." rows="1"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();sendChat()}"
+          onpaste="handleChatPaste(event)"></textarea>
+        <button class="btn btn-primary btn-sm" id="chat-send-btn" onclick="sendChat()">Send</button>
+        <button class="btn btn-danger btn-sm" id="chat-stop-btn" onclick="stopChat()" style="display:none">Stop</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chat toggle FAB -->
+<button class="chat-toggle-btn" id="chat-toggle-btn" onclick="toggleChatPanel()" title="Open chat">&#128172;</button>
 
 <!-- Skill Modal -->
 <div class="modal-overlay" id="skill-modal">
@@ -1255,19 +1346,36 @@ const SUPER_TABS = ALL_TABS;
 const TENANT_TABS = ['chat', 'glossary', 'accounts', 'skills', 'knowledge', 'clusters'];
 const allTabs = [...ALL_TABS];
 function switchTab(tab) {
+  if (tab === 'chat') { toggleChatPanel(true); return; }
   allTabs.forEach(t => {
+    if (t === 'chat') return;
     const el = document.getElementById('tab-' + t);
-    if (t === 'chat') {
-      el.classList.toggle('visible', t === tab);
-      if (t !== tab) el.style.display = 'none'; else el.style.display = '';
-    } else {
-      el.style.display = t === tab ? '' : 'none';
-    }
+    if (el) el.style.display = t === tab ? '' : 'none';
   });
   document.querySelectorAll('.sidebar nav a').forEach(a => {
     a.classList.toggle('active', a.getAttribute('href') === '#' + tab);
   });
-  if (tab === 'chat') document.getElementById('chat-input').focus();
+}
+
+function toggleChatPanel(forceOpen) {
+  const panel = document.getElementById('chat-panel');
+  const btn = document.getElementById('chat-toggle-btn');
+  const isOpen = !panel.classList.contains('collapsed');
+  if (forceOpen === true && isOpen) return;
+  if (forceOpen === true || !isOpen) {
+    panel.classList.remove('collapsed');
+    panel.style.display = '';
+    btn.style.display = 'none';
+    document.getElementById('chat-input').focus();
+  } else {
+    panel.classList.add('collapsed');
+    setTimeout(() => { panel.style.display = 'none'; }, 250);
+    btn.style.display = '';
+  }
+}
+
+function toggleCategory(el) {
+  el.classList.toggle('collapsed');
 }
 
 // ── Toast ──────────────────────────────────────────────────────────
@@ -3439,6 +3547,8 @@ function showApp(user) {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-sidebar').style.display = '';
   document.getElementById('app-main').style.display = '';
+  document.getElementById('chat-panel').style.display = '';
+  document.getElementById('chat-toggle-btn').style.display = 'none';
 
   const allowed = user?.role === 'tenant_admin' ? TENANT_TABS : SUPER_TABS;
   allTabs.length = 0;
@@ -3471,7 +3581,9 @@ function showApp(user) {
     if (tenantSelect) tenantSelect.parentElement.style.display = 'none';
   }
 
-  switchTab('chat');
+  // Default to first non-chat tab; chat is always open in right panel
+  const firstTab = allTabs.find(t => t !== 'chat') || 'glossary';
+  switchTab(firstTab);
   loadChatHistory();
   loadAppData();
 }
