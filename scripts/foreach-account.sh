@@ -4,6 +4,7 @@
 set -euo pipefail
 
 ROLE_NAME="${OPS_AGENT_ROLE_NAME:-OpsAgentReadOnly}"
+EXTERNAL_ID="${OPS_AGENT_EXTERNAL_ID:-opsagent}"
 FILTER_ACCOUNTS=""
 
 while [[ "${1:-}" == --* ]]; do
@@ -47,6 +48,7 @@ while IFS=$'\t' read -r account_id account_name; do
   creds=$(aws sts assume-role \
     --role-arn "arn:aws:iam::${account_id}:role/${ROLE_NAME}" \
     --role-session-name "ops-agent" \
+    --external-id "${EXTERNAL_ID}" \
     --output json 2>/dev/null) || { echo "  [SKIP] Cannot assume role ${ROLE_NAME}"; continue; }
 
   export AWS_ACCESS_KEY_ID=$(echo "$creds" | jq -r '.Credentials.AccessKeyId')
