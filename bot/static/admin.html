@@ -25,7 +25,8 @@
     background: var(--bg);
     color: var(--text);
     display: flex;
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
   }
   /* Sidebar */
   .sidebar {
@@ -93,16 +94,20 @@
   /* Chat Panel (right side, collapsible) */
   .chat-panel {
     width: 440px;
+    min-width: 440px;
+    max-width: 440px;
+    height: 100vh;
     background: var(--surface);
     border-left: 1px solid var(--border);
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    transition: width 0.25s ease, opacity 0.2s ease;
+    transition: width 0.25s ease, min-width 0.25s ease, opacity 0.2s ease;
     overflow: hidden;
   }
   .chat-panel.collapsed {
     width: 0;
+    min-width: 0;
     opacity: 0;
     border-left: none;
   }
@@ -121,6 +126,7 @@
     flex-direction: column;
     padding: 0 12px;
     overflow: hidden;
+    min-height: 0;
   }
   .chat-toggle-btn {
     position: fixed;
@@ -361,11 +367,12 @@
   .upload-item .done { color: var(--success); }
   .upload-item .fail { color: var(--danger); }
   /* Chat */
-  #tab-chat { display: flex; height: 100%; flex-direction: column; }
+  #tab-chat { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
   .chat-messages {
     flex: 1;
     overflow-y: auto;
     padding-bottom: 16px;
+    min-height: 0;
   }
   .chat-bubble {
     max-width: 85%;
@@ -402,8 +409,9 @@
   .chat-input-bar {
     display: flex;
     gap: 8px;
-    padding-top: 12px;
+    padding: 12px 0 8px;
     border-top: 1px solid var(--border);
+    flex-shrink: 0;
   }
   .chat-input-bar textarea {
     flex: 1;
@@ -1370,7 +1378,7 @@ function toggleChatPanel(forceOpen) {
   } else {
     panel.classList.add('collapsed');
     setTimeout(() => { panel.style.display = 'none'; }, 250);
-    btn.style.display = '';
+    btn.style.display = 'block';
   }
 }
 
