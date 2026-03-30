@@ -25,6 +25,7 @@ async function configureEKSKubeconfig(cluster: ClusterInfo): Promise<void> {
     '--name', cluster.name,
     '--region', cluster.region,
     '--role-arn', roleArn,
+    '--external-id', 'opsagent',
     '--alias', cluster.context,
   ];
 

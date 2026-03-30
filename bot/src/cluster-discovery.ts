@@ -100,6 +100,7 @@ async function discoverEKSInRegion(
       'sts', 'assume-role',
       '--role-arn', roleArn,
       '--role-session-name', 'opsagent-discovery',
+      '--external-id', 'opsagent',
       '--duration-seconds', '900',
       '--output', 'json',
     ]);
