@@ -88,14 +88,13 @@
   .main {
     flex: 1;
     padding: 32px 40px;
-    max-width: 960px;
     overflow-y: auto;
   }
   /* Chat Panel (right side, collapsible) */
   .chat-panel {
     width: 440px;
-    min-width: 440px;
-    max-width: 440px;
+    min-width: 280px;
+    max-width: 800px;
     height: 100vh;
     background: var(--surface);
     border-left: 1px solid var(--border);
@@ -104,12 +103,32 @@
     flex-direction: column;
     transition: width 0.25s ease, min-width 0.25s ease, opacity 0.2s ease;
     overflow: hidden;
+    position: relative;
   }
   .chat-panel.collapsed {
     width: 0;
     min-width: 0;
     opacity: 0;
     border-left: none;
+  }
+  .chat-panel.dragging {
+    transition: none;
+    user-select: none;
+  }
+  .chat-resize-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 4px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+    background: transparent;
+    transition: background 0.15s;
+  }
+  .chat-resize-handle:hover,
+  .chat-resize-handle.active {
+    background: var(--accent);
   }
   .chat-panel-header {
     display: flex;
@@ -526,34 +545,51 @@
 <div class="sidebar" id="app-sidebar" style="display:none">
   <h1>OpsAgent</h1>
   <nav>
-    <div class="nav-category" onclick="toggleCategory(this)">Data <span class="arrow">&#9660;</span></div>
+    <!-- Chat 入口 -->
+    <a href="#chat" onclick="switchTab('chat')" style="padding:10px 20px;display:flex;align-items:center;gap:8px;color:var(--text2);text-decoration:none;font-size:13px;border-left:3px solid transparent;transition:all 0.15s" onmouseover="this.style.color='var(--text)';this.style.background='var(--surface2)'" onmouseout="if(!this.classList.contains('active')){this.style.color='var(--text2)';this.style.background=''}">💬 Chat</a>
+
+    <!-- 谁能管理 -->
+    <div class="nav-category" onclick="toggleCategory(this)">Principals <span class="arrow">&#9660;</span></div>
     <div class="nav-children">
-      <a href="#glossary" onclick="switchTab('glossary')">Glossary</a>
-      <a href="#knowledge" onclick="switchTab('knowledge')">Knowledge</a>
-      <a href="#skills" onclick="switchTab('skills')">Skills</a>
+      <a href="#users" onclick="switchTab('users')">Users</a>
+      <a href="#tenants" onclick="switchTab('tenants')">Tenants</a>
+      <a href="#approvals" onclick="switchTab('approvals')">Approvals <span id="approval-badge" class="nav-badge" style="display:none">0</span></a>
     </div>
-    <div class="nav-category" onclick="toggleCategory(this)">Infrastructure <span class="arrow">&#9660;</span></div>
+
+    <!-- 管理什么 -->
+    <div class="nav-category" onclick="toggleCategory(this)">Assets <span class="arrow">&#9660;</span></div>
     <div class="nav-children">
       <a href="#accounts" onclick="switchTab('accounts')">Accounts</a>
       <a href="#clusters" onclick="switchTab('clusters')">Clusters</a>
-      <a href="#platforms" onclick="switchTab('platforms')">Platforms</a>
+      <a href="#resources" onclick="switchTab('resources')">Resources</a>
     </div>
-    <div class="nav-category" onclick="toggleCategory(this)">Automation <span class="arrow">&#9660;</span></div>
+
+    <!-- 用什么渠道 -->
+    <div class="nav-category" onclick="toggleCategory(this)">Integrations <span class="arrow">&#9660;</span></div>
     <div class="nav-children">
-      <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
-      <a href="#plugins" onclick="switchTab('plugins')">Plugins</a>
+      <a href="#platforms" onclick="switchTab('platforms')">Channels</a>
+      <a href="#provider" onclick="switchTab('provider')">Models</a>
     </div>
+
+    <!-- 知识库 -->
+    <div class="nav-category" onclick="toggleCategory(this)">Knowledge <span class="arrow">&#9660;</span></div>
+    <div class="nav-children">
+      <a href="#glossary" onclick="switchTab('glossary')">Glossary</a>
+      <a href="#knowledge" onclick="switchTab('knowledge')">Knowledge</a>
+    </div>
+
+    <!-- 工具 -->
+    <div class="nav-category" onclick="toggleCategory(this)">Tools <span class="arrow">&#9660;</span></div>
+    <div class="nav-children">
+      <a href="#skills" onclick="switchTab('skills')">Skills</a>
+      <a href="#plugins" onclick="switchTab('plugins')">MCP</a>
+      <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
+    </div>
+
+    <!-- 运维 -->
     <div class="nav-category" onclick="toggleCategory(this)">Ops <span class="arrow">&#9660;</span></div>
     <div class="nav-children">
       <a href="#issues" onclick="switchTab('issues')">Issues <span id="issues-badge" class="nav-badge" style="display:none">0</span></a>
-      <a href="#resources" onclick="switchTab('resources')">Resources</a>
-    </div>
-    <div class="nav-category" onclick="toggleCategory(this)">Admin <span class="arrow">&#9660;</span></div>
-    <div class="nav-children">
-      <a href="#approvals" onclick="switchTab('approvals')">Approvals <span id="approval-badge" class="nav-badge" style="display:none">0</span></a>
-      <a href="#tenants" onclick="switchTab('tenants')">Tenants</a>
-      <a href="#provider" onclick="switchTab('provider')">Provider</a>
-      <a href="#users" onclick="switchTab('users')">Users</a>
     </div>
   </nav>
   <div class="sidebar-footer">
@@ -617,7 +653,7 @@
   <!-- Platforms Tab -->
   <div id="tab-platforms" style="display:none">
     <div class="toolbar">
-      <h2>Platform Integrations</h2>
+      <h2>Channels</h2>
       <button class="btn btn-primary" onclick="openPlatformModal()">+ Add Integration</button>
     </div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
@@ -674,7 +710,7 @@
   <!-- Plugins Tab -->
   <div id="tab-plugins" style="display:none">
     <div class="toolbar">
-      <h2>Plugins</h2>
+      <h2>MCP</h2>
     </div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
       MCP plugins extend Claude's capabilities. Configure tokens and enable/disable plugins here.
@@ -827,7 +863,7 @@
 
   <div id="tab-provider" style="display:none">
     <div class="toolbar">
-      <h2>LLM Provider</h2>
+      <h2>Models</h2>
     </div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
       Configure how OpsAgent connects to the LLM backend. Changes take effect on the next query (no restart needed).
@@ -866,9 +902,9 @@
 
 <!-- Chat Panel (right side, collapsible) -->
 <div class="chat-panel" id="chat-panel" style="display:none">
+  <div class="chat-resize-handle" id="chat-resize-handle"></div>
   <div class="chat-panel-header">
     <h3>Chat</h3>
-    <button class="btn btn-ghost btn-sm" onclick="toggleChatPanel()" title="Close chat">&times;</button>
   </div>
   <div class="chat-panel-body">
     <div id="tab-chat">
@@ -1354,7 +1390,7 @@ const SUPER_TABS = ALL_TABS;
 const TENANT_TABS = ['chat', 'glossary', 'accounts', 'skills', 'knowledge', 'clusters'];
 const allTabs = [...ALL_TABS];
 function switchTab(tab) {
-  if (tab === 'chat') { toggleChatPanel(true); return; }
+  if (tab === 'chat') { toggleChatPanel(); return; }
   allTabs.forEach(t => {
     if (t === 'chat') return;
     const el = document.getElementById('tab-' + t);
@@ -1368,23 +1404,80 @@ function switchTab(tab) {
 function toggleChatPanel(forceOpen) {
   const panel = document.getElementById('chat-panel');
   const btn = document.getElementById('chat-toggle-btn');
+  const chatLink = document.querySelector('#app-sidebar nav a[href="#chat"]');
   const isOpen = !panel.classList.contains('collapsed');
   if (forceOpen === true && isOpen) return;
   if (forceOpen === true || !isOpen) {
-    panel.classList.remove('collapsed');
-    panel.style.display = '';
+    panel.style.display = '';           // 先让元素出现（width:0, opacity:0）
+    requestAnimationFrame(() => {       // 下一帧触发 transition
+      panel.classList.remove('collapsed');
+      if (chatLink) chatLink.classList.add('active');
+      setTimeout(() => document.getElementById('chat-input').focus(), 260);
+    });
     btn.style.display = 'none';
-    document.getElementById('chat-input').focus();
   } else {
     panel.classList.add('collapsed');
     setTimeout(() => { panel.style.display = 'none'; }, 250);
-    btn.style.display = 'block';
+    btn.style.display = 'none';
+    if (chatLink) chatLink.classList.remove('active');
   }
 }
 
 function toggleCategory(el) {
   el.classList.toggle('collapsed');
 }
+
+// ── Chat panel resize ──────────────────────────────────────────────
+(function() {
+  const STORAGE_KEY = 'chatPanelWidth';
+  const MIN_W = 280, MAX_W = 800;
+
+  function initChatResize() {
+    const handle = document.getElementById('chat-resize-handle');
+    const panel  = document.getElementById('chat-panel');
+    if (!handle || !panel) return;
+
+    // Restore saved width
+    const saved = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+    if (saved && saved >= MIN_W && saved <= MAX_W) {
+      panel.style.width = saved + 'px';
+    }
+
+    let startX, startW;
+
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = panel.getBoundingClientRect().width;
+      panel.classList.add('dragging');
+      handle.classList.add('active');
+
+      function onMove(e) {
+        const delta = startX - e.clientX;   // 向左拖 = 变宽
+        const newW  = Math.min(MAX_W, Math.max(MIN_W, startW + delta));
+        panel.style.width = newW + 'px';
+      }
+
+      function onUp() {
+        panel.classList.remove('dragging');
+        handle.classList.remove('active');
+        localStorage.setItem(STORAGE_KEY, parseInt(panel.style.width, 10));
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  // Init after DOM ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initChatResize);
+  } else {
+    initChatResize();
+  }
+})();
 
 // ── Toast ──────────────────────────────────────────────────────────
 let toastTimer = null;
@@ -3555,7 +3648,8 @@ function showApp(user) {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-sidebar').style.display = '';
   document.getElementById('app-main').style.display = '';
-  document.getElementById('chat-panel').style.display = '';
+  document.getElementById('chat-panel').classList.add('collapsed');
+  document.getElementById('chat-panel').style.display = 'none';
   document.getElementById('chat-toggle-btn').style.display = 'none';
 
   const allowed = user?.role === 'tenant_admin' ? TENANT_TABS : SUPER_TABS;

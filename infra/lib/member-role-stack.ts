@@ -41,6 +41,26 @@ export class MemberRoleStack extends cdk.Stack {
             ManagedPolicyArns: [
               'arn:aws:iam::aws:policy/ReadOnlyAccess',
             ],
+            Policies: [
+              {
+                PolicyName: 'OpsAgentEKSSelfRegister',
+                PolicyDocument: {
+                  Version: '2012-10-17',
+                  Statement: [
+                    {
+                      Effect: 'Allow',
+                      Action: [
+                        'eks:CreateAccessEntry',
+                        'eks:AssociateAccessPolicy',
+                        'eks:DescribeAccessEntry',
+                        'eks:ListAccessEntries',
+                      ],
+                      Resource: '*',
+                    },
+                  ],
+                },
+              },
+            ],
             Tags: [
               { Key: 'ManagedBy', Value: 'OpsAgent' },
               { Key: 'Purpose', Value: 'Cross-account read-only access for OpsAgent' },
