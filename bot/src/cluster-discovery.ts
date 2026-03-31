@@ -83,6 +83,55 @@ async function listOrgAccounts(defaultRole: string, defaultRegions: string[], ov
 }
 
 /**
+ * 对 hub 账号的单个 region 直接发现 EKS 集群（不 assume role，使用当前凭证）
+ */
+async function discoverEKSInHubRegion(
+  accountId: string,
+  accountAlias: string,
+  region: string,
+): Promise<ClusterInfo[]> {
+  let clusterNames: string[];
+  try {
+    const listRaw = await exec('aws', ['eks', 'list-clusters', '--region', region, '--output', 'json']);
+    clusterNames = JSON.parse(listRaw).clusters || [];
+  } catch (err) {
+    console.warn(`[cluster-discovery] list-clusters failed for hub/${region}: ${(err as Error).message}`);
+    return [];
+  }
+
+  if (clusterNames.length === 0) return [];
+
+  const results: ClusterInfo[] = [];
+  for (const name of clusterNames) {
+    try {
+      const descRaw = await exec('aws', ['eks', 'describe-cluster', '--name', name, '--region', region, '--output', 'json']);
+      const cluster = JSON.parse(descRaw).cluster;
+      results.push({
+        name,
+        cloud: 'aws',
+        type: 'eks',
+        region,
+        account: accountId,
+        accountAlias,
+        version: cluster?.version || 'unknown',
+        status: cluster?.status || 'UNKNOWN',
+        context: `aws/${accountAlias}/${name}`,
+        endpoint: cluster?.endpoint,
+      });
+    } catch (err) {
+      console.warn(`[cluster-discovery] describe-cluster failed for ${name} in hub/${region}: ${(err as Error).message}`);
+      results.push({
+        name, cloud: 'aws', type: 'eks', region,
+        account: accountId, accountAlias,
+        version: 'unknown', status: 'UNKNOWN',
+        context: `aws/${accountAlias}/${name}`,
+      });
+    }
+  }
+  return results;
+}
+
+/**
  * 对单个账号的单个 region 发现 EKS 集群
  */
 async function discoverEKSInRegion(
@@ -182,6 +231,16 @@ async function discoverAWS(accountsConfig: AccountsConfig | null): Promise<Clust
   const defaultRegions = defaults?.regions || ['us-east-1'];
   const overrides = accountsConfig?.accounts?.overrides || {};
 
+  // 获取当前（hub）账号 ID，扫描时跳过，避免向自身 assume-role
+  let hubAccountId: string | null = null;
+  try {
+    const identityRaw = await exec('aws', ['sts', 'get-caller-identity', '--output', 'json']);
+    hubAccountId = JSON.parse(identityRaw).Account;
+    console.log(`[cluster-discovery] Hub account detected: ${hubAccountId} (will be skipped)`);
+  } catch (err) {
+    console.warn(`[cluster-discovery] Failed to get caller identity: ${(err as Error).message}`);
+  }
+
   // 从 Organizations 获取账号
   const orgAccounts = await listOrgAccounts(defaultRole, defaultRegions, overrides);
 
@@ -193,11 +252,27 @@ async function discoverAWS(accountsConfig: AccountsConfig | null): Promise<Clust
   for (const a of orgAccounts) accountMap.set(a.id, a);
   for (const a of extraAccounts) accountMap.set(a.id, a);  // extra 覆盖 org
 
-  const allAccounts = Array.from(accountMap.values());
-  console.log(`[cluster-discovery] Scanning ${allAccounts.length} AWS accounts for EKS clusters`);
+  // 从账号列表中移除 hub 账号（hub 账号不需要 assume-role，单独直接扫描）
+  if (hubAccountId && accountMap.has(hubAccountId)) {
+    console.log(`[cluster-discovery] Removing hub account ${hubAccountId} from assume-role scan list`);
+    accountMap.delete(hubAccountId);
+  }
 
-  // 并发扫描所有账号的所有 region
+  const allAccounts = Array.from(accountMap.values());
+  console.log(`[cluster-discovery] Scanning ${allAccounts.length} member accounts + hub account for EKS clusters`);
+
+  // 并发扫描：成员账号（assume role）+ hub 账号（直接用当前凭证）
   const tasks: Promise<ClusterInfo[]>[] = [];
+
+  // Hub 账号：直接扫描，不传 env（使用 OpsAgentTaskRole 当前凭证）
+  if (hubAccountId) {
+    const hubAlias = overrides[hubAccountId]?.alias || hubAccountId;
+    for (const region of defaultRegions) {
+      tasks.push(discoverEKSInHubRegion(hubAccountId, hubAlias, region));
+    }
+  }
+
+  // 成员账号：assume role 扫描
   for (const acct of allAccounts) {
     for (const region of acct.regions) {
       tasks.push(discoverEKSInRegion(acct.id, acct.alias, region, acct.roleName));

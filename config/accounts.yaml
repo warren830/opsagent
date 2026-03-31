@@ -8,7 +8,9 @@ accounts:
 
   overrides:
     "034362076319":
-      alias: "hub-account"
+      alias: "kolya"
+    "612674025488":
+      skip: true   # hub account (OpsAgent runs here), no OpsAgentReadOnly role
     "999999999999":
       skip: true
 
