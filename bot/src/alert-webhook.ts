@@ -5,7 +5,7 @@
  */
 
 export interface AlertPayload {
-  source: 'cloudwatch' | 'datadog' | 'webhook';
+  source: 'cloudwatch' | 'datadog' | 'grafana' | 'webhook';
   title: string;
   severity: 'critical' | 'high' | 'medium' | 'low';
   description: string;
@@ -114,6 +114,41 @@ function mapDatadogSeverity(priority?: string, alertType?: string): 'critical' |
   return 'medium';
 }
 
+// ── Grafana Cloud ─────────────────────────────────────────────
+
+/**
+ * Parse Grafana unified alerting webhook payload.
+ * Grafana Cloud sends: { alerts: [...], commonLabels: {...}, commonAnnotations: {...} }
+ */
+export function parseGrafanaAlert(payload: any): AlertPayload | null {
+  if (!Array.isArray(payload?.alerts) || payload.alerts.length === 0) return null;
+  const firing = payload.alerts.find((a: any) => a.status === 'firing');
+  if (!firing) return null;
+  const labels = firing.labels || {};
+  const annotations = firing.annotations || {};
+  const title = labels.alertname || annotations.summary || 'Grafana Alert';
+  const description = annotations.description || annotations.summary || '';
+  const resourceId = labels.instance || labels.pod || labels.host || '';
+  return {
+    source: 'grafana',
+    title,
+    severity: mapGrafanaSeverity(labels.severity),
+    description,
+    resource_id: resourceId,
+    resource_type: labels.resource_type,
+    metric_data: { labels, annotations, startsAt: firing.startsAt },
+    raw: payload,
+  };
+}
+
+function mapGrafanaSeverity(sev?: string): AlertPayload['severity'] {
+  const s = (sev || '').toLowerCase();
+  if (s === 'critical') return 'critical';
+  if (s === 'high' || s === 'error') return 'high';
+  if (s === 'low' || s === 'info') return 'low';
+  return 'medium';
+}
+
 // ── Generic Webhook ───────────────────────────────────────────
 
 export function parseGenericAlert(payload: any): AlertPayload | null {
@@ -139,6 +174,11 @@ export function parseGenericAlert(payload: any): AlertPayload | null {
  */
 export function normalizeAlert(payload: any): AlertPayload | null {
   if (!payload) return null;
+
+  // Grafana Cloud unified alerting format (has alerts array)
+  if (Array.isArray(payload.alerts)) {
+    return parseGrafanaAlert(payload);
+  }
 
   // CloudWatch SNS format
   if (payload.Type === 'Notification' && payload.Message) {

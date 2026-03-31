@@ -509,12 +509,17 @@
   .sidebar-footer .footer-links a:hover { color: var(--accent); }
   .sidebar-footer .footer-links a.danger { color: var(--danger); }
 
-  /* Approval badge */
+  /* Approval / Issues badge */
   .nav-badge {
     display: inline-block; background: var(--danger); color: #fff; font-size: 10px;
     min-width: 16px; height: 16px; line-height: 16px; text-align: center;
     border-radius: 8px; padding: 0 4px; margin-left: 6px; vertical-align: middle;
   }
+  @keyframes badge-pulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,107,107,0.6); }
+    50%       { transform: scale(1.2); box-shadow: 0 0 0 5px rgba(255,107,107,0); }
+  }
+  .nav-badge.has-new { animation: badge-pulse 1.4s ease-in-out infinite; }
   .approval-status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
   .approval-status.pending { background: #f59e0b; color: #000; }
   .approval-status.approved, .approval-status.executed { background: #22c55e; color: #fff; }
@@ -584,6 +589,18 @@
       <a href="#skills" onclick="switchTab('skills')">Skills</a>
       <a href="#plugins" onclick="switchTab('plugins')">MCP</a>
       <a href="#scheduled-jobs" onclick="switchTab('scheduled-jobs')">Scheduled Jobs</a>
+    </div>
+
+    <!-- Pipeline -->
+    <div class="nav-category" onclick="toggleCategory(this)">Pipeline <span class="arrow">&#9660;</span></div>
+    <div class="nav-children">
+      <a href="#pipeline" onclick="switchTab('pipeline')">Pipeline</a>
+    </div>
+
+    <!-- Telemetry -->
+    <div class="nav-category" onclick="toggleCategory(this)">Telemetry <span class="arrow">&#9660;</span></div>
+    <div class="nav-children">
+      <a href="#telemetry" onclick="switchTab('telemetry')">Telemetry</a>
     </div>
 
     <!-- 运维 -->
@@ -791,6 +808,108 @@
     <div class="section-title">Discovered Clusters</div>
     <div id="clusters-status" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
     <div id="discovered-clusters-list"></div>
+  </div>
+
+  <!-- Pipeline Tab -->
+  <div id="tab-pipeline" style="display:none">
+    <div class="toolbar"><h2>Pipeline</h2></div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      Connect code repositories to enable PR review, code search, and deployment tracking.
+    </div>
+
+    <!-- GitHub card -->
+    <div class="card" style="padding:20px;margin-bottom:16px">
+      <div class="card-header">
+        <div>
+          <div class="card-title">GitHub</div>
+          <div class="card-subtitle">MCP server-github · PR review, issue tracking, code search</div>
+        </div>
+        <div class="card-actions">
+          <label class="toggle">
+            <input type="checkbox" id="github-enabled" onchange="savePipelineConfig()">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:12px">
+        <label>Personal Access Token (PAT)</label>
+        <input type="password" id="github-token" placeholder="ghp_..."
+               oninput="debounceSavePipeline()">
+        <div style="font-size:11px;color:var(--text2);margin-top:4px">
+          Required scopes: <code>repo</code>, <code>read:org</code>.
+          <a href="https://github.com/settings/tokens" target="_blank"
+             style="color:var(--accent)">Create token →</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- GitLab placeholder -->
+    <div class="card" style="padding:20px;opacity:0.5">
+      <div class="card-header">
+        <div class="card-title">GitLab
+          <span class="tag" style="font-size:11px;margin-left:6px">Coming Soon</span>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text2)">
+        GitLab MR review and pipeline monitoring.
+      </div>
+    </div>
+  </div>
+
+  <!-- Telemetry Tab -->
+  <div id="tab-telemetry" style="display:none">
+    <div class="toolbar"><h2>Telemetry</h2></div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      Connect observability platforms. Alerts fire webhook → OpsAgent creates issue + runs RCA.
+    </div>
+
+    <!-- Grafana Cloud card -->
+    <div class="card" style="padding:20px">
+      <div class="card-header">
+        <div class="card-title">Grafana Cloud</div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
+        Receives Grafana Cloud unified alerts and triggers automatic root cause analysis.
+        Loki credentials are optional — used by RCA to query logs during investigation.
+      </div>
+      <div class="form-group">
+        <label>Loki URL
+          <span style="font-size:11px;color:var(--text2)">(optional, for log queries during RCA)</span>
+        </label>
+        <input type="text" id="grafana-loki-url"
+               placeholder="https://logs-prod-us-central1.grafana.net">
+      </div>
+      <div class="form-group">
+        <label>Grafana Cloud Instance ID
+          <span style="font-size:11px;color:var(--text2)">(numeric, e.g. 1234567)</span>
+        </label>
+        <input type="text" id="grafana-instance-id" placeholder="1234567">
+      </div>
+      <div class="form-group">
+        <label>Grafana Cloud API Key</label>
+        <input type="password" id="grafana-api-key" placeholder="glc_...">
+        <div style="font-size:11px;color:var(--text2);margin-top:4px">
+          Grafana Cloud → My Account → API Keys → + Add.
+          Requires <code>logs:read</code> scope.
+        </div>
+      </div>
+      <!-- Webhook URL display -->
+      <div style="margin-top:16px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text2)">
+          Webhook URL — paste this into Grafana Alerting → Contact Points
+        </div>
+        <div id="grafana-webhook-url"
+             style="font-family:monospace;font-size:13px;color:var(--accent);user-select:all;word-break:break-all"></div>
+        <div style="font-size:11px;color:var(--text2);margin-top:6px">
+          Grafana → Alerting → Contact Points → + Add → Webhook → URL field
+        </div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="saveTelemetryConfig()">Save</button>
+        <button class="btn btn-ghost" onclick="testTelemetryWebhook()">Send Test Alert</button>
+      </div>
+      <div id="telemetry-test-result" style="margin-top:8px;font-size:12px;color:var(--text2)"></div>
+    </div>
   </div>
 
   <!-- Issues Tab -->
@@ -1385,7 +1504,7 @@ let editingOverrideId = null;    // null = new, string = editing
 let currentUser = null;          // { username, role, tenant_id } or null
 
 // ── Tab switching ──────────────────────────────────────────────────
-const ALL_TABS = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'issues', 'resources', 'approvals', 'tenants', 'clusters', 'provider', 'users'];
+const ALL_TABS = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'pipeline', 'telemetry', 'issues', 'resources', 'approvals', 'tenants', 'clusters', 'provider', 'users'];
 const SUPER_TABS = ALL_TABS;
 const TENANT_TABS = ['chat', 'glossary', 'accounts', 'skills', 'knowledge', 'clusters'];
 const allTabs = [...ALL_TABS];
@@ -1399,6 +1518,13 @@ function switchTab(tab) {
   document.querySelectorAll('.sidebar nav a').forEach(a => {
     a.classList.toggle('active', a.getAttribute('href') === '#' + tab);
   });
+  // Clear issues red dot when user navigates to Issues tab
+  if (tab === 'issues') {
+    const openCount = issuesList.filter(i => i.status === 'open').length;
+    localStorage.setItem('issuesLastSeenCount', String(openCount));
+    const badge = document.getElementById('issues-badge');
+    if (badge) badge.classList.remove('has-new');
+  }
 }
 
 function toggleChatPanel(forceOpen) {
@@ -3704,6 +3830,8 @@ function loadAppData() {
   if (allTabs.includes('users')) loadUsersList();
   if (allTabs.includes('issues')) loadIssues();
   if (allTabs.includes('resources')) loadResources();
+  if (allTabs.includes('pipeline')) loadPipelineConfig();
+  if (allTabs.includes('telemetry')) loadTelemetryConfig();
   if (allTabs.includes('approvals')) loadApprovals();
 }
 
@@ -3719,10 +3847,19 @@ async function loadIssues() {
     const data = await res.json();
     issuesList = data.issues || [];
     renderIssues();
-    // Update badge
+    // Update badge with WeChat-style red dot pulse for new issues
     const openCount = issuesList.filter(i => i.status === 'open').length;
     const badge = document.getElementById('issues-badge');
-    if (badge) { badge.textContent = String(openCount); badge.style.display = openCount > 0 ? '' : 'none'; }
+    if (badge) {
+      badge.textContent = String(openCount);
+      badge.style.display = openCount > 0 ? '' : 'none';
+      const lastSeen = parseInt(localStorage.getItem('issuesLastSeenCount') || '0', 10);
+      if (openCount > lastSeen) {
+        badge.classList.add('has-new');
+      } else {
+        badge.classList.remove('has-new');
+      }
+    }
   } catch { issuesList = []; renderIssues(); }
 }
 
@@ -3806,6 +3943,125 @@ async function updateIssueStatus(id, status) {
   toast('Issue updated');
   document.getElementById('issue-detail-modal').style.display = 'none';
   loadIssues();
+}
+
+// ── Pipeline ─────────────────────────────────────────────────────
+async function loadPipelineConfig() {
+  try {
+    const res = await fetch('/admin/api/plugins');
+    const data = await res.json();
+    const gh = data.plugins?.github || {};
+    const enabledEl = document.getElementById('github-enabled');
+    const tokenEl = document.getElementById('github-token');
+    if (enabledEl) enabledEl.checked = !!gh.enabled;
+    if (tokenEl) {
+      const tok = gh.env?.GITHUB_TOKEN || '';
+      if (tok && !tok.startsWith('${')) {
+        tokenEl.value = tok;
+      } else if (tok) {
+        tokenEl.placeholder = '(saved)';
+      }
+    }
+  } catch {}
+}
+
+let _pipelineDebounce = null;
+function debounceSavePipeline() {
+  clearTimeout(_pipelineDebounce);
+  _pipelineDebounce = setTimeout(savePipelineConfig, 800);
+}
+
+async function savePipelineConfig() {
+  try {
+    const res = await fetch('/admin/api/plugins');
+    const data = await res.json();
+    const plugins = data.plugins || {};
+    plugins.github = {
+      ...(plugins.github || {}),
+      enabled: document.getElementById('github-enabled').checked,
+      type: 'mcp',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: { GITHUB_TOKEN: document.getElementById('github-token').value || '${GITHUB_TOKEN}' },
+    };
+    await fetch('/admin/api/plugins', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plugins }),
+    });
+    toast('Pipeline config saved');
+  } catch { toast('Failed to save pipeline config', 'error'); }
+}
+
+// ── Telemetry ─────────────────────────────────────────────────────
+async function loadTelemetryConfig() {
+  // Show webhook URL from current host
+  const webhookUrl = window.location.origin + '/api/alerts';
+  const urlEl = document.getElementById('grafana-webhook-url');
+  if (urlEl) urlEl.textContent = webhookUrl;
+
+  try {
+    const res = await fetch('/admin/api/telemetry');
+    const data = await res.json();
+    const g = data.telemetry?.grafana || {};
+    const lokiEl = document.getElementById('grafana-loki-url');
+    const instanceEl = document.getElementById('grafana-instance-id');
+    const keyEl = document.getElementById('grafana-api-key');
+    if (lokiEl) lokiEl.value = g.loki_url || '';
+    if (instanceEl) instanceEl.value = g.instance_id || '';
+    if (keyEl && g.api_key) keyEl.placeholder = '(saved)';
+  } catch {}
+}
+
+async function saveTelemetryConfig() {
+  const apiKeyInput = document.getElementById('grafana-api-key').value;
+  const body = { telemetry: { grafana: {
+    enabled: true,
+    loki_url: document.getElementById('grafana-loki-url').value,
+    instance_id: document.getElementById('grafana-instance-id').value,
+    ...(apiKeyInput ? { api_key: apiKeyInput } : {}),
+  }}};
+  try {
+    await fetch('/admin/api/telemetry', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    toast('Telemetry config saved');
+    // Reload to reflect saved state
+    loadTelemetryConfig();
+  } catch { toast('Failed to save telemetry config', 'error'); }
+}
+
+async function testTelemetryWebhook() {
+  const resultEl = document.getElementById('telemetry-test-result');
+  if (resultEl) { resultEl.textContent = 'Sending test alert...'; resultEl.style.color = 'var(--text2)'; }
+  const testPayload = {
+    alerts: [{
+      status: 'firing',
+      labels: { alertname: 'OpsAgentTestAlert', severity: 'medium', instance: 'test-host' },
+      annotations: { summary: 'Test alert from OpsAgent Admin UI', description: 'This is a connectivity test.' },
+      startsAt: new Date().toISOString(),
+    }],
+    commonLabels: { alertname: 'OpsAgentTestAlert' },
+    commonAnnotations: { summary: 'Test alert' },
+  };
+  try {
+    const res = await fetch('/api/alerts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(testPayload),
+    });
+    const data = await res.json();
+    if (resultEl) {
+      resultEl.textContent = data.ok
+        ? `✓ Test alert received (issue #${data.issue_id})`
+        : `✗ Error: ${data.error}`;
+      resultEl.style.color = data.ok ? 'var(--success)' : 'var(--danger)';
+    }
+  } catch (e) {
+    if (resultEl) { resultEl.textContent = '✗ Request failed: ' + e.message; resultEl.style.color = 'var(--danger)'; }
+  }
 }
 
 // ── Resources ───────────────────────────────────────────────────

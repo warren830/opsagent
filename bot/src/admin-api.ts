@@ -16,6 +16,7 @@ export interface AdminApiOptions {
   scheduledJobsConfigPath?: string;
   pluginsConfigPath?: string;
   providerConfigPath?: string;
+  telemetryConfigPath?: string;
   clustersConfigPath?: string;
   tenantsConfigPath?: string;
   usersConfigPath?: string;
@@ -33,6 +34,7 @@ export class AdminApi {
   private readonly scheduledJobsPath?: string;
   private readonly pluginsPath?: string;
   private readonly providerPath?: string;
+  private readonly telemetryPath?: string;
   private readonly clustersPath?: string;
   private readonly tenantsPath?: string;
   private readonly usersPath?: string;
@@ -53,6 +55,7 @@ export class AdminApi {
     if (options.scheduledJobsConfigPath) this.scheduledJobsPath = path.resolve(options.scheduledJobsConfigPath);
     if (options.pluginsConfigPath) this.pluginsPath = path.resolve(options.pluginsConfigPath);
     if (options.providerConfigPath) this.providerPath = path.resolve(options.providerConfigPath);
+    if (options.telemetryConfigPath) this.telemetryPath = path.resolve(options.telemetryConfigPath);
     if (options.clustersConfigPath) this.clustersPath = path.resolve(options.clustersConfigPath);
     if (options.tenantsConfigPath) this.tenantsPath = path.resolve(options.tenantsConfigPath);
     if (options.usersConfigPath) this.usersPath = path.resolve(options.usersConfigPath);
@@ -169,6 +172,21 @@ export class AdminApi {
     if (urlPath === '/admin/api/plugins' && this.pluginsPath) {
       if (req.method === 'GET') return this.getPlugins(res);
       if (req.method === 'PUT') return this.putPlugins(res, body);
+    }
+
+    if (urlPath === '/admin/api/telemetry') {
+      if (req.method === 'GET') {
+        const data = this.telemetryPath ? this.readYaml(this.telemetryPath) : null;
+        this.jsonResponse(res, 200, data || { telemetry: {} });
+        return true;
+      }
+      if (req.method === 'PUT') {
+        if (!this.telemetryPath) { this.jsonResponse(res, 404, { error: 'telemetry config not configured' }); return true; }
+        if (!body?.telemetry) { this.jsonResponse(res, 400, { error: 'body.telemetry required' }); return true; }
+        this.writeYaml(this.telemetryPath, { telemetry: body.telemetry });
+        this.jsonResponse(res, 200, { ok: true });
+        return true;
+      }
     }
 
     if (urlPath === '/admin/api/provider' && this.providerPath) {

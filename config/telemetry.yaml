@@ -1,0 +1,7 @@
+telemetry:
+  grafana:
+    enabled: false
+    loki_url: ""       # e.g. https://logs-prod-006.grafana.net
+    user_id: ""        # Grafana Cloud numeric user/org ID (Basic Auth username)
+    api_token: ""      # Grafana Cloud API token with logs:read scope (glc_...)
+    # Alternatively set via env vars: GRAFANA_LOKI_URL, GRAFANA_USER_ID, GRAFANA_API_TOKEN

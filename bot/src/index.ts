@@ -80,6 +80,7 @@ const PROVIDERS_CONFIG = process.env.PROVIDERS_CONFIG || seedConfig('providers.y
 const CLUSTERS_CONFIG = process.env.CLUSTERS_CONFIG || seedConfig('clusters.yaml');
 const TENANTS_CONFIG = process.env.TENANTS_CONFIG || seedConfig('tenants.yaml');
 const USERS_CONFIG = process.env.USERS_CONFIG || seedConfig('users.yaml');
+const TELEMETRY_CONFIG = process.env.TELEMETRY_CONFIG || seedConfig('telemetry.yaml');
 
 // Core components
 const claudeClient = new ClaudeClient({
@@ -224,6 +225,7 @@ adminApi = new AdminApi({
   clustersConfigPath: CLUSTERS_CONFIG,
   tenantsConfigPath: TENANTS_CONFIG,
   usersConfigPath: USERS_CONFIG,
+  telemetryConfigPath: TELEMETRY_CONFIG,
   kubeconfigManager,
   onScheduledJobsChanged: () => scheduler.reload(),
   onTenantsChanged: () => tenantResolver.reload(),
@@ -820,13 +822,42 @@ const server = http.createServer(async (req, res) => {
         const saved = await saveIssueToDB(issue);
         console.log(`[index] Issue #${saved.id} created from alert`);
 
-        // Trigger RCA in background
+        // Trigger RCA in background and save result to DB
         const rcaPrompt = buildRcaPrompt({
           issueId: saved.id, title: saved.title, resource_id: saved.resource_id || '',
           severity: saved.severity, description: saved.description || '',
           regions: [],
         });
-        claudeClient.query(rcaPrompt, 'alert', 'system').catch(err => {
+        const rcaStart = Date.now();
+        claudeClient.query(rcaPrompt, 'alert', 'system').then(async (response) => {
+          // Extract JSON block from Claude response
+          const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
+          const jsonStr = jsonMatch?.[1] || response.match(/\{[\s\S]*"root_cause"[\s\S]*?\}/)?.[0];
+          if (!jsonStr) {
+            console.warn('[index] RCA response has no JSON block — skipping DB save');
+            return;
+          }
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const { createRcaResult, saveRcaResultToDB } = await import('./rca');
+            const rcaResult = createRcaResult({
+              issue_id: saved.id,
+              root_cause: parsed.root_cause || 'Unknown',
+              confidence: parsed.confidence ?? 0.5,
+              contributing_factors: parsed.contributing_factors || [],
+              recommendations: parsed.recommendations || [],
+              fix_plan: parsed.fix_plan || {},
+              fix_risk_level: parsed.fix_risk_level || 'medium',
+              evidence: parsed.evidence || {},
+              model_id: 'claude',
+              duration_ms: Date.now() - rcaStart,
+            });
+            await saveRcaResultToDB(rcaResult);
+            console.log(`[index] RCA result saved for issue #${saved.id}`);
+          } catch (e: any) {
+            console.warn(`[index] Failed to parse/save RCA: ${e.message}`);
+          }
+        }).catch(err => {
           console.error(`[index] Background RCA failed: ${err.message}`);
         });
 
