@@ -1,58 +1,24 @@
 # Kubernetes Clusters
 
-使用 kubectl 前必须先配置 kubeconfig。
+> 此文件由系统自动生成，上次更新: 2026-04-01T01:59:17.777Z
 
-## AWS EKS
+## 集群总览
 
-| Cluster | Account | Region | 用途 | K8s Version |
-|---------|---------|--------|------|-------------|
-| ecommerce-prod | prod-main (034362076319) | us-east-1 | 电商平台（storefront、cart、order、payment） | v1.30 |
-| data-platform | prod-main (034362076319) | us-east-1 | 数据平台（Kafka Connect、Flink、Airflow、ML） | v1.31 |
-| legacy-migration | prod-main (034362076319) | us-east-1 | 核心银行系统迁移（dual-write、legacy adapter） | v1.29 |
-| opsagent-test | prod-main (034362076319) | us-east-1 | 测试集群（staging、production、data-pipeline、monitoring） | v1.31 |
+| 集群 | 云平台 | 账号 | Region | 版本 | 状态 | Context |
+|------|--------|------|--------|------|------|---------|
+| data-platform | AWS EKS | hub-account (034362076319) | us-east-1 | 1.31 | ACTIVE | aws/hub-account/data-platform |
+| ecommerce-prod | AWS EKS | hub-account (034362076319) | us-east-1 | 1.30 | ACTIVE | aws/hub-account/ecommerce-prod |
+| legacy-migration | AWS EKS | hub-account (034362076319) | us-east-1 | 1.29 | ACTIVE | aws/hub-account/legacy-migration |
+| opsagent-test | AWS EKS | hub-account (034362076319) | us-east-1 | 1.31 | ACTIVE | aws/hub-account/opsagent-test |
 
-> **注意**: `legacy-migration` 集群运行 K8s v1.29，即将到达支持终止日期，计划 Q2 2026 升级到 v1.30+。
+## 使用方式
 
-### 连接方式
-
-```bash
-aws eks update-kubeconfig --name <cluster> --region <region>
-```
-
-查询多个集群时，逐个配置后用 `--context` 切换：
+kubeconfig 已预配置，直接使用 context 查询：
 
 ```bash
-# 配置所有集群
-aws eks update-kubeconfig --name ecommerce-prod --region us-east-1
-aws eks update-kubeconfig --name data-platform --region us-east-1
-aws eks update-kubeconfig --name legacy-migration --region us-east-1
-aws eks update-kubeconfig --name opsagent-test --region us-east-1
+# 查询特定集群
+kubectl --context aws/hub-account/data-platform get pods -A
 
-# 使用 context 切换
-kubectl --context arn:aws:eks:us-east-1:034362076319:cluster/ecommerce-prod get pods -A
-kubectl --context arn:aws:eks:us-east-1:034362076319:cluster/data-platform get pods -A
+# 查询所有集群
+./scripts/kubectl-all.sh get pods -A
 ```
-
-### 集群 Namespace 概览
-
-**ecommerce-prod**:
-- `shop-frontend` — web-storefront, mobile-bff
-- `shop-backend` — product-catalog, shopping-cart, order-mgmt, notification-svc
-- `payment` — payment-gateway (PCI-DSS isolated)
-
-**data-platform**:
-- `ingestion` — Kafka Connect, Schema Registry, Debezium CDC
-- `processing` — Flink jobs, Spark jobs
-- `ml-serving` — ML model serving (recommendation, fraud-detection)
-- `airflow` — Airflow scheduler, webserver, workers
-
-**legacy-migration**:
-- `core-banking` — account-service, transaction-service
-- `legacy-adapter` — oracle-db-adapter, mainframe-gateway, legacy-txn-adapter
-- `compliance` — AML scanner, KYC verification
-
-**opsagent-test**:
-- `production` — 生产模拟环境
-- `staging` — 预发布环境
-- `data-pipeline` — 数据管道测试
-- `monitoring` — 监控组件

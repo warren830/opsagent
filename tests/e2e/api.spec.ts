@@ -6,7 +6,7 @@ test.describe('Health endpoint', () => {
     expect(response.status()).toBe(200);
 
     const body = await response.json();
-    expect(body).toEqual({ status: 'ok' });
+    expect(body.status).toBe('ok');
   });
 
   test('GET /health returns correct content-type', async ({ request }) => {

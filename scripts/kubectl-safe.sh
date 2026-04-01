@@ -14,25 +14,6 @@ WRITE_OPS="apply|create|delete|patch|edit|scale|rollout|drain|cordon|uncordon|ta
 
 # Extract the kubectl subcommand (skip flags like --context, --namespace)
 subcmd=""
-for arg in "$@"; do
-  case "$arg" in
-    --*) continue ;;
-    -*) continue ;;
-    *)
-      # Skip known flag values (e.g., value after --context)
-      if [ -n "$skip_next" ]; then
-        skip_next=""
-        continue
-      fi
-      subcmd="$arg"
-      break
-      ;;
-  esac
-done
-
-# Better parsing: iterate with index to handle --flag value pairs
-subcmd=""
-i=0
 skip=false
 for arg in "$@"; do
   if $skip; then

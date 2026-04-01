@@ -338,7 +338,25 @@ export class AdminApi {
     }
 
     // ── Approvals ─────────────────────────────────────────────────
-    if (urlPath === '/admin/api/approvals' && req.method === 'GET' && this.approvalStore) {
+    const approvalBasePath = urlPath.split('?')[0];
+    if (approvalBasePath === '/admin/api/approvals' && req.method === 'POST' && this.approvalStore) {
+      if (!body?.command) {
+        this.jsonResponse(res, 400, { error: 'command is required' });
+        return true;
+      }
+      const approval = this.approvalStore.create({
+        command: body.command,
+        requestedBy: body.requestedBy || authUser?.username || 'unknown',
+        requestedByName: body.requestedByName || body.requestedBy || 'Unknown',
+        platform: body.platform || 'admin',
+        channelId: body.channelId,
+        tenantId: body.tenantId || authUser?.tenant_id,
+      });
+      this.jsonResponse(res, 201, approval);
+      return true;
+    }
+
+    if (approvalBasePath === '/admin/api/approvals' && req.method === 'GET' && this.approvalStore) {
       const tenantFilter = authUser?.role === 'tenant_admin' ? authUser.tenant_id : undefined;
       const status = (new URL(req.url || '', 'http://localhost').searchParams.get('status')) || undefined;
       const list = this.approvalStore.list({ status, tenantId: tenantFilter });

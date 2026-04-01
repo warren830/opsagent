@@ -1,6 +1,6 @@
 FROM public.ecr.aws/docker/library/node:20-slim
 
-RUN apt-get update && apt-get install -y curl unzip jq git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl unzip jq git dnsutils && rm -rf /var/lib/apt/lists/*
 
 # AWS CLI
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
@@ -49,4 +49,4 @@ EXPOSE 3978
 HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3978/health || exit 1
 
 # On startup: sync static knowledge files to EFS (skip existing to preserve user edits)
-CMD cp -n ./knowledge-defaults/* ./knowledge/ 2>/dev/null; node bot/dist/index.js
+CMD cp -rn ./knowledge-defaults/. ./knowledge/ 2>/dev/null; node bot/dist/index.js

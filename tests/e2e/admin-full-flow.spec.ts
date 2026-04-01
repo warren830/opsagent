@@ -85,16 +85,24 @@ test.describe('Admin Console Full Flow', () => {
 
   // ── Chat Tab ───────────────────────────────────────────────────
 
-  test('04 — Chat tab (default)', async ({ page }) => {
+  test('04 — Chat panel (right side panel)', async ({ page }) => {
     await loginAndWait(page);
-    await expect(page.locator('#tab-chat')).toBeVisible();
-    await expect(page.locator('#chat-welcome')).toBeVisible();
-    await expect(page.locator('.hint-card')).toHaveCount(4);
-    await snap(page, '04-chat-tab');
+    // Chat is a collapsible right panel, not a regular tab
+    // Click the Chat link in sidebar to open it
+    await page.click('a[href="#chat"]');
+    await page.waitForTimeout(500);
+    // Verify chat panel opens (collapsed class removed)
+    const chatPanel = page.locator('#chat-panel');
+    await expect(chatPanel).toBeVisible();
+    await expect(page.locator('#chat-input')).toBeVisible();
+    await snap(page, '04-chat-panel');
   });
 
   test('05 — Chat: type a message', async ({ page }) => {
     await loginAndWait(page);
+    // Open chat panel first (it's a collapsible right panel)
+    await page.click('a[href="#chat"]');
+    await page.waitForTimeout(500);
     await page.fill('#chat-input', '你好，帮我检查一下 EKS 集群状态');
     await snap(page, '05a-chat-typed');
 

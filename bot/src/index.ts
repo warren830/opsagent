@@ -774,6 +774,11 @@ const server = http.createServer(async (req, res) => {
 
     const handled = await adminApi.handleRequest(req, res, url, body, authUser);
     if (handled) return;
+
+    // No admin API handler matched — return 404 to prevent body double-consumption
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+    return;
   }
 
   if (req.method === 'POST') {
