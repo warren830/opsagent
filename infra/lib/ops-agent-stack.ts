@@ -10,6 +10,8 @@ import * as codebuild from 'aws-cdk-lib/aws-codebuild';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as rds from 'aws-cdk-lib/aws-rds';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
 
 export interface OpsAgentStackProps extends cdk.StackProps {
@@ -63,6 +65,52 @@ export class OpsAgentStack extends cdk.Stack {
       createAcl: { ownerGid: '1000', ownerUid: '1000', permissions: '755' },
       posixUser: { gid: '1000', uid: '1000' },
     });
+
+    // ── Aurora Serverless v2 (PostgreSQL) ──────────────────────
+    // DB credentials stored in Secrets Manager, never hardcoded
+    const dbSecret = new secretsmanager.Secret(this, 'OpsAgentDbSecret', {
+      secretName: 'opsagent/db-credentials',
+      description: 'OpsAgent PostgreSQL credentials',
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: 'opsagent' }),
+        generateStringKey: 'password',
+        excludePunctuation: true,
+        passwordLength: 32,
+      },
+    });
+
+    // Security group for Aurora — only allow ECS tasks
+    const dbSecurityGroup = new ec2.SecurityGroup(this, 'OpsAgentDbSg', {
+      vpc,
+      description: 'OpsAgent Aurora Serverless v2 security group',
+      allowAllOutbound: false,
+    });
+
+    const dbCluster = new rds.DatabaseCluster(this, 'OpsAgentDb', {
+      engine: rds.DatabaseClusterEngine.auroraPostgres({
+        version: rds.AuroraPostgresEngineVersion.VER_16_6,
+      }),
+      credentials: rds.Credentials.fromSecret(dbSecret),
+      defaultDatabaseName: 'opsagent',
+      serverlessV2MinCapacity: 0.5,
+      serverlessV2MaxCapacity: 4,
+      writer: rds.ClusterInstance.serverlessV2('writer'),
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [dbSecurityGroup],
+      storageEncrypted: true,
+      deletionProtection: true,        // protect against accidental destroy
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      backup: {
+        retention: cdk.Duration.days(7),
+        preferredWindow: '03:00-04:00',
+      },
+      cloudwatchLogsExports: ['postgresql'],
+      monitoringInterval: cdk.Duration.seconds(60),
+    });
+
+    // Grant execution role access to read the DB secret (for ECS secrets injection)
+    // (execution role is created below, so we store a reference)
 
     // ECS Cluster
     const cluster = new ecs.Cluster(this, 'OpsAgentCluster', {
@@ -126,6 +174,9 @@ export class OpsAgentStack extends cdk.Stack {
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonECSTaskExecutionRolePolicy'),
       ],
     });
+
+    // Allow execution role to read DB secret (needed for ECS secrets injection)
+    dbSecret.grantRead(executionRole);
 
     // Fargate Task Definition
     const taskDef = new ecs.FargateTaskDefinition(this, 'OpsAgentTaskDef', {
@@ -232,6 +283,13 @@ export class OpsAgentStack extends cdk.Stack {
         ANTHROPIC_DEFAULT_SONNET_MODEL: 'us.anthropic.claude-sonnet-4-6',
         ANTHROPIC_DEFAULT_HAIKU_MODEL: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
         DISABLE_AUTOUPDATER: '1',
+        DB_HOST: dbCluster.clusterEndpoint.hostname,
+        DB_PORT: '5432',
+        DB_NAME: 'opsagent',
+      },
+      secrets: {
+        DB_USER: ecs.Secret.fromSecretsManager(dbSecret, 'username'),
+        DB_PASSWORD: ecs.Secret.fromSecretsManager(dbSecret, 'password'),
       },
       healthCheck: {
         command: ['CMD-SHELL', 'curl -f http://localhost:3978/health || exit 1'],
@@ -321,6 +379,13 @@ export class OpsAgentStack extends cdk.Stack {
     // Allow ECS tasks to access EFS (NFS port 2049)
     fileSystem.connections.allowDefaultPortFrom(service, 'ECS to EFS');
 
+    // Allow ECS tasks to connect to Aurora on port 5432
+    dbSecurityGroup.addIngressRule(
+      service.connections.securityGroups[0],
+      ec2.Port.tcp(5432),
+      'ECS tasks to Aurora PostgreSQL',
+    );
+
     // Cookie-aware origin request policy: forward AWSALB sticky session cookie + auth cookie
     const cookieForwardPolicy = new cloudfront.OriginRequestPolicy(this, 'OpsAgentCookieForward', {
       originRequestPolicyName: 'OpsAgent-CookieForward',
@@ -387,6 +452,16 @@ export class OpsAgentStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'SourceBucketName', {
       value: sourceBucket.bucketName,
       description: 'S3 bucket for CodeBuild source uploads',
+    });
+
+    new cdk.CfnOutput(this, 'DbClusterEndpoint', {
+      value: dbCluster.clusterEndpoint.hostname,
+      description: 'Aurora Serverless v2 cluster endpoint',
+    });
+
+    new cdk.CfnOutput(this, 'DbSecretArn', {
+      value: dbSecret.secretArn,
+      description: 'Secrets Manager ARN for DB credentials',
     });
   }
 }
