@@ -812,46 +812,59 @@
 
   <!-- Pipeline Tab -->
   <div id="tab-pipeline" style="display:none">
-    <div class="toolbar"><h2>Pipeline</h2></div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
-      Connect code repositories to enable PR review, code search, and deployment tracking.
+    <div class="toolbar">
+      <h2>Pipeline</h2>
+      <button class="btn btn-primary btn-sm" onclick="showAddRepoModal()">+ Add Repository</button>
     </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">
+      配置 GitHub 仓库访问权限。每个仓库使用独立的 Fine-grained PAT，RCA 时自动读取对应源码。
+    </div>
+    <div id="github-repos-list"></div>
+  </div>
 
-    <!-- GitHub card -->
-    <div class="card" style="padding:20px;margin-bottom:16px">
-      <div class="card-header">
-        <div>
-          <div class="card-title">GitHub</div>
-          <div class="card-subtitle">MCP server-github · PR review, issue tracking, code search</div>
+  <!-- GitHub Repo Modal -->
+  <div id="github-repo-modal" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:520px;width:90vw">
+      <div class="modal-header">
+        <h3 id="github-repo-modal-title">Add Repository</h3>
+        <button onclick="document.getElementById('github-repo-modal').style.display='none'" style="background:none;border:none;cursor:pointer;font-size:24px;line-height:1;color:var(--text2);padding:4px 8px;border-radius:4px">&times;</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="form-group">
+          <label>ID <span style="font-size:11px;color:var(--text2)">(唯一标识，字母数字-)</span></label>
+          <input type="text" id="repo-modal-id" placeholder="rca-demo">
         </div>
-        <div class="card-actions">
+        <div class="form-group">
+          <label>显示名称</label>
+          <input type="text" id="repo-modal-name" placeholder="rca-demo">
+        </div>
+        <div class="form-group">
+          <label>Repository <span style="font-size:11px;color:var(--text2)">(org/repo)</span></label>
+          <input type="text" id="repo-modal-repo" placeholder="your-org/rca-demo">
+        </div>
+        <div class="form-group">
+          <label>Fine-grained PAT</label>
+          <input type="password" id="repo-modal-token" placeholder="github_pat_...">
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">
+            GitHub → Settings → Developer settings → Fine-grained tokens → 选择指定 repo → Contents: Read-only
+            <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" style="color:var(--accent);margin-left:4px">创建 →</a>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>描述 <span style="font-size:11px;color:var(--text2)">(可选)</span></label>
+          <input type="text" id="repo-modal-description" placeholder="主应用，RCA 时读取源码">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
           <label class="toggle">
-            <input type="checkbox" id="github-enabled" onchange="savePipelineConfig()">
+            <input type="checkbox" id="repo-modal-enabled" checked>
             <span class="toggle-slider"></span>
           </label>
+          <span style="font-size:13px">启用</span>
         </div>
       </div>
-      <div class="form-group" style="margin-top:12px">
-        <label>Personal Access Token (PAT)</label>
-        <input type="password" id="github-token" placeholder="ghp_..."
-               oninput="debounceSavePipeline()">
-        <div style="font-size:11px;color:var(--text2);margin-top:4px">
-          Required scopes: <code>repo</code>, <code>read:org</code>.
-          <a href="https://github.com/settings/tokens" target="_blank"
-             style="color:var(--accent)">Create token →</a>
-        </div>
-      </div>
-    </div>
-
-    <!-- GitLab placeholder -->
-    <div class="card" style="padding:20px;opacity:0.5">
-      <div class="card-header">
-        <div class="card-title">GitLab
-          <span class="tag" style="font-size:11px;margin-left:6px">Coming Soon</span>
-        </div>
-      </div>
-      <div style="font-size:12px;color:var(--text2)">
-        GitLab MR review and pipeline monitoring.
+      <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="document.getElementById('github-repo-modal').style.display='none'">取消</button>
+        <button class="btn btn-primary" onclick="saveRepoModal()">保存</button>
       </div>
     </div>
   </div>
@@ -865,50 +878,92 @@
 
     <!-- Grafana Cloud card -->
     <div class="card" style="padding:20px">
-      <div class="card-header">
-        <div class="card-title">Grafana Cloud</div>
-      </div>
-      <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
-        Receives Grafana Cloud unified alerts and triggers automatic root cause analysis.
-        Loki credentials are optional — used by RCA to query logs during investigation.
-      </div>
-      <div class="form-group">
-        <label>Loki URL
-          <span style="font-size:11px;color:var(--text2)">(optional, for log queries during RCA)</span>
-        </label>
-        <input type="text" id="grafana-loki-url"
-               placeholder="https://logs-prod-us-central1.grafana.net">
-      </div>
-      <div class="form-group">
-        <label>Grafana Cloud Instance ID
-          <span style="font-size:11px;color:var(--text2)">(numeric, e.g. 1234567)</span>
-        </label>
-        <input type="text" id="grafana-instance-id" placeholder="1234567">
-      </div>
-      <div class="form-group">
-        <label>Grafana Cloud API Key</label>
-        <input type="password" id="grafana-api-key" placeholder="glc_...">
-        <div style="font-size:11px;color:var(--text2);margin-top:4px">
-          Grafana Cloud → My Account → API Keys → + Add.
-          Requires <code>logs:read</code> scope.
+      <div class="card-header" style="margin-bottom:16px">
+        <div>
+          <div class="card-title">Grafana Cloud</div>
+          <div class="card-subtitle">Unified alerting → automatic root cause analysis with Loki / Tempo / Mimir</div>
         </div>
       </div>
-      <!-- Webhook URL display -->
-      <div style="margin-top:16px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
-        <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text2)">
-          Webhook URL — paste this into Grafana Alerting → Contact Points
+
+      <!-- API Token -->
+      <div class="form-group" style="max-width:520px">
+        <label>API Token</label>
+        <input type="password" id="grafana-api-key" placeholder="glc_...">
+        <div style="font-size:11px;color:var(--text2);margin-top:4px">
+          Grafana Cloud → My Account → API Keys — needs <code>logs:read</code> + <code>metrics:read</code> + <code>traces:read</code>
+        </div>
+      </div>
+
+      <!-- Signal sources -->
+      <div style="margin:20px 0 10px;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.07em">
+        Signal Sources <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional — used by RCA)</span>
+      </div>
+
+      <!-- Loki row -->
+      <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:8px;padding:10px 12px;border:1px solid var(--border);border-radius:6px">
+        <div style="min-width:90px;padding-top:6px">
+          <div style="font-size:13px;font-weight:600;color:var(--text)">Loki</div>
+          <div style="font-size:11px;color:var(--text2)">Logs</div>
+        </div>
+        <div class="form-group" style="margin:0;width:130px;flex-shrink:0">
+          <label style="font-size:11px;margin-bottom:3px">User ID</label>
+          <input type="text" id="grafana-loki-user-id" placeholder="1234567" style="font-size:12px;padding:5px 8px">
+        </div>
+        <div class="form-group" style="margin:0;flex:1">
+          <label style="font-size:11px;margin-bottom:3px">Endpoint URL</label>
+          <input type="text" id="grafana-loki-url" placeholder="https://logs-prod-006.grafana.net" style="font-size:12px;padding:5px 8px">
+        </div>
+      </div>
+
+      <!-- Tempo row -->
+      <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:8px;padding:10px 12px;border:1px solid var(--border);border-radius:6px">
+        <div style="min-width:90px;padding-top:6px">
+          <div style="font-size:13px;font-weight:600;color:var(--text)">Tempo</div>
+          <div style="font-size:11px;color:var(--text2)">Traces</div>
+        </div>
+        <div class="form-group" style="margin:0;width:130px;flex-shrink:0">
+          <label style="font-size:11px;margin-bottom:3px">User ID</label>
+          <input type="text" id="grafana-tempo-user-id" placeholder="1234567" style="font-size:12px;padding:5px 8px">
+        </div>
+        <div class="form-group" style="margin:0;flex:1">
+          <label style="font-size:11px;margin-bottom:3px">Endpoint URL</label>
+          <input type="text" id="grafana-tempo-url" placeholder="https://tempo-prod-10-prod-eu-west-0.grafana.net" style="font-size:12px;padding:5px 8px">
+        </div>
+      </div>
+
+      <!-- Mimir row -->
+      <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:16px;padding:10px 12px;border:1px solid var(--border);border-radius:6px">
+        <div style="min-width:90px;padding-top:6px">
+          <div style="font-size:13px;font-weight:600;color:var(--text)">Mimir</div>
+          <div style="font-size:11px;color:var(--text2)">Metrics</div>
+        </div>
+        <div class="form-group" style="margin:0;width:130px;flex-shrink:0">
+          <label style="font-size:11px;margin-bottom:3px">User ID</label>
+          <input type="text" id="grafana-mimir-user-id" placeholder="1234567" style="font-size:12px;padding:5px 8px">
+        </div>
+        <div class="form-group" style="margin:0;flex:1">
+          <label style="font-size:11px;margin-bottom:3px">Endpoint URL</label>
+          <input type="text" id="grafana-mimir-url" placeholder="https://prometheus-prod-24-prod-eu-west-0.grafana.net" style="font-size:12px;padding:5px 8px">
+        </div>
+      </div>
+
+      <!-- Webhook URL -->
+      <div style="padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">
+          Incoming Webhook URL
         </div>
         <div id="grafana-webhook-url"
              style="font-family:monospace;font-size:13px;color:var(--accent);user-select:all;word-break:break-all"></div>
-        <div style="font-size:11px;color:var(--text2);margin-top:6px">
-          Grafana → Alerting → Contact Points → + Add → Webhook → URL field
+        <div style="font-size:11px;color:var(--text2);margin-top:5px">
+          Grafana → Alerting → Contact Points → + Add → Webhook → paste the URL above
         </div>
       </div>
-      <div style="margin-top:16px;display:flex;gap:8px">
+
+      <div style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-primary" onclick="saveTelemetryConfig()">Save</button>
         <button class="btn btn-ghost" onclick="testTelemetryWebhook()">Send Test Alert</button>
+        <div id="telemetry-test-result" style="font-size:12px;color:var(--text2)"></div>
       </div>
-      <div id="telemetry-test-result" style="margin-top:8px;font-size:12px;color:var(--text2)"></div>
     </div>
   </div>
 
@@ -917,8 +972,8 @@
     <div class="toolbar">
       <h2>Issues</h2>
       <select id="issues-filter" onchange="loadIssues()" style="background:var(--surface);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;font-size:13px">
-        <option value="">All</option>
-        <option value="open" selected>Open</option>
+        <option value="" selected>All (unresolved)</option>
+        <option value="open">Open</option>
         <option value="investigating">Investigating</option>
         <option value="root_cause_identified">RCA Done</option>
         <option value="resolved">Resolved</option>
@@ -928,16 +983,21 @@
       Health issues discovered by patrol, alerts, or manual inspection. Click an issue to see RCA details.
     </div>
     <div id="issues-list"></div>
+  </div>
 
-    <!-- Issue Detail Modal -->
-    <div id="issue-detail-modal" class="modal-overlay" style="display:none">
-      <div class="modal" style="max-width:700px">
-        <div class="modal-header">
-          <h3 id="issue-detail-title">Issue Detail</h3>
-          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('issue-detail-modal').style.display='none'">&times;</button>
-        </div>
-        <div id="issue-detail-content" style="max-height:70vh;overflow-y:auto"></div>
+  <!-- Issue Detail Modal (outside tab so it's always visible) -->
+  <div id="issue-detail-modal" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:960px;width:90vw;position:relative">
+      <button onclick="document.getElementById('issue-detail-modal').style.display='none'" style="position:absolute;top:12px;right:12px;background:none;border:none;cursor:pointer;font-size:22px;line-height:1;color:var(--text2);padding:4px 8px;border-radius:4px;z-index:1" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--text2)'">&times;</button>
+      <div class="modal-header" style="padding-right:40px">
+        <h3 id="issue-detail-title">Issue Detail</h3>
       </div>
+      <!-- RCA analysis progress feed (shown while RCA is running) -->
+      <div id="rca-progress-panel" style="display:none;border-bottom:1px solid var(--border);padding:12px 16px;background:var(--bg)">
+        <div style="font-size:12px;font-weight:600;color:var(--text2);letter-spacing:.05em;margin-bottom:8px">🔍 RCA 分析过程</div>
+        <div id="rca-progress-log" style="font-size:12px;font-family:monospace;line-height:1.8;max-height:220px;overflow-y:auto"></div>
+      </div>
+      <div id="issue-detail-content" style="max-height:60vh;overflow-y:auto"></div>
     </div>
   </div>
 
@@ -1502,6 +1562,8 @@ let knowledgeShowAll = false;
 let editingAccountIdx = null;    // null = new, number = editing
 let editingOverrideId = null;    // null = new, string = editing
 let currentUser = null;          // { username, role, tenant_id } or null
+// In-memory set of issue IDs received via SSE but not yet seen — drives badge pulse
+const unseenIssueIds = new Set();
 
 // ── Tab switching ──────────────────────────────────────────────────
 const ALL_TABS = ['chat', 'glossary', 'accounts', 'platforms', 'knowledge', 'skills', 'scheduled-jobs', 'plugins', 'pipeline', 'telemetry', 'issues', 'resources', 'approvals', 'tenants', 'clusters', 'provider', 'users'];
@@ -1520,10 +1582,11 @@ function switchTab(tab) {
   });
   // Clear issues red dot when user navigates to Issues tab
   if (tab === 'issues') {
-    const openCount = issuesList.filter(i => i.status === 'open').length;
-    localStorage.setItem('issuesLastSeenCount', String(openCount));
+    unseenIssueIds.clear();
+    localStorage.setItem('issuesLastSeenAt', String(Date.now()));
     const badge = document.getElementById('issues-badge');
     if (badge) badge.classList.remove('has-new');
+    loadIssues();
   }
 }
 
@@ -3847,28 +3910,42 @@ async function loadIssues() {
     const data = await res.json();
     issuesList = data.issues || [];
     renderIssues();
-    // Update badge with WeChat-style red dot pulse for new issues
-    const openCount = issuesList.filter(i => i.status === 'open').length;
-    const badge = document.getElementById('issues-badge');
-    if (badge) {
-      badge.textContent = String(openCount);
-      badge.style.display = openCount > 0 ? '' : 'none';
-      const lastSeen = parseInt(localStorage.getItem('issuesLastSeenCount') || '0', 10);
-      if (openCount > lastSeen) {
-        badge.classList.add('has-new');
-      } else {
-        badge.classList.remove('has-new');
-      }
-    }
+    updateIssuesBadge(issuesList);
   } catch { issuesList = []; renderIssues(); }
+}
+
+function updateIssuesBadge(issues) {
+  const activeIssues = (issues || []).filter(i => i.status !== 'resolved');
+  const count = activeIssues.length;
+  const badge = document.getElementById('issues-badge');
+  if (!badge) return;
+  badge.textContent = String(count);
+  badge.style.display = count > 0 ? '' : 'none';
+  // Pulse if there are unseen issues (set by SSE), cleared when user visits Issues tab
+  if (unseenIssueIds.size > 0) badge.classList.add('has-new');
+  else badge.classList.remove('has-new');
+}
+
+// Lightweight badge-only refresh (used when Issues tab is not visible)
+async function loadIssuesBadge() {
+  try {
+    const res = await fetch('/admin/api/issues');
+    const data = await res.json();
+    updateIssuesBadge(data.issues || []);
+  } catch { /* ignore */ }
 }
 
 function renderIssues() {
   const container = document.getElementById('issues-list');
   if (!container) return;
-  const filter = document.getElementById('issues-filter')?.value || '';
+  const filter = document.getElementById('issues-filter')?.value;
   let filtered = issuesList;
-  if (filter) filtered = filtered.filter(i => i.status === filter);
+  if (filter) {
+    filtered = filtered.filter(i => i.status === filter);
+  } else {
+    // Default: hide resolved issues only
+    filtered = filtered.filter(i => i.status !== 'resolved');
+  }
   if (filtered.length === 0) {
     container.innerHTML = '<div class="empty">No issues found. Run a health patrol or configure alert webhooks.</div>';
     return;
@@ -3910,17 +3987,36 @@ async function showIssueDetail(id) {
     </div>`;
 
     if (rcas.length > 0) {
-      html += '<h4 style="margin:16px 0 8px">RCA Results</h4>';
+      // Root cause banner — most recent RCA result
+      const latestRca = rcas[0];
+      html += `<div style="background:var(--bg);border:2px solid var(--accent);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">🎯 Root Cause</div>
+        <div style="font-size:15px;font-weight:700;color:var(--text);line-height:1.4">${esc(latestRca.root_cause)}</div>
+        <div style="display:flex;gap:12px;margin-top:8px;font-size:12px;color:var(--text2)">
+          <span>Confidence: <b>${(latestRca.confidence * 100).toFixed(0)}%</b></span>
+          <span>Risk: <b>${esc(latestRca.fix_risk_level || 'unknown')}</b></span>
+          <span>Duration: ${latestRca.duration_ms ? (latestRca.duration_ms / 1000).toFixed(1) + 's' : '-'}</span>
+        </div>
+      </div>`;
+      html += '<h4 style="margin:16px 0 8px">RCA Details</h4>';
       for (const rca of rcas) {
         html += `<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
-          <div style="font-weight:600;color:var(--text)">${esc(rca.root_cause)}</div>
-          <div style="display:flex;gap:12px;margin:8px 0;font-size:12px;color:var(--text2)">
+          <div style="display:flex;gap:12px;margin-bottom:8px;font-size:12px;color:var(--text2)">
             <span>Confidence: <b>${(rca.confidence * 100).toFixed(0)}%</b></span>
             <span>Risk: <b>${esc(rca.fix_risk_level || 'unknown')}</b></span>
             <span>Duration: ${rca.duration_ms ? (rca.duration_ms / 1000).toFixed(1) + 's' : '-'}</span>
           </div>
-          ${rca.contributing_factors?.length ? '<div style="font-size:12px"><b>Contributing factors:</b> ' + rca.contributing_factors.map(f => esc(f)).join(', ') + '</div>' : ''}
-          ${rca.recommendations?.length ? '<div style="font-size:12px;margin-top:4px"><b>Recommendations:</b><ul style="margin:4px 0">' + rca.recommendations.map(r => '<li>' + esc(r) + '</li>').join('') + '</ul></div>' : ''}
+          ${rca.contributing_factors?.length ? '<div style="font-size:12px;margin-top:8px"><b>Contributing factors:</b><ul style="margin:4px 0">' + rca.contributing_factors.map(f => '<li>' + esc(f) + '</li>').join('') + '</ul></div>' : ''}
+          ${rca.recommendations?.length ? '<div style="font-size:12px;margin-top:8px"><b>Recommendations:</b><ul style="margin:4px 0">' + rca.recommendations.map(r => '<li>' + esc(r) + '</li>').join('') + '</ul></div>' : ''}
+          ${rca.evidence && Object.keys(rca.evidence).length ? `
+            <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+              <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px;letter-spacing:.05em">📊 EVIDENCE</div>
+              ${Object.entries(rca.evidence).map(([k, v]) => v ? `
+                <div style="margin-bottom:8px">
+                  <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">${{'metrics':'📈 Metrics','traces':'🔗 Traces','logs':'📋 Logs','kubectl':'⎈ kubectl','source_code':'📦 Source Code','cloudtrail':'☁️ CloudTrail'}[k] || k}</div>
+                  <div style="font-size:12px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:8px;white-space:pre-wrap;line-height:1.5">${esc(String(v))}</div>
+                </div>` : '').join('')}
+            </div>` : ''}
         </div>`;
       }
     } else {
@@ -3930,11 +4026,24 @@ async function showIssueDetail(id) {
     html += '<div style="margin-top:16px;display:flex;gap:8px">';
     if (issue.status !== 'resolved') html += '<button class="btn btn-primary btn-sm" onclick="updateIssueStatus(' + id + ',\'resolved\')">Resolve</button>';
     if (issue.status === 'open') html += '<button class="btn btn-ghost btn-sm" onclick="updateIssueStatus(' + id + ',\'acknowledged\')">Acknowledge</button>';
+    html += '<button class="btn btn-danger btn-sm" onclick="deleteIssue(' + id + ')">Delete</button>';
     html += '</div>';
 
     document.getElementById('issue-detail-title').textContent = '#' + id + ' ' + issue.title;
     document.getElementById('issue-detail-content').innerHTML = html;
-    document.getElementById('issue-detail-modal').style.display = '';
+    // Track which issue modal is open so SSE can target it
+    document.getElementById('issue-detail-modal').dataset.issueId = id;
+    // Show progress panel only if RCA not done yet (no results)
+    const progressPanel = document.getElementById('rca-progress-panel');
+    const progressLog   = document.getElementById('rca-progress-log');
+    if (rcas.length === 0 && issue.status !== 'resolved') {
+      progressPanel.style.display = 'block';
+      progressLog.innerHTML = '<span style="color:var(--text2)">等待 RCA 分析开始...</span>';
+    } else {
+      progressPanel.style.display = 'none';
+      progressLog.innerHTML = '';
+    }
+    document.getElementById('issue-detail-modal').style.display = 'flex';
   } catch (err) { toast('Failed to load issue', 'error'); }
 }
 
@@ -3945,52 +4054,123 @@ async function updateIssueStatus(id, status) {
   loadIssues();
 }
 
-// ── Pipeline ─────────────────────────────────────────────────────
+async function deleteIssue(id) {
+  if (!confirm('Delete this issue?')) return;
+  try {
+    await fetch('/admin/api/issues/' + id, { method: 'DELETE' });
+    document.getElementById('issue-detail-modal').style.display = 'none';
+    loadIssues();
+    toast('Issue deleted');
+  } catch (err) { toast('Failed to delete issue', 'error'); }
+}
+
+// ── Pipeline / GitHub Repos ───────────────────────────────────────
+let githubReposList = [];
+let editingRepoId = null;
+
 async function loadPipelineConfig() {
   try {
-    const res = await fetch('/admin/api/plugins');
+    const res = await fetch('/admin/api/github-repos');
     const data = await res.json();
-    const gh = data.plugins?.github || {};
-    const enabledEl = document.getElementById('github-enabled');
-    const tokenEl = document.getElementById('github-token');
-    if (enabledEl) enabledEl.checked = !!gh.enabled;
-    if (tokenEl) {
-      const tok = gh.env?.GITHUB_TOKEN || '';
-      if (tok && !tok.startsWith('${')) {
-        tokenEl.value = tok;
-      } else if (tok) {
-        tokenEl.placeholder = '(saved)';
-      }
-    }
-  } catch {}
+    githubReposList = data.repos || [];
+    renderGithubRepos();
+  } catch { githubReposList = []; renderGithubRepos(); }
 }
 
-let _pipelineDebounce = null;
-function debounceSavePipeline() {
-  clearTimeout(_pipelineDebounce);
-  _pipelineDebounce = setTimeout(savePipelineConfig, 800);
+function renderGithubRepos() {
+  const container = document.getElementById('github-repos-list');
+  if (!container) return;
+  if (githubReposList.length === 0) {
+    container.innerHTML = '<div class="empty">暂无仓库配置。点击「+ Add Repository」添加。</div>';
+    return;
+  }
+  container.innerHTML = githubReposList.map(r => `
+    <div class="card" style="padding:16px;margin-bottom:12px">
+      <div class="card-header">
+        <div>
+          <div class="card-title" style="display:flex;align-items:center;gap:8px">
+            ${esc(r.name)}
+            ${r.enabled ? '<span class="badge-on">ON</span>' : '<span class="badge-off">OFF</span>'}
+          </div>
+          <div class="card-subtitle" style="font-family:monospace">${esc(r.repo)}</div>
+          ${r.description ? `<div style="font-size:12px;color:var(--text2);margin-top:4px">${esc(r.description)}</div>` : ''}
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">Token: <code>${esc(r.token)}</code></div>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-ghost btn-sm" onclick="editRepo('${esc(r.id)}')">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteRepo('${esc(r.id)}')">Delete</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
 }
 
-async function savePipelineConfig() {
+function showAddRepoModal() {
+  editingRepoId = null;
+  document.getElementById('github-repo-modal-title').textContent = 'Add Repository';
+  document.getElementById('repo-modal-id').value = '';
+  document.getElementById('repo-modal-id').disabled = false;
+  document.getElementById('repo-modal-name').value = '';
+  document.getElementById('repo-modal-repo').value = '';
+  document.getElementById('repo-modal-token').value = '';
+  document.getElementById('repo-modal-token').placeholder = 'github_pat_...';
+  document.getElementById('repo-modal-description').value = '';
+  document.getElementById('repo-modal-enabled').checked = true;
+  document.getElementById('github-repo-modal').style.display = 'flex';
+}
+
+function editRepo(id) {
+  const r = githubReposList.find(x => x.id === id);
+  if (!r) return;
+  editingRepoId = id;
+  document.getElementById('github-repo-modal-title').textContent = 'Edit Repository';
+  document.getElementById('repo-modal-id').value = r.id;
+  document.getElementById('repo-modal-id').disabled = true;
+  document.getElementById('repo-modal-name').value = r.name;
+  document.getElementById('repo-modal-repo').value = r.repo;
+  document.getElementById('repo-modal-token').value = '';
+  document.getElementById('repo-modal-token').placeholder = r.token || '(unchanged)';
+  document.getElementById('repo-modal-description').value = r.description || '';
+  document.getElementById('repo-modal-enabled').checked = r.enabled !== false;
+  document.getElementById('github-repo-modal').style.display = 'flex';
+}
+
+async function saveRepoModal() {
+  const id = document.getElementById('repo-modal-id').value.trim();
+  const name = document.getElementById('repo-modal-name').value.trim();
+  const repo = document.getElementById('repo-modal-repo').value.trim();
+  const token = document.getElementById('repo-modal-token').value.trim();
+  const description = document.getElementById('repo-modal-description').value.trim();
+  const enabled = document.getElementById('repo-modal-enabled').checked;
+
+  if (!id || !name || !repo) { toast('ID、名称、仓库地址为必填', 'error'); return; }
+  if (!editingRepoId && !token) { toast('新增仓库必须填写 Token', 'error'); return; }
+
+  const body = { id, name, repo, enabled, description, ...(token ? { token } : {}) };
+
   try {
-    const res = await fetch('/admin/api/plugins');
-    const data = await res.json();
-    const plugins = data.plugins || {};
-    plugins.github = {
-      ...(plugins.github || {}),
-      enabled: document.getElementById('github-enabled').checked,
-      type: 'mcp',
-      command: 'npx',
-      args: ['-y', '@modelcontextprotocol/server-github'],
-      env: { GITHUB_TOKEN: document.getElementById('github-token').value || '${GITHUB_TOKEN}' },
-    };
-    await fetch('/admin/api/plugins', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plugins }),
-    });
-    toast('Pipeline config saved');
-  } catch { toast('Failed to save pipeline config', 'error'); }
+    if (editingRepoId) {
+      await fetch('/admin/api/github-repos/' + editingRepoId, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+    } else {
+      await fetch('/admin/api/github-repos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+    }
+    document.getElementById('github-repo-modal').style.display = 'none';
+    toast('保存成功');
+    loadPipelineConfig();
+  } catch { toast('保存失败', 'error'); }
+}
+
+async function deleteRepo(id) {
+  if (!confirm(`确认删除仓库 "${id}"？`)) return;
+  try {
+    await fetch('/admin/api/github-repos/' + id, { method: 'DELETE' });
+    toast('已删除');
+    loadPipelineConfig();
+  } catch { toast('删除失败', 'error'); }
 }
 
 // ── Telemetry ─────────────────────────────────────────────────────
@@ -4004,12 +4184,15 @@ async function loadTelemetryConfig() {
     const res = await fetch('/admin/api/telemetry');
     const data = await res.json();
     const g = data.telemetry?.grafana || {};
-    const lokiEl = document.getElementById('grafana-loki-url');
-    const instanceEl = document.getElementById('grafana-instance-id');
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+    set('grafana-loki-user-id',  g.loki_user_id  || g.user_id || '');
+    set('grafana-tempo-user-id', g.tempo_user_id || g.user_id || '');
+    set('grafana-mimir-user-id', g.mimir_user_id || g.user_id || '');
+    set('grafana-loki-url',  g.loki_url);
+    set('grafana-tempo-url', g.tempo_url);
+    set('grafana-mimir-url', g.mimir_url);
     const keyEl = document.getElementById('grafana-api-key');
-    if (lokiEl) lokiEl.value = g.loki_url || '';
-    if (instanceEl) instanceEl.value = g.instance_id || '';
-    if (keyEl && g.api_key) keyEl.placeholder = '(saved)';
+    if (keyEl && (g.api_key || g.api_token)) keyEl.placeholder = '(saved)';
   } catch {}
 }
 
@@ -4017,9 +4200,15 @@ async function saveTelemetryConfig() {
   const apiKeyInput = document.getElementById('grafana-api-key').value;
   const body = { telemetry: { grafana: {
     enabled: true,
-    loki_url: document.getElementById('grafana-loki-url').value,
-    instance_id: document.getElementById('grafana-instance-id').value,
-    ...(apiKeyInput ? { api_key: apiKeyInput } : {}),
+    loki_user_id:  document.getElementById('grafana-loki-user-id').value,
+    tempo_user_id: document.getElementById('grafana-tempo-user-id').value,
+    mimir_user_id: document.getElementById('grafana-mimir-user-id').value,
+    // keep user_id as fallback = loki user id
+    user_id: document.getElementById('grafana-loki-user-id').value,
+    loki_url:  document.getElementById('grafana-loki-url').value,
+    tempo_url: document.getElementById('grafana-tempo-url').value,
+    mimir_url: document.getElementById('grafana-mimir-url').value,
+    ...(apiKeyInput ? { api_token: apiKeyInput } : {}),
   }}};
   try {
     await fetch('/admin/api/telemetry', {
@@ -4220,6 +4409,73 @@ async function rejectRequest(id) {
 
 // Poll for new approvals every 15 seconds
 setInterval(() => { if (document.getElementById('tab-approvals')?.style.display !== 'none') loadApprovals(); else loadApprovalBadge(); }, 15000);
+
+// SSE: real-time issue events (replaces polling)
+(function connectIssuesSSE() {
+  const es = new EventSource('/admin/api/events');
+
+  es.addEventListener('issue_created', (e) => {
+    const data = JSON.parse(e.data);
+    // Always mark as unseen
+    unseenIssueIds.add(data.id);
+    if (document.getElementById('tab-issues')?.style.display !== 'none') {
+      loadIssues();
+    } else {
+      const badge = document.getElementById('issues-badge');
+      if (badge) {
+        const current = parseInt(badge.textContent || '0', 10);
+        badge.textContent = String(current + 1);
+        badge.style.display = '';
+        badge.classList.add('has-new');
+      }
+    }
+    toast(`🚨 New Issue: [${data.severity?.toUpperCase()}] ${data.title}`);
+  });
+
+  es.addEventListener('rca_progress', (e) => {
+    const data = JSON.parse(e.data);
+    const modal = document.getElementById('issue-detail-modal');
+    // Only update if the modal is open for this specific issue
+    if (modal?.style.display !== 'none' && modal?.dataset.issueId == data.id) {
+      const progressPanel = document.getElementById('rca-progress-panel');
+      const progressLog   = document.getElementById('rca-progress-log');
+      if (progressPanel) progressPanel.style.display = 'block';
+      if (progressLog) {
+        const stepIcons = { metrics: '📊', traces: '🔗', logs: '📋', kubectl: '⎈', source: '📦', analysis: '🤖' };
+        const statusIcons = { running: '⏳', done: '✅', error: '❌' };
+        const icon   = stepIcons[data.step] || '•';
+        const sIcon  = statusIcons[data.status] || '';
+        const detail = data.detail ? `<span style="color:var(--text2)"> — ${data.detail}</span>` : '';
+        const entry  = `<div data-step="${data.step}" data-status="${data.status}">${icon} <b>${data.step}</b> ${sIcon}${detail}</div>`;
+        // Replace existing entry for this step (update running→done/error), or append
+        const existing = progressLog.querySelector(`[data-step="${data.step}"]`);
+        if (existing) {
+          existing.outerHTML = entry;
+        } else {
+          progressLog.insertAdjacentHTML('beforeend', entry);
+        }
+        progressLog.scrollTop = progressLog.scrollHeight;
+      }
+    }
+  });
+
+  es.addEventListener('rca_completed', (e) => {
+    const data = JSON.parse(e.data);
+    if (document.getElementById('tab-issues')?.style.display !== 'none') {
+      loadIssues();
+    }
+    // If modal is open for this issue, reload it to show the final RCA result
+    const modal = document.getElementById('issue-detail-modal');
+    if (modal?.style.display !== 'none' && modal?.dataset.issueId == data.id) {
+      showIssueDetail(data.id);
+    }
+    toast(`✅ RCA Done: Issue #${data.id} — ${data.root_cause?.substring(0, 60)}`);
+  });
+
+  es.onerror = () => {
+    // Browser auto-reconnects after retry: 3000ms (set by server)
+  };
+})();
 
 async function loadUsersList() {
   try {

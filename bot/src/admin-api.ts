@@ -6,6 +6,7 @@ import * as yaml from 'js-yaml';
 import { KubeconfigManager } from './kubeconfig-manager';
 import { UserRole, loadUsers, saveUsers, hashPassword } from './auth';
 import { getUserKnowledgeDir, getUserConfigPath, sanitizeUsername } from './user-config-loader';
+import { loadGithubRepos, saveGithubRepos, GithubRepo } from './github-repos-loader';
 
 export interface AdminApiOptions {
   glossaryConfigPath: string;
@@ -23,6 +24,7 @@ export interface AdminApiOptions {
   kubeconfigManager?: KubeconfigManager;
   onScheduledJobsChanged?: () => void;
   onTenantsChanged?: () => void;
+  githubReposConfigPath?: string;
 }
 
 export class AdminApi {
@@ -41,10 +43,22 @@ export class AdminApi {
   private readonly kubeconfigManager?: KubeconfigManager;
   private readonly onScheduledJobsChanged?: () => void;
   private readonly onTenantsChanged?: () => void;
+  private readonly githubReposPath?: string;
   private authWarningLogged = false;
   public approvalStore?: import('./approval-store').ApprovalStore;
   public onApprovalApproved?: (approvalId: string) => void;
   public onApprovalRejected?: (approvalId: string) => void;
+
+  /** SSE clients subscribed to /admin/api/events */
+  private sseClients: Set<http.ServerResponse> = new Set();
+
+  /** Push an SSE event to all connected clients */
+  pushEvent(event: string, data: unknown): void {
+    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const client of this.sseClients) {
+      try { client.write(payload); } catch { this.sseClients.delete(client); }
+    }
+  }
 
   constructor(options: AdminApiOptions) {
     this.glossaryPath = path.resolve(options.glossaryConfigPath);
@@ -62,6 +76,7 @@ export class AdminApi {
     this.kubeconfigManager = options.kubeconfigManager;
     this.onScheduledJobsChanged = options.onScheduledJobsChanged;
     this.onTenantsChanged = options.onTenantsChanged;
+    if (options.githubReposConfigPath) this.githubReposPath = path.resolve(options.githubReposConfigPath);
   }
 
   async handleRequest(
@@ -98,6 +113,20 @@ export class AdminApi {
           this.authWarningLogged = true;
         }
       }
+    }
+
+    // ── SSE: real-time events stream ───────────────────────────
+    if (urlPath === '/admin/api/events' && req.method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+      res.write('retry: 3000\n\n');
+      this.sseClients.add(res);
+      req.on('close', () => this.sseClients.delete(res));
+      return true;
     }
 
     // ── Role-based access control ──────────────────────────────
@@ -177,12 +206,22 @@ export class AdminApi {
     if (urlPath === '/admin/api/telemetry') {
       if (req.method === 'GET') {
         const data = this.telemetryPath ? this.readYaml(this.telemetryPath) : null;
-        this.jsonResponse(res, 200, data || { telemetry: {} });
+        const safe = JSON.parse(JSON.stringify(data || { telemetry: {} }));
+        // Mask api_token — never send secret to browser
+        if (safe?.telemetry?.grafana?.api_token) {
+          safe.telemetry.grafana.api_token = '(saved)';
+        }
+        this.jsonResponse(res, 200, safe);
         return true;
       }
       if (req.method === 'PUT') {
         if (!this.telemetryPath) { this.jsonResponse(res, 404, { error: 'telemetry config not configured' }); return true; }
         if (!body?.telemetry) { this.jsonResponse(res, 400, { error: 'body.telemetry required' }); return true; }
+        // If api_token is '(saved)' (masked placeholder), keep the existing value
+        const existing = this.telemetryPath ? this.readYaml(this.telemetryPath) : null;
+        if (body.telemetry?.grafana?.api_token === '(saved)' && existing?.telemetry?.grafana?.api_token) {
+          body.telemetry.grafana.api_token = existing.telemetry.grafana.api_token;
+        }
         this.writeYaml(this.telemetryPath, { telemetry: body.telemetry });
         this.jsonResponse(res, 200, { ok: true });
         return true;
@@ -248,8 +287,8 @@ export class AdminApi {
         const db = require('./db') as typeof import('./db');
         const tenantFilter = authUser?.role === 'tenant_admin' ? authUser.tenant_id : undefined;
         const params: any[] = [];
-        let where = '';
-        if (tenantFilter) { params.push(tenantFilter); where = `WHERE tenant_id = $${params.length}`; }
+        let where = 'WHERE deleted_at IS NULL';
+        if (tenantFilter) { params.push(tenantFilter); where += ` AND tenant_id = $${params.length}`; }
         const issues = await db.query(
           `SELECT id, resource_id, resource_type, severity, status, source, title, occurrence_count, account_name, tenant_id, created_at, updated_at, resolved_at FROM issues ${where} ORDER BY created_at DESC LIMIT 100`,
           params,
@@ -269,7 +308,7 @@ export class AdminApi {
       try {
         const db = require('./db') as typeof import('./db');
         const issueId = issueDetailMatch[1];
-        const issue = await db.queryOne('SELECT * FROM issues WHERE id = $1', [issueId]);
+        const issue = await db.queryOne('SELECT * FROM issues WHERE id = $1 AND deleted_at IS NULL', [issueId]);
         const rcaResults = await db.query('SELECT * FROM rca_results WHERE issue_id = $1 ORDER BY created_at DESC', [issueId]);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ issue, rca_results: rcaResults }));
@@ -277,6 +316,21 @@ export class AdminApi {
       } catch (err: any) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ issue: null, rca_results: [], db_error: err.message }));
+        return true;
+      }
+    }
+
+    if (issueDetailMatch && req.method === 'DELETE') {
+      try {
+        const db = require('./db') as typeof import('./db');
+        const issueId = issueDetailMatch[1];
+        await db.query('UPDATE issues SET deleted_at = NOW() WHERE id = $1', [issueId]);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return true;
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
         return true;
       }
     }
@@ -401,6 +455,76 @@ export class AdminApi {
         if (this.onApprovalRejected) this.onApprovalRejected(id);
       }
       return true;
+    }
+
+    // ── GitHub Repos API ───────────────────────────────────────────
+    if (urlPath === '/admin/api/github-repos' && this.githubReposPath) {
+      if (req.method === 'GET') {
+        const config = loadGithubRepos(this.githubReposPath);
+        const masked = config.github_repos.map(r => ({
+          ...r,
+          token: r.token ? '****' + r.token.slice(-4) : '',
+        }));
+        this.jsonResponse(res, 200, { repos: masked });
+        return true;
+      }
+      if (req.method === 'POST') {
+        const { id, name, repo, token, enabled, description } = body || {};
+        if (!id || !name || !repo || !token) {
+          this.jsonResponse(res, 400, { error: 'id, name, repo, token are required' });
+          return true;
+        }
+        const config = loadGithubRepos(this.githubReposPath);
+        if (config.github_repos.find(r => r.id === id)) {
+          this.jsonResponse(res, 409, { error: `Repo with id "${id}" already exists` });
+          return true;
+        }
+        const newRepo: GithubRepo = { id, name, repo, token, enabled: enabled !== false, description };
+        config.github_repos.push(newRepo);
+        saveGithubRepos(this.githubReposPath, config);
+        this.jsonResponse(res, 200, { ok: true });
+        return true;
+      }
+    }
+
+    const githubRepoIdMatch = urlPath.match(/^\/admin\/api\/github-repos\/([^/]+)$/);
+    if (githubRepoIdMatch && this.githubReposPath) {
+      const repoId = decodeURIComponent(githubRepoIdMatch[1]);
+      if (req.method === 'PUT') {
+        const config = loadGithubRepos(this.githubReposPath);
+        const idx = config.github_repos.findIndex(r => r.id === repoId);
+        if (idx === -1) {
+          this.jsonResponse(res, 404, { error: `Repo "${repoId}" not found` });
+          return true;
+        }
+        const existing = config.github_repos[idx];
+        const { name, repo, token, enabled, description } = body || {};
+        // If token looks like a masked value (****xxxx), keep existing
+        const resolvedToken = (token && !token.startsWith('****')) ? token : existing.token;
+        config.github_repos[idx] = {
+          id: repoId,
+          name: name ?? existing.name,
+          repo: repo ?? existing.repo,
+          token: resolvedToken,
+          enabled: enabled !== undefined ? enabled : existing.enabled,
+          description: description !== undefined ? description : existing.description,
+        };
+        saveGithubRepos(this.githubReposPath, config);
+        this.jsonResponse(res, 200, { ok: true });
+        return true;
+      }
+      if (req.method === 'DELETE') {
+        const config = loadGithubRepos(this.githubReposPath);
+        const before = config.github_repos.length;
+        config.github_repos = config.github_repos.filter(r => r.id !== repoId);
+        if (config.github_repos.length === before) {
+          this.jsonResponse(res, 404, { error: `Repo "${repoId}" not found` });
+          return true;
+        }
+        saveGithubRepos(this.githubReposPath, config);
+        this.jsonResponse(res, 200, { ok: true });
+        return true;
+      }
     }
 
     // Users management (super_admin only)
