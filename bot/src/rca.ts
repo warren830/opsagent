@@ -70,84 +70,82 @@ export function createRcaResult(input: CreateRcaInput): RcaResult {
 
 /**
  * Build the RCA investigation prompt for Claude.
- * Follows an 8-step protocol inspired by AgenticOps-Chat.
+ * Designed for EKS / Grafana Cloud workloads with multi-signal analysis:
+ *   - Grafana Cloud: Loki (logs) + Tempo (traces) + Mimir (metrics)
+ *   - Kubernetes: Pod/Node resource state (kubectl)
+ *   - GitHub: Application source code
  */
 export function buildRcaPrompt(input: RcaInput): string {
-  const regions = input.regions.length > 0 ? input.regions.join(', ') : '未指定';
-
   return `## 根因分析 (RCA) 任务
 
 ### Issue #${input.issueId}
 - **标题**: ${input.title}
-- **资源**: ${input.resource_id} (${input.resource_type || '未知类型'})
+- **资源**: ${input.resource_id} (${input.resource_type || 'EKS Pod'})
 - **严重程度**: ${input.severity}
-- **账号**: ${input.account_name || '未指定'}
-- **区域**: ${regions}
+${input.account_name ? `- **账号**: ${input.account_name}` : ''}
 ${input.description ? `- **描述**: ${input.description}` : ''}
-${input.metric_data ? `- **指标数据**: ${JSON.stringify(input.metric_data)}` : ''}
+${input.metric_data ? `- **告警原始数据**: \`\`\`json\n${JSON.stringify(input.metric_data, null, 2)}\n\`\`\`` : ''}
 
-### 调查协议（按顺序执行）
+---
 
-**步骤 1: 变更检测**
-使用 \`lookup_cloudtrail\` 查看最近 6 小时内的 API 变更。
-80% 的问题由变更引起。查找与资源 ${input.resource_id} 相关的修改操作。
+### 多信号综合分析协议
 
-**步骤 2: 指标分析**
-使用 \`get_cloudwatch_metrics\` 获取关键指标:
-- CPU、内存、网络、磁盘 I/O
-- 错误率、延迟 P99
-- 连接数、队列深度
+以下各节已由 OpsAgent 自动采集，请**逐节分析**，最终给出综合根因判断。
 
-**步骤 3: 日志检查**
-使用 \`query_cloudwatch_logs\` 搜索错误日志:
-- 搜索 "ERROR"、"Exception"、"OOM"、"timeout" 等关键词
-- 关注事件发生前后 30 分钟的日志
+#### 分析维度与权重
 
-**步骤 4: 网络检查**
-如果问题涉及连接或可达性:
-- 使用 \`describe_security_groups\` 检查安全组规则
-- 使用 \`describe_nat_gateways\` 检查 NAT 状态
-- 使用 \`describe_load_balancers\` 检查目标健康
+| 信号 | 分析重点 |
+|------|---------|
+| **Mimir 指标** | 错误率趋势、连接池饱和、内存增长曲线 — 判断故障是突发还是渐进 |
+| **Tempo Traces** | 错误 Span 链路、调用耗时分布 — 定位哪个调用点失败 |
+| **Loki 日志** | 具体错误消息、异常堆栈、时序 — 确认根因发生时刻 |
+| **Pod/Node 资源** | CPU/MEM 实际用量 vs limits — 判断是否资源压力引发 |
+| **源码分析** | 连接/资源泄漏路径、硬编码限制、K8s 配置 — 代码层根因 |
 
-**步骤 5: 知识库搜索**
-使用 \`lookup_skill\` 和 \`search_files\` 查找相关 SOP 和历史案例。
+---
 
-**步骤 6: 综合分析**
-基于收集的证据，确定:
+### 综合分析要求
 
-1. **根因 (root_cause)**: 一句话描述根本原因
-2. **置信度 (confidence)**: 0.0-1.0
-   - 0.9+: 有直接因果证据（如 CloudTrail 显示变更导致故障）
-   - 0.7-0.9: 强相关性（指标异常 + 时间吻合）
-   - 0.5-0.7: 合理推测（部分证据支持）
-   - <0.5: 需要更多调查
-3. **贡献因素**: 列出所有相关的贡献因素
-4. **修复建议**: 具体可执行的修复步骤
-5. **修复风险等级**:
-   - low: 配置调整，不影响服务
-   - medium: 需要重启或短暂中断
-   - high: 可能影响其他服务
-   - critical: 需要维护窗口
+1. **交叉验证**：指标趋势 → Trace 链路 → 日志错误消息 → 源码逻辑，必须时序对齐
+2. **代码层证据**：如日志显示 \`DatabaseConnectionError\`，需在源码中找到连接池配置和异常处理路径
+3. **可操作建议**：每条建议需精确到具体文件/配置项（如 \`k8s/configmap.yaml\` 中的 \`DB_POOL_MAX\`）
+4. **置信度校准**：
+   - 0.9+: 四个信号交叉验证一致，源码有直接证据
+   - 0.7–0.9: 三个信号对齐 + 源码支持
+   - 0.5–0.7: 两个信号 + 推断
+   - <0.5: 信号不足，需要更多调查
+
+---
 
 ### 输出格式
 
-请以 JSON 格式输出分析结果:
+请以如下 JSON 格式输出分析结果（直接输出 JSON，不要额外解释）:
 \`\`\`json
 {
-  "root_cause": "根因描述",
+  "root_cause": "一句话根因描述，要包含具体代码/配置位置",
   "confidence": 0.85,
-  "contributing_factors": ["因素1", "因素2"],
-  "recommendations": ["建议1", "建议2", "建议3"],
+  "contributing_factors": [
+    "因素1（引用具体指标/日志/代码行）",
+    "因素2",
+    "因素3"
+  ],
+  "recommendations": [
+    "建议1 — 精确到文件和配置项",
+    "建议2",
+    "建议3"
+  ],
   "fix_plan": {
-    "steps": ["步骤1", "步骤2"],
+    "steps": ["步骤1", "步骤2", "步骤3"],
     "estimated_time": "15分钟",
     "requires_downtime": false
   },
-  "fix_risk_level": "medium",
+  "fix_risk_level": "low|medium|high|critical",
   "evidence": {
-    "cloudtrail": "相关变更摘要",
-    "metrics": "异常指标摘要",
-    "logs": "错误日志摘要"
+    "metrics": "指标异常摘要（峰值、趋势）",
+    "traces": "错误 Trace 摘要（traceId、失败 Span）",
+    "logs": "关键错误日志摘要（时间、消息）",
+    "kubectl": "Pod/Node 资源摘要",
+    "source_code": "源码关键发现（文件名、行为描述）"
   }
 }
 \`\`\``;

@@ -178,6 +178,10 @@ export class OpsAgentStack extends cdk.Stack {
     // Allow execution role to read DB secret (needed for ECS secrets injection)
     dbSecret.grantRead(executionRole);
 
+    // Grafana Cloud credentials (read-only API token for logs/traces/metrics)
+    const grafanaSecret = secretsmanager.Secret.fromSecretNameV2(this, 'GrafanaSecret', 'opsagent/grafana');
+    grafanaSecret.grantRead(executionRole);
+
     // Fargate Task Definition
     const taskDef = new ecs.FargateTaskDefinition(this, 'OpsAgentTaskDef', {
       memoryLimitMiB: 8192,
@@ -290,6 +294,14 @@ export class OpsAgentStack extends cdk.Stack {
       secrets: {
         DB_USER: ecs.Secret.fromSecretsManager(dbSecret, 'username'),
         DB_PASSWORD: ecs.Secret.fromSecretsManager(dbSecret, 'password'),
+        GRAFANA_API_TOKEN:    ecs.Secret.fromSecretsManager(grafanaSecret, 'GRAFANA_API_TOKEN'),
+        GRAFANA_USER_ID:      ecs.Secret.fromSecretsManager(grafanaSecret, 'GRAFANA_USER_ID'),
+        GRAFANA_LOKI_USER_ID: ecs.Secret.fromSecretsManager(grafanaSecret, 'GRAFANA_LOKI_USER_ID'),
+        GRAFANA_TEMPO_USER_ID: ecs.Secret.fromSecretsManager(grafanaSecret, 'GRAFANA_TEMPO_USER_ID'),
+        GRAFANA_MIMIR_USER_ID: ecs.Secret.fromSecretsManager(grafanaSecret, 'GRAFANA_MIMIR_USER_ID'),
+        GRAFANA_LOKI_URL:     ecs.Secret.fromSecretsManager(grafanaSecret, 'GRAFANA_LOKI_URL'),
+        GRAFANA_TEMPO_URL:    ecs.Secret.fromSecretsManager(grafanaSecret, 'GRAFANA_TEMPO_URL'),
+        GRAFANA_MIMIR_URL:    ecs.Secret.fromSecretsManager(grafanaSecret, 'GRAFANA_MIMIR_URL'),
       },
       healthCheck: {
         command: ['CMD-SHELL', 'curl -f http://localhost:3978/health || exit 1'],
@@ -398,7 +410,7 @@ export class OpsAgentStack extends cdk.Stack {
     });
 
     // CloudFront distribution in front of ALB
-    const distribution = new cloudfront.Distribution(this, 'OpsAgentCF', {
+    const distribution = new cloudfront.Distribution(this, 'OpsAgentCFv2', {
       comment: 'OpsAgent - CloudFront in front of ALB',
       defaultBehavior: {
         origin: new origins.HttpOrigin(alb.loadBalancerDnsName, {

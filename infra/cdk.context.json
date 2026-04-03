@@ -18,5 +18,27 @@
       "PrefixListId": "pl-82a045eb",
       "Identifier": "pl-82a045eb"
     }
+  ],
+  "availability-zones:account=612674025488:region=us-west-1": [
+    "us-west-1a",
+    "us-west-1c"
+  ],
+  "cc-api-provider:account=612674025488:expectedMatchCount=exactly-one:propertiesToReturn.0=PrefixListId:propertyMatch.PrefixListName=com.amazonaws.global.cloudfront.origin-facing:region=us-west-1:typeName=AWS$:$:EC2$:$:PrefixList": [
+    {
+      "PrefixListId": "pl-4ea04527",
+      "Identifier": "pl-4ea04527"
+    }
+  ],
+  "availability-zones:account=612674025488:region=us-west-2": [
+    "us-west-2a",
+    "us-west-2b",
+    "us-west-2c",
+    "us-west-2d"
+  ],
+  "cc-api-provider:account=612674025488:expectedMatchCount=exactly-one:propertiesToReturn.0=PrefixListId:propertyMatch.PrefixListName=com.amazonaws.global.cloudfront.origin-facing:region=us-west-2:typeName=AWS$:$:EC2$:$:PrefixList": [
+    {
+      "PrefixListId": "pl-82a045eb",
+      "Identifier": "pl-82a045eb"
+    }
   ]
 }

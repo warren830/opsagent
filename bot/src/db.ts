@@ -40,6 +40,7 @@ export interface Issue {
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
+  deleted_at?: string | null;
 }
 
 export interface RcaResult {
@@ -106,7 +107,8 @@ CREATE TABLE IF NOT EXISTS issues (
   account_name VARCHAR(100),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  resolved_at TIMESTAMPTZ
+  resolved_at TIMESTAMPTZ,
+  deleted_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS rca_results (
@@ -137,9 +139,18 @@ CREATE TABLE IF NOT EXISTS scan_logs (
 );
 `;
 
+// ── Migrations ────────────────────────────────────────────────
+
+const MIGRATIONS_SQL = `
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+`;
+
 // ── Pool ──────────────────────────────────────────────────────
 
-const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://localhost:5432/opsagent';
+const DATABASE_URL = process.env.DATABASE_URL ||
+  (process.env.DB_HOST
+    ? `postgresql://${process.env.DB_USER}:${process.env.DB_PASSWORD}@${process.env.DB_HOST}:${process.env.DB_PORT || '5432'}/${process.env.DB_NAME || 'opsagent'}`
+    : 'postgresql://localhost:5432/opsagent');
 
 const poolConfig: PoolConfig = {
   connectionString: DATABASE_URL,
@@ -176,10 +187,20 @@ export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T 
 }
 
 /**
- * Initialize the database schema (CREATE TABLE IF NOT EXISTS).
+ * Initialize the database schema (CREATE TABLE IF NOT EXISTS) and run migrations.
  */
 export async function initSchema(): Promise<void> {
   await getPool().query(SCHEMA_SQL);
+  await getPool().query(MIGRATIONS_SQL);
+  await cleanupOldIssues();
+}
+
+/**
+ * Delete issues (and cascade their rca_results) older than 30 days.
+ */
+export async function cleanupOldIssues(): Promise<void> {
+  await getPool().query(`DELETE FROM rca_results WHERE issue_id IN (SELECT id FROM issues WHERE created_at < NOW() - INTERVAL '30 days')`);
+  await getPool().query(`DELETE FROM issues WHERE created_at < NOW() - INTERVAL '30 days'`);
 }
 
 /**

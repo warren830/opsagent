@@ -15,7 +15,7 @@
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
     "@aws-cdk/core:checkSecretUsage": true,
     "@aws-cdk/core:target-partitions": ["aws"],
-    "hubAccountId": "034362076319",
-    "organizationRootOuId": "r-5um4"
+    "hubAccountId": "612674025488",
+    "organizationRootOuId": "r-9avm"
   }
 }
