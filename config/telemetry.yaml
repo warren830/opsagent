@@ -1,7 +1,30 @@
 telemetry:
   grafana:
-    enabled: false
-    loki_url: ""       # e.g. https://logs-prod-006.grafana.net
-    user_id: ""        # Grafana Cloud numeric user/org ID (Basic Auth username)
-    api_token: ""      # Grafana Cloud API token with logs:read scope (glc_...)
-    # Alternatively set via env vars: GRAFANA_LOKI_URL, GRAFANA_USER_ID, GRAFANA_API_TOKEN
+    enabled: true
+
+    # Each Grafana Cloud datasource has its own numeric instance ID (Basic Auth username)
+    # Found at grafana.com → your Stack → signal → Details → "User" field
+    # 🔒 Do NOT put real values here — use env vars or knowledge/_config/telemetry.yaml (gitignored)
+    user_id: ""        # override with GRAFANA_USER_ID
+    loki_user_id: ""   # override with GRAFANA_LOKI_USER_ID
+    tempo_user_id: ""  # override with GRAFANA_TEMPO_USER_ID
+    mimir_user_id: ""  # override with GRAFANA_MIMIR_USER_ID
+
+    # Grafana Cloud API token — needs logs:read + traces:read + metrics:read scopes
+    api_token: ""      # override with GRAFANA_API_TOKEN
+
+    # Loki endpoint (Logs)
+    # grafana.com → Stack → Loki → Details → URL
+    loki_url: ""       # override with GRAFANA_LOKI_URL
+
+    # Tempo endpoint (Traces)
+    # grafana.com → Stack → Tempo → Details → URL
+    tempo_url: ""      # override with GRAFANA_TEMPO_URL
+
+    # Mimir endpoint (Metrics — Prometheus-compatible)
+    # grafana.com → Stack → Prometheus → Details → URL
+    mimir_url: ""      # override with GRAFANA_MIMIR_URL
+
+    # Alternatively set all of the above via environment variables:
+    # GRAFANA_USER_ID, GRAFANA_API_TOKEN
+    # GRAFANA_LOKI_URL, GRAFANA_TEMPO_URL, GRAFANA_MIMIR_URL

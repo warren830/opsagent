@@ -32,18 +32,11 @@ kubectl 写操作（apply/create/delete/patch/edit/scale/rollout/drain/cordon/ta
 - **storefront**: E-Commerce Storefront (accounts: 034362076319)
 - **pci-zone**: PCI-DSS Compliance Zone (accounts: 034362076319)
 - **fraud-engine**: Fraud Detection Engine (accounts: 034362076319)
-- **e2e-test**: E2E Test Term
-- **e2e-api-test**: API Test
 完整术语详情见 knowledge/glossary.md 文件。
 
 ## 已配置的云账号
 - **partner-staging** (AWS 111111111111)
-- **e2e-test-account** (AWS 999999999999)
-- **e2e-test-account** (AWS 999999999999)
-- **e2e-test-account** (AWS 999999999999)
-- **e2e-test-account** (AWS 999999999999)
-- **e2e-test-account** (AWS 999999999999)
-- **hub-account** (AWS 034362076319)
+- **kolya** (AWS 034362076319)
 
 ## 技能指引
 共 2 个已启用的技能。当用户的问题匹配某个技能时，用 Read 工具读取对应文件获取完整指引：

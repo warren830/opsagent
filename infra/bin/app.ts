@@ -26,6 +26,14 @@ const opsAgentStack = new OpsAgentStack(app, 'OpsAgentStack', {
   hubAccountId,
 });
 
+// 本地开发者 ARN：从环境变量或 cdk context 读取，逗号分隔
+// 例如：DEV_PRINCIPAL_ARNS="arn:aws:iam::612674025488:role/aws-reserved/sso.amazonaws.com/ap-northeast-1/AWSReservedSSO_AdministratorAccess_2f0b065da337be10"
+const devPrincipalArns = (
+  app.node.tryGetContext('devPrincipalArns')
+  || process.env.DEV_PRINCIPAL_ARNS
+  || ''
+).split(',').map((s: string) => s.trim()).filter(Boolean);
+
 new MemberRoleStack(app, 'MemberRoleStack', {
   env: {
     account: hubAccountId || undefined,
@@ -36,4 +44,5 @@ new MemberRoleStack(app, 'MemberRoleStack', {
   organizationRootOuId: app.node.tryGetContext('organizationRootOuId')
     || process.env.ORGANIZATION_ROOT_OU_ID
     || '',
+  devPrincipalArns,
 });

@@ -7,6 +7,8 @@ export interface MemberRoleStackProps extends cdk.StackProps {
   hubAccountId: string;
   taskRoleArn: string;
   organizationRootOuId: string;
+  /** 本地开发者身份 ARN 列表，允许这些 Principal 也能 AssumeRole（用于本地调试） */
+  devPrincipalArns?: string[];
 }
 
 export class MemberRoleStack extends cdk.Stack {
@@ -24,6 +26,7 @@ export class MemberRoleStack extends cdk.Stack {
             AssumeRolePolicyDocument: {
               Version: '2012-10-17',
               Statement: [
+                // ECS TaskRole（生产环境）
                 {
                   Effect: 'Allow',
                   Principal: {
@@ -36,6 +39,17 @@ export class MemberRoleStack extends cdk.Stack {
                     },
                   },
                 },
+                // 本地开发者身份（可选，仅在 devPrincipalArns 非空时注入）
+                ...(props.devPrincipalArns && props.devPrincipalArns.length > 0
+                  ? props.devPrincipalArns.map(arn => ({
+                      Effect: 'Allow',
+                      Principal: { AWS: arn },
+                      Action: 'sts:AssumeRole',
+                      Condition: {
+                        StringEquals: { 'sts:ExternalId': 'opsagent' },
+                      },
+                    }))
+                  : []),
               ],
             },
             ManagedPolicyArns: [

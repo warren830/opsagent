@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -17,7 +18,17 @@ import { ApprovalStore } from './approval-store';
 import { normalizeAlert } from './alert-webhook';
 import { createIssue, saveIssueToDB } from './patrol';
 import { buildRcaPrompt } from './rca';
+import {
+  loadGrafanaConfig,
+  buildLogqlQuery,
+  queryLokiLogs, formatLogsForPrompt,
+  searchTempoErrorTrace, getTempoTrace, formatTraceForPrompt,
+  queryMimirRange, formatMetricsForPrompt,
+} from './grafana-client';
+import { loadGithubRepos } from './github-repos-loader';
+import { fetchSourceContext, formatSourceForPrompt } from './github-source';
 import { SessionStore, loadUsers, saveUsers, verifyPassword, hashPassword, parseCookie, setSessionCookie, clearSessionCookie, UserRole } from './auth';
+import { initSchema } from './db';
 import { buildFeishuAuthUrl, buildTeamsAuthUrl, findUserByPlatformId, upsertOAuthUser } from './oauth';
 
 const PORT = parseInt(process.env.PORT || '3978', 10);
@@ -81,6 +92,7 @@ const CLUSTERS_CONFIG = process.env.CLUSTERS_CONFIG || seedConfig('clusters.yaml
 const TENANTS_CONFIG = process.env.TENANTS_CONFIG || seedConfig('tenants.yaml');
 const USERS_CONFIG = process.env.USERS_CONFIG || seedConfig('users.yaml');
 const TELEMETRY_CONFIG = process.env.TELEMETRY_CONFIG || seedConfig('telemetry.yaml');
+const GITHUB_REPOS_CONFIG = process.env.GITHUB_REPOS_CONFIG || seedConfig('github-repos.yaml');
 
 // Core components
 const claudeClient = new ClaudeClient({
@@ -226,6 +238,7 @@ adminApi = new AdminApi({
   tenantsConfigPath: TENANTS_CONFIG,
   usersConfigPath: USERS_CONFIG,
   telemetryConfigPath: TELEMETRY_CONFIG,
+  githubReposConfigPath: GITHUB_REPOS_CONFIG,
   kubeconfigManager,
   onScheduledJobsChanged: () => scheduler.reload(),
   onTenantsChanged: () => tenantResolver.reload(),
@@ -339,7 +352,7 @@ async function handlePlatformMessage(
 
 // HTTP server
 const server = http.createServer(async (req, res) => {
-  const url = req.url || '';
+  const url = (req.url || '').split('?')[0];
 
   if (req.method === 'GET' && url === '/health') {
     const enabledPlatforms = Array.from(adapters.keys());
@@ -658,6 +671,12 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // ── SSE events stream — bypass session check (cookie sent by browser EventSource) ──
+    if (url === '/admin/api/events' && req.method === 'GET') {
+      const handled = await adminApi.handleRequest(req, res, url, undefined, null);
+      if (handled) return;
+    }
+
     // ── Session enforcement (when user auth is enabled) ──────────
     let authUser: { username: string; role: UserRole; tenant_id?: string } | null = null;
     if (isUserAuthEnabled()) {
@@ -826,45 +845,227 @@ const server = http.createServer(async (req, res) => {
       try {
         const saved = await saveIssueToDB(issue);
         console.log(`[index] Issue #${saved.id} created from alert`);
+        adminApi.pushEvent('issue_created', { id: saved.id, title: saved.title, severity: saved.severity, status: saved.status, created_at: saved.created_at });
 
-        // Trigger RCA in background and save result to DB
-        const rcaPrompt = buildRcaPrompt({
-          issueId: saved.id, title: saved.title, resource_id: saved.resource_id || '',
-          severity: saved.severity, description: saved.description || '',
-          regions: [],
-        });
-        const rcaStart = Date.now();
-        claudeClient.query(rcaPrompt, 'alert', 'system').then(async (response) => {
-          // Extract JSON block from Claude response
-          const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
-          const jsonStr = jsonMatch?.[1] || response.match(/\{[\s\S]*"root_cause"[\s\S]*?\}/)?.[0];
-          if (!jsonStr) {
-            console.warn('[index] RCA response has no JSON block — skipping DB save');
-            return;
+        // ── Background RCA: multi-signal collection + Claude analysis ──
+        (async () => {
+          const rcaStart = Date.now();
+          const grafanaCfg = loadGrafanaConfig(TELEMETRY_CONFIG);
+          const alertLabels = alert.metric_data?.labels as Record<string, string> | undefined;
+          const triggerType = alertLabels?.trigger_type ?? 'error';
+          const serviceName = alertLabels?.service ?? alertLabels?.job ?? '';
+          const clusterName = alertLabels?.cluster ?? '';
+          const now = Date.now();
+          const rangeStart = now - 60 * 60_000;  // last 1 hour
+
+          // Helper: push a progress step to all SSE clients watching this issue
+          const progress = (step: string, status: 'running' | 'done' | 'error', detail?: string) => {
+            adminApi.pushEvent('rca_progress', { id: saved.id, step, status, detail: detail ?? '' });
+          };
+
+          let metricsContext = '';
+          let traceContext   = '';
+          let logsContext    = '';
+          let kubectlContext = '';
+          let sourceContext  = '';
+
+          if (grafanaCfg) {
+            // 1. Metrics (Mimir)
+            if (serviceName && grafanaCfg.mimir_url) {
+              progress('metrics', 'running', `查询 Mimir 指标：error rate、memory_usage、db_connections（服务: ${serviceName}）`);
+              try {
+                const errRateResults = await queryMimirRange(
+                  grafanaCfg, `rate(orders_errors_total{service="${serviceName}"}[2m])`, rangeStart, now, 60,
+                );
+                const memResults = await queryMimirRange(
+                  grafanaCfg, `memory_usage_ratio{service="${serviceName}"}`, rangeStart, now, 60,
+                );
+                const dbResults = await queryMimirRange(
+                  grafanaCfg, `db_connections_active{service="${serviceName}"}`, rangeStart, now, 60,
+                );
+                metricsContext =
+                  formatMetricsForPrompt(errRateResults, 'orders_errors_total (rate/2m)') +
+                  formatMetricsForPrompt(memResults,    'memory_usage_ratio') +
+                  formatMetricsForPrompt(dbResults,     'db_connections_active');
+
+                // Extract key findings for the progress message
+                const errPeak = errRateResults[0]?.samples.reduce((m, s) => s.value > m ? s.value : m, 0) ?? 0;
+                const dbPeak  = dbResults[0]?.samples.reduce((m, s) => s.value > m ? s.value : m, 0) ?? 0;
+                const memLast = memResults[0]?.samples.slice(-1)[0]?.value ?? 0;
+                progress('metrics', 'done',
+                  `错误率峰值 ${(errPeak * 60).toFixed(2)}/min，DB连接峰值 ${dbPeak.toFixed(0)}，内存用量 ${(memLast * 100).toFixed(1)}%`);
+                console.log(`[index] Fetched Mimir metrics for RCA issue #${saved.id}`);
+              } catch (e: any) {
+                progress('metrics', 'error', e.message);
+                console.warn(`[index] Mimir fetch failed: ${e.message}`);
+              }
+            }
+
+            // 2. Traces (Tempo)
+            if (serviceName && grafanaCfg.tempo_url) {
+              progress('traces', 'running', `在 Tempo 中搜索 ${serviceName} 最近的错误 Trace`);
+              try {
+                const traceId = await searchTempoErrorTrace(grafanaCfg, serviceName, rangeStart, now, 3);
+                if (traceId) {
+                  const traceResult = await getTempoTrace(grafanaCfg, traceId);
+                  traceContext = formatTraceForPrompt(traceResult);
+                  const errorSpans = traceResult.spans.filter(s => s.status === 'error');
+                  progress('traces', 'done',
+                    `找到 Trace ${traceId.substring(0, 16)}...，共 ${traceResult.spans.length} 个 Span，${errorSpans.length} 个报错。` +
+                    (errorSpans[0] ? `首个错误: ${errorSpans[0].name} (${errorSpans[0].durationMs}ms) — ${errorSpans[0].attributes['error.message'] ?? ''}` : ''));
+                  console.log(`[index] Fetched Tempo trace ${traceId} for RCA issue #${saved.id}`);
+                } else {
+                  progress('traces', 'done', '未找到匹配的错误 Trace（时间窗口内无数据）');
+                }
+              } catch (e: any) {
+                progress('traces', 'error', e.message);
+                console.warn(`[index] Tempo fetch failed: ${e.message}`);
+              }
+            }
+
+            // 3. Logs (Loki)
+            if (grafanaCfg.loki_url) {
+              const queryLabels: Record<string, string> = {};
+              if (alertLabels?.job)     queryLabels.job     = alertLabels.job;
+              if (alertLabels?.service) queryLabels.service = alertLabels.service;
+              if (clusterName)          queryLabels.cluster = clusterName;
+              if (Object.keys(queryLabels).length > 0) {
+                progress('logs', 'running', `查询 Loki 日志：${JSON.stringify(queryLabels)}（最近1小时，最多100条）`);
+                try {
+                  const lokiResult = await queryLokiLogs(
+                    grafanaCfg, buildLogqlQuery(queryLabels), rangeStart, now, 100,
+                  );
+                  logsContext = formatLogsForPrompt(lokiResult);
+                  // Find error log lines for summary
+                  const errorLogs = lokiResult.logs.filter(l => l.line.includes('"level":"error"') || l.line.includes('"level": "error"'));
+                  const lastError = errorLogs[errorLogs.length - 1];
+                  let errorSummary = '';
+                  if (lastError) {
+                    try {
+                      const parsed = JSON.parse(lastError.line);
+                      errorSummary = `最新错误: [${lastError.timestamp}] ${parsed.message ?? parsed.msg ?? lastError.line.substring(0, 120)}`;
+                    } catch { errorSummary = lastError.line.substring(0, 120); }
+                  }
+                  progress('logs', 'done',
+                    `获取 ${lokiResult.total} 条日志，其中 ${errorLogs.length} 条错误。${errorSummary}`);
+                  console.log(`[index] Fetched ${lokiResult.total} Loki logs for RCA issue #${saved.id}`);
+                } catch (e: any) {
+                  progress('logs', 'error', e.message);
+                  console.warn(`[index] Loki fetch failed: ${e.message}`);
+                }
+              }
+            }
           }
+
+          // 4. kubectl — Pod/Node resource state
+          if (clusterName || serviceName) {
+            const namespace = alertLabels?.namespace ?? 'rca';
+            progress('kubectl', 'running', `kubectl get pods/top/events -n ${namespace}（集群: ${clusterName || 'current-context'}）`);
+            try {
+              const { execSync } = require('child_process') as typeof import('child_process');
+              const nsFlag = `-n ${namespace}`;
+              const lsFlag = serviceName ? `-l app=${serviceName}` : '';
+
+              const podLines   = execSync(`kubectl get pods ${nsFlag} ${lsFlag} -o wide 2>/dev/null`, { timeout: 8000 }).toString().trim();
+              const topLines   = execSync(`kubectl top pods ${nsFlag} ${lsFlag} --no-headers 2>/dev/null`, { timeout: 8000 }).toString().trim();
+              const eventLines = execSync(`kubectl get events ${nsFlag} --sort-by=.lastTimestamp 2>/dev/null | tail -20`, { timeout: 8000 }).toString().trim();
+
+              kubectlContext = [
+                '', `### kubectl Pod 状态（namespace: ${namespace}）`, '',
+                '**Pod 列表：**', '```', podLines || '(无数据)', '```', '',
+                '**Pod 资源用量（CPU/MEM）：**', '```', topLines || '(无数据)', '```', '',
+                '**最近 K8s 事件：**', '```', eventLines || '(无事件)', '```', '',
+                '请结合 Pod 资源用量判断是否存在 OOM/CPU throttling，K8s 事件中是否有 OOMKilled/BackOff。', '',
+              ].join('\n');
+
+              // Extract running pod count and resource summary for progress
+              const runningPods = (podLines.match(/Running/g) || []).length;
+              const topSummary  = topLines.split('\n')[0] ?? '';
+              progress('kubectl', 'done',
+                `${runningPods} 个 Pod Running。资源用量: ${topSummary || '(metrics-server 未响应)'}。K8s 事件: ${eventLines.split('\n').length} 条`);
+              console.log(`[index] Fetched kubectl context for RCA issue #${saved.id}`);
+            } catch (e: any) {
+              progress('kubectl', 'error', e.message);
+              console.warn(`[index] kubectl fetch failed: ${e.message}`);
+            }
+          }
+
+          // 5. GitHub source code
           try {
+            const githubCfg = loadGithubRepos(GITHUB_REPOS_CONFIG);
+            const enabledRepos = githubCfg.github_repos.filter(r => r.enabled);
+            if (enabledRepos.length > 0) {
+              const matchedRepo = enabledRepos.find(r =>
+                r.name === serviceName || r.id === serviceName || r.repo.includes(serviceName || ''),
+              ) ?? enabledRepos[0];
+
+              progress('source', 'running', `读取 GitHub 源码: ${matchedRepo.repo}（服务: ${serviceName || 'all'}）`);
+              const srcCtx = await fetchSourceContext(matchedRepo.token, matchedRepo.repo, serviceName);
+              sourceContext = formatSourceForPrompt(srcCtx);
+              progress('source', 'done',
+                `读取 ${srcCtx.files.length} 个文件: ${srcCtx.files.map(f => f.path).join(', ')}`);
+              console.log(`[index] Fetched ${srcCtx.files.length} source files from ${matchedRepo.repo} for RCA issue #${saved.id}`);
+            }
+          } catch (e: any) {
+            progress('source', 'error', e.message);
+            console.warn(`[index] GitHub source fetch failed: ${e.message}`);
+          }
+
+          // 6. Claude analysis
+          progress('analysis', 'running', '所有信号采集完毕，Claude 正在综合分析根因...');
+
+          const rcaPrompt =
+            buildRcaPrompt({
+              issueId:     saved.id,
+              title:       saved.title,
+              resource_id: saved.resource_id || '',
+              severity:    saved.severity,
+              description: saved.description || '',
+              regions:     [],
+              metric_data: alert.metric_data,
+            }) +
+            (triggerType === 'metrics+error'
+              ? '\n\n> ⚠️ 此告警由「指标阈值突破 + 应用错误事件」联合触发，请重点分析 Mimir 指标趋势与源码中的连接池配置。\n'
+              : '') +
+            metricsContext +
+            traceContext +
+            logsContext +
+            kubectlContext +
+            sourceContext;
+
+          try {
+            const response = await claudeClient.query(rcaPrompt, 'alert', 'system');
+            const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
+            const jsonStr   = jsonMatch?.[1] || response.match(/\{"[\s\S]*?"root_cause"[\s\S]*?\}/)?.[0];
+            if (!jsonStr) {
+              progress('analysis', 'error', 'Claude 返回格式异常，无 JSON 块');
+              console.warn('[index] RCA response has no JSON block — skipping DB save');
+              console.warn('[index] RCA raw response:', response);
+              return;
+            }
             const parsed = JSON.parse(jsonStr);
             const { createRcaResult, saveRcaResultToDB } = await import('./rca');
             const rcaResult = createRcaResult({
-              issue_id: saved.id,
-              root_cause: parsed.root_cause || 'Unknown',
-              confidence: parsed.confidence ?? 0.5,
+              issue_id:             saved.id,
+              root_cause:           parsed.root_cause || 'Unknown',
+              confidence:           parsed.confidence ?? 0.5,
               contributing_factors: parsed.contributing_factors || [],
-              recommendations: parsed.recommendations || [],
-              fix_plan: parsed.fix_plan || {},
-              fix_risk_level: parsed.fix_risk_level || 'medium',
-              evidence: parsed.evidence || {},
-              model_id: 'claude',
-              duration_ms: Date.now() - rcaStart,
+              recommendations:      parsed.recommendations || [],
+              fix_plan:             parsed.fix_plan || {},
+              fix_risk_level:       parsed.fix_risk_level || 'medium',
+              evidence:             parsed.evidence || {},
+              model_id:             'claude',
+              duration_ms:          Date.now() - rcaStart,
             });
             await saveRcaResultToDB(rcaResult);
-            console.log(`[index] RCA result saved for issue #${saved.id}`);
+            console.log(`[index] RCA result saved for issue #${saved.id} (signals: metrics=${!!metricsContext} traces=${!!traceContext} logs=${!!logsContext} kubectl=${!!kubectlContext} source=${!!sourceContext})`);
+            progress('analysis', 'done', parsed.root_cause ?? '分析完成');
+            adminApi.pushEvent('rca_completed', { id: saved.id, root_cause: parsed.root_cause, confidence: parsed.confidence ?? 0.5 });
           } catch (e: any) {
-            console.warn(`[index] Failed to parse/save RCA: ${e.message}`);
+            progress('analysis', 'error', e.message);
+            console.error(`[index] Background RCA failed: ${e.message}`);
           }
-        }).catch(err => {
-          console.error(`[index] Background RCA failed: ${err.message}`);
-        });
+        })();
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, issue_id: saved.id, source: alert.source }));
@@ -892,6 +1093,13 @@ const server = http.createServer(async (req, res) => {
 
   res.writeHead(404);
   res.end('Not Found');
+});
+
+// Initialize DB schema before starting server
+initSchema().then(() => {
+  console.log('[index] DB schema initialized');
+}).catch(err => {
+  console.error(`[index] DB schema init failed (alerts will not be persisted): ${err.message}`);
 });
 
 server.listen(PORT, () => {
