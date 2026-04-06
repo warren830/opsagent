@@ -1,23 +1,18 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
-use crate::models::account_access::{
-    AccessibleAccount, GrantAccessRequest, UserAccessView, UserAccountAccess,
-};
+use crate::models::account_access::{AccessibleAccount, GrantAccessRequest, UserAccessView, UserAccountAccess};
 use crate::models::cloud_account::CloudAccount;
-use crate::AppState;
 
 /// Get the list of account IDs the current user can access.
 /// Reusable by glossary, knowledge, chat handlers.
-pub async fn get_accessible_account_ids(
-    pool: &sqlx::PgPool,
-    auth_user: &AuthUser,
-) -> Vec<Uuid> {
+pub async fn get_accessible_account_ids(pool: &sqlx::PgPool, auth_user: &AuthUser) -> Vec<Uuid> {
     if auth_user.is_super_admin() {
         // All accounts
         sqlx::query_scalar::<_, Uuid>("SELECT id FROM cloud_accounts")
@@ -40,13 +35,11 @@ pub async fn get_accessible_account_ids(
         .unwrap_or_default()
     } else {
         // Only explicitly granted accounts
-        sqlx::query_scalar::<_, Uuid>(
-            "SELECT account_id FROM user_account_access WHERE user_id = $1",
-        )
-        .bind(auth_user.user_id)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default()
+        sqlx::query_scalar::<_, Uuid>("SELECT account_id FROM user_account_access WHERE user_id = $1")
+            .bind(auth_user.user_id)
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default()
     }
 }
 
@@ -56,24 +49,19 @@ pub async fn get_accessible_account_ids(
 ///   - Has explicit grant → use grant role (admin=write, readonly=deny)
 ///   - No explicit grant + tenant_admin (own tenant) → write
 ///   - Otherwise → deny
-pub async fn can_write_account(
-    pool: &sqlx::PgPool,
-    auth_user: &AuthUser,
-    account_id: Uuid,
-) -> bool {
+pub async fn can_write_account(pool: &sqlx::PgPool, auth_user: &AuthUser, account_id: Uuid) -> bool {
     if auth_user.is_super_admin() {
         return true;
     }
 
     // Check explicit grant first — it takes priority over implicit tenant access
-    let grant_role = sqlx::query_scalar::<_, String>(
-        "SELECT role FROM user_account_access WHERE user_id = $1 AND account_id = $2",
-    )
-    .bind(auth_user.user_id)
-    .bind(account_id)
-    .fetch_optional(pool)
-    .await
-    .unwrap_or(None);
+    let grant_role =
+        sqlx::query_scalar::<_, String>("SELECT role FROM user_account_access WHERE user_id = $1 AND account_id = $2")
+            .bind(auth_user.user_id)
+            .bind(account_id)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
 
     if let Some(role) = grant_role {
         return role == "admin";
@@ -156,18 +144,14 @@ pub async fn list_account_users(
     Path(account_id): Path<Uuid>,
 ) -> AppResult<Json<Vec<UserAccessView>>> {
     // Verify the account exists and caller has access
-    let account = sqlx::query_as::<_, CloudAccount>(
-        "SELECT * FROM cloud_accounts WHERE id = $1",
-    )
-    .bind(account_id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Cloud account not found".to_string()))?;
+    let account = sqlx::query_as::<_, CloudAccount>("SELECT * FROM cloud_accounts WHERE id = $1")
+        .bind(account_id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Cloud account not found".to_string()))?;
 
-    if !auth_user.is_super_admin() {
-        if !auth_user.is_tenant_admin() || account.tenant_id != auth_user.tenant_id {
-            return Err(AppError::Forbidden("Access denied".to_string()));
-        }
+    if !auth_user.is_super_admin() && (!auth_user.is_tenant_admin() || account.tenant_id != auth_user.tenant_id) {
+        return Err(AppError::Forbidden("Access denied".to_string()));
     }
 
     let users = sqlx::query_as::<_, UserAccessView>(
@@ -202,19 +186,17 @@ pub async fn grant(
     };
 
     // Verify the account exists
-    let account = sqlx::query_as::<_, CloudAccount>(
-        "SELECT * FROM cloud_accounts WHERE id = $1",
-    )
-    .bind(req.account_id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Cloud account not found".to_string()))?;
+    let account = sqlx::query_as::<_, CloudAccount>("SELECT * FROM cloud_accounts WHERE id = $1")
+        .bind(req.account_id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Cloud account not found".to_string()))?;
 
     // tenant_admin can only grant access to accounts in their tenant
-    if auth_user.is_tenant_admin() && !auth_user.is_super_admin() {
-        if account.tenant_id != auth_user.tenant_id {
-            return Err(AppError::Forbidden("Cannot grant access to accounts outside your tenant".to_string()));
-        }
+    if auth_user.is_tenant_admin() && !auth_user.is_super_admin() && account.tenant_id != auth_user.tenant_id {
+        return Err(AppError::Forbidden(
+            "Cannot grant access to accounts outside your tenant".to_string(),
+        ));
     }
 
     // Upsert: insert or update role on conflict
@@ -246,26 +228,24 @@ pub async fn revoke(
 
     // tenant_admin: verify account is in their tenant
     if auth_user.is_tenant_admin() && !auth_user.is_super_admin() {
-        let account = sqlx::query_as::<_, CloudAccount>(
-            "SELECT * FROM cloud_accounts WHERE id = $1",
-        )
-        .bind(account_id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Cloud account not found".to_string()))?;
+        let account = sqlx::query_as::<_, CloudAccount>("SELECT * FROM cloud_accounts WHERE id = $1")
+            .bind(account_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Cloud account not found".to_string()))?;
 
         if account.tenant_id != auth_user.tenant_id {
-            return Err(AppError::Forbidden("Cannot revoke access to accounts outside your tenant".to_string()));
+            return Err(AppError::Forbidden(
+                "Cannot revoke access to accounts outside your tenant".to_string(),
+            ));
         }
     }
 
-    let result = sqlx::query(
-        "DELETE FROM user_account_access WHERE user_id = $1 AND account_id = $2",
-    )
-    .bind(user_id)
-    .bind(account_id)
-    .execute(&state.pool)
-    .await?;
+    let result = sqlx::query("DELETE FROM user_account_access WHERE user_id = $1 AND account_id = $2")
+        .bind(user_id)
+        .bind(account_id)
+        .execute(&state.pool)
+        .await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Access record not found".to_string()));

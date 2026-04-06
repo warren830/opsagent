@@ -1,13 +1,13 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::cluster::{Cluster, CreateClusterRequest, UpdateClusterRequest};
-use crate::AppState;
 
 /// GET /api/clusters
 pub async fn list(
@@ -19,12 +19,10 @@ pub async fn list(
             .fetch_all(&state.pool)
             .await?
     } else {
-        sqlx::query_as::<_, Cluster>(
-            "SELECT * FROM clusters WHERE tenant_id = $1 ORDER BY name",
-        )
-        .bind(auth_user.tenant_id)
-        .fetch_all(&state.pool)
-        .await?
+        sqlx::query_as::<_, Cluster>("SELECT * FROM clusters WHERE tenant_id = $1 ORDER BY name")
+            .bind(auth_user.tenant_id)
+            .fetch_all(&state.pool)
+            .await?
     };
     Ok(Json(rows))
 }

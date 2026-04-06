@@ -56,10 +56,12 @@ struct ClaudeEvent {
     result: Option<serde_json::Value>,
     #[serde(default)]
     duration_ms: Option<u64>,
-    // tool_result fields
+    // tool_result fields (used for deserialization only)
     #[serde(default)]
+    #[allow(dead_code)]
     tool_name: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     content: Option<String>,
 }
 
@@ -110,12 +112,8 @@ impl ClaudeService {
     }
 
     /// Find an active session for the user, or return None
-    pub async fn find_active_session(
-        &self,
-        user_id: Uuid,
-        tenant_id: Option<Uuid>,
-    ) -> Option<String> {
-        let row = sqlx::query_scalar::<_, String>(
+    pub async fn find_active_session(&self, user_id: Uuid, tenant_id: Option<Uuid>) -> Option<String> {
+        sqlx::query_scalar::<_, String>(
             r#"SELECT claude_session_id FROM claude_sessions
                WHERE user_id = $1
                AND ($2::UUID IS NULL OR tenant_id = $2)
@@ -129,9 +127,7 @@ impl ClaudeService {
         .fetch_optional(&self.pool)
         .await
         .ok()
-        .flatten();
-
-        row
+        .flatten()
     }
 
     /// Persist a new or updated session
@@ -296,10 +292,7 @@ impl ClaudeService {
         // Take stdin handle before moving child into stream
         let child_stdin = child.stdin.take();
 
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "No stdout"))?;
+        let stdout = child.stdout.take().ok_or_else(|| std::io::Error::other("No stdout"))?;
 
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
@@ -403,8 +396,7 @@ impl ClaudeService {
                                 }
                             }
                             "tool_use" => {
-                                let name =
-                                    block.name.unwrap_or_else(|| "unknown".to_string());
+                                let name = block.name.unwrap_or_else(|| "unknown".to_string());
                                 let input_str = block
                                     .input
                                     .map(|v| serde_json::to_string_pretty(&v).unwrap_or_default())
@@ -416,8 +408,7 @@ impl ClaudeService {
                             }
                             "tool_result" => {
                                 let content = block.text.unwrap_or_default();
-                                let name =
-                                    block.name.unwrap_or_else(|| "tool".to_string());
+                                let name = block.name.unwrap_or_else(|| "tool".to_string());
                                 chunks.push(StreamChunk::ToolResult {
                                     tool_name: name,
                                     content,

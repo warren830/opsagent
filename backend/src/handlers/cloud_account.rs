@@ -1,16 +1,14 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
-use crate::models::cloud_account::{
-    CloudAccount, CreateCloudAccountRequest, UpdateCloudAccountRequest,
-};
-use crate::AppState;
+use crate::models::cloud_account::{CloudAccount, CreateCloudAccountRequest, UpdateCloudAccountRequest};
 
 /// GET /api/accounts
 /// Super admin: all. Tenant admin: tenant's accounts. Normal user: only granted accounts.
@@ -19,11 +17,9 @@ pub async fn list(
     State(state): State<AppState>,
 ) -> AppResult<Json<Vec<CloudAccount>>> {
     let accounts = if auth_user.is_super_admin() {
-        sqlx::query_as::<_, CloudAccount>(
-            "SELECT * FROM cloud_accounts ORDER BY provider, name",
-        )
-        .fetch_all(&state.pool)
-        .await?
+        sqlx::query_as::<_, CloudAccount>("SELECT * FROM cloud_accounts ORDER BY provider, name")
+            .fetch_all(&state.pool)
+            .await?
     } else if auth_user.is_tenant_admin() {
         // Accounts in tenant + explicitly granted accounts
         sqlx::query_as::<_, CloudAccount>(
@@ -221,11 +217,7 @@ pub async fn discover(
 
     for org_account in &org_output.accounts {
         // Skip suspended accounts
-        if org_account
-            .status
-            .as_deref()
-            .is_some_and(|s| s == "SUSPENDED")
-        {
+        if org_account.status.as_deref().is_some_and(|s| s == "SUSPENDED") {
             continue;
         }
 
@@ -254,18 +246,13 @@ pub async fn discover(
                 .bind(tenant_id)
                 .fetch_optional(&state.pool)
                 .await
+                    && let Some(a) = existing
                 {
-                    if let Some(a) = existing {
-                        results.push(a);
-                    }
+                    results.push(a);
                 }
             }
             Err(e) => {
-                tracing::warn!(
-                    "Failed to upsert org account {}: {}",
-                    org_account.id,
-                    e
-                );
+                tracing::warn!("Failed to upsert org account {}: {}", org_account.id, e);
                 // Try simple insert (ON CONFLICT might fail due to missing partial index)
                 let fallback = sqlx::query_as::<_, CloudAccount>(
                     r#"INSERT INTO cloud_accounts (provider, name, account_id, tenant_id, source, config)
@@ -305,13 +292,11 @@ pub async fn test_connection(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<TestConnectionResult>> {
-    let account = sqlx::query_as::<_, CloudAccount>(
-        "SELECT * FROM cloud_accounts WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Cloud account not found".to_string()))?;
+    let account = sqlx::query_as::<_, CloudAccount>("SELECT * FROM cloud_accounts WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Cloud account not found".to_string()))?;
 
     // Check tenant access
     if !auth_user.is_super_admin() && account.tenant_id != auth_user.tenant_id {
@@ -356,8 +341,7 @@ pub async fn test_connection(
 
         match assume_output {
             Ok(out) if out.status.success() => {
-                let body: serde_json::Value =
-                    serde_json::from_slice(&out.stdout).unwrap_or_default();
+                let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
                 let arn = body
                     .pointer("/AssumedRoleUser/Arn")
                     .and_then(|v| v.as_str())
@@ -391,12 +375,8 @@ pub async fn test_connection(
 
     match output {
         Ok(out) if out.status.success() => {
-            let body: serde_json::Value =
-                serde_json::from_slice(&out.stdout).unwrap_or_default();
-            let arn = body
-                .get("Arn")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
+            let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+            let arn = body.get("Arn").and_then(|v| v.as_str()).unwrap_or("unknown");
             Ok(Json(TestConnectionResult {
                 success: true,
                 identity: Some(arn.to_string()),

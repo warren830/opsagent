@@ -9,6 +9,9 @@ frontend/dist/
 backend/target/
 backend/*.rs.bk
 
+# Python venv
+.venv/
+
 # Environment
 .env
 .env.local
@@ -46,3 +49,6 @@ test-results/
 # Build
 dist/
 build/
+
+# Workspace (runtime user data)
+backend/workspace/

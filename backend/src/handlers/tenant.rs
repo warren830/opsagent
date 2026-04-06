@@ -1,13 +1,13 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::tenant::{CreateTenantRequest, Tenant, UpdateTenantRequest};
-use crate::AppState;
 
 /// GET /api/tenants
 pub async fn list_tenants(
@@ -40,15 +40,11 @@ pub async fn create_tenant(
     Json(req): Json<CreateTenantRequest>,
 ) -> AppResult<Json<Tenant>> {
     if !auth_user.is_super_admin() {
-        return Err(AppError::Forbidden(
-            "Only super admins can create tenants".to_string(),
-        ));
+        return Err(AppError::Forbidden("Only super admins can create tenants".to_string()));
     }
 
     if req.name.trim().is_empty() || req.slug.trim().is_empty() {
-        return Err(AppError::BadRequest(
-            "Name and slug are required".to_string(),
-        ));
+        return Err(AppError::BadRequest("Name and slug are required".to_string()));
     }
 
     let tenant = sqlx::query_as::<_, Tenant>(
@@ -63,14 +59,10 @@ pub async fn create_tenant(
     .fetch_one(&state.pool)
     .await
     .map_err(|e| {
-        if let sqlx::Error::Database(ref db_err) = e {
-            if db_err.constraint() == Some("tenants_name_key")
-                || db_err.constraint() == Some("tenants_slug_key")
-            {
-                return AppError::Conflict(
-                    "Tenant name or slug already exists".to_string(),
-                );
-            }
+        if let sqlx::Error::Database(ref db_err) = e
+            && (db_err.constraint() == Some("tenants_name_key") || db_err.constraint() == Some("tenants_slug_key"))
+        {
+            return AppError::Conflict("Tenant name or slug already exists".to_string());
         }
         AppError::Database(e)
     })?;
@@ -105,9 +97,7 @@ pub async fn update_tenant(
     Json(req): Json<UpdateTenantRequest>,
 ) -> AppResult<Json<Tenant>> {
     if !auth_user.is_super_admin() {
-        return Err(AppError::Forbidden(
-            "Only super admins can update tenants".to_string(),
-        ));
+        return Err(AppError::Forbidden("Only super admins can update tenants".to_string()));
     }
 
     let tenant = sqlx::query_as::<_, Tenant>(
@@ -139,9 +129,7 @@ pub async fn delete_tenant(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
     if !auth_user.is_super_admin() {
-        return Err(AppError::Forbidden(
-            "Only super admins can delete tenants".to_string(),
-        ));
+        return Err(AppError::Forbidden("Only super admins can delete tenants".to_string()));
     }
 
     let result = sqlx::query("DELETE FROM tenants WHERE id = $1")

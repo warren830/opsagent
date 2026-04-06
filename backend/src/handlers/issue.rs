@@ -1,13 +1,13 @@
 use axum::{
-    extract::{Path, Query, State},
     Json,
+    extract::{Path, Query, State},
 };
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::issue::{Issue, IssueListQuery, UpdateIssueRequest};
-use crate::AppState;
 
 /// GET /api/issues
 pub async fn list(

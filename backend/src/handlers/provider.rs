@@ -1,15 +1,13 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
-use crate::models::provider::{
-    CreateProviderRequest, Provider, ProviderTypeOption, UpdateProviderRequest,
-};
-use crate::AppState;
+use crate::models::provider::{CreateProviderRequest, Provider, ProviderTypeOption, UpdateProviderRequest};
 
 /// GET /api/providers — list all model configurations for the current tenant
 pub async fn list(
@@ -17,11 +15,9 @@ pub async fn list(
     State(state): State<AppState>,
 ) -> AppResult<Json<Vec<Provider>>> {
     let rows = if auth_user.is_super_admin() {
-        sqlx::query_as::<_, Provider>(
-            "SELECT * FROM providers ORDER BY is_default DESC, created_at",
-        )
-        .fetch_all(&state.pool)
-        .await?
+        sqlx::query_as::<_, Provider>("SELECT * FROM providers ORDER BY is_default DESC, created_at")
+            .fetch_all(&state.pool)
+            .await?
     } else {
         sqlx::query_as::<_, Provider>(
             "SELECT * FROM providers WHERE tenant_id = $1 ORDER BY is_default DESC, created_at",
@@ -34,9 +30,7 @@ pub async fn list(
 }
 
 /// GET /api/providers/types — available provider types based on environment
-pub async fn available_types(
-    State(state): State<AppState>,
-) -> AppResult<Json<Vec<ProviderTypeOption>>> {
+pub async fn available_types(State(state): State<AppState>) -> AppResult<Json<Vec<ProviderTypeOption>>> {
     let mut types = Vec::new();
 
     if state.config.env.is_local() {
@@ -61,9 +55,7 @@ pub async fn create(
     Json(req): Json<CreateProviderRequest>,
 ) -> AppResult<Json<Provider>> {
     if !auth_user.is_admin() {
-        return Err(AppError::Forbidden(
-            "Only admins can configure models".to_string(),
-        ));
+        return Err(AppError::Forbidden("Only admins can configure models".to_string()));
     }
 
     if req.name.trim().is_empty() {
@@ -73,23 +65,19 @@ pub async fn create(
     let tenant_id = auth_user.tenant_id;
 
     // Check if this is the first provider for the tenant → force is_default = true
-    let count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM providers WHERE tenant_id IS NOT DISTINCT FROM $1",
-    )
-    .bind(tenant_id)
-    .fetch_one(&state.pool)
-    .await?;
+    let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM providers WHERE tenant_id IS NOT DISTINCT FROM $1")
+        .bind(tenant_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     let is_default = if count == 0 { true } else { req.is_default };
 
     // If setting as default, unset existing defaults
     if is_default {
-        sqlx::query(
-            "UPDATE providers SET is_default = false WHERE tenant_id IS NOT DISTINCT FROM $1",
-        )
-        .bind(tenant_id)
-        .execute(&state.pool)
-        .await?;
+        sqlx::query("UPDATE providers SET is_default = false WHERE tenant_id IS NOT DISTINCT FROM $1")
+            .bind(tenant_id)
+            .execute(&state.pool)
+            .await?;
     }
 
     let row = sqlx::query_as::<_, Provider>(
@@ -116,9 +104,7 @@ pub async fn update(
     Json(req): Json<UpdateProviderRequest>,
 ) -> AppResult<Json<Provider>> {
     if !auth_user.is_admin() {
-        return Err(AppError::Forbidden(
-            "Only admins can configure models".to_string(),
-        ));
+        return Err(AppError::Forbidden("Only admins can configure models".to_string()));
     }
 
     let existing = sqlx::query_as::<_, Provider>("SELECT * FROM providers WHERE id = $1")
@@ -134,13 +120,11 @@ pub async fn update(
 
     // If setting as default, unset existing defaults
     if req.is_default == Some(true) {
-        sqlx::query(
-            "UPDATE providers SET is_default = false WHERE tenant_id IS NOT DISTINCT FROM $1 AND id != $2",
-        )
-        .bind(existing.tenant_id)
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
+        sqlx::query("UPDATE providers SET is_default = false WHERE tenant_id IS NOT DISTINCT FROM $1 AND id != $2")
+            .bind(existing.tenant_id)
+            .bind(id)
+            .execute(&state.pool)
+            .await?;
     }
 
     let row = sqlx::query_as::<_, Provider>(
@@ -171,9 +155,7 @@ pub async fn delete(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
     if !auth_user.is_admin() {
-        return Err(AppError::Forbidden(
-            "Only admins can configure models".to_string(),
-        ));
+        return Err(AppError::Forbidden("Only admins can configure models".to_string()));
     }
 
     let existing = sqlx::query_as::<_, Provider>("SELECT * FROM providers WHERE id = $1")
@@ -207,7 +189,5 @@ pub async fn delete(
         .ok(); // best-effort
     }
 
-    Ok(Json(
-        serde_json::json!({"message": "Provider deleted"}),
-    ))
+    Ok(Json(serde_json::json!({"message": "Provider deleted"})))
 }

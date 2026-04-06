@@ -1,13 +1,13 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::mcp::{CreateMcpServerRequest, McpServer, UpdateMcpServerRequest};
-use crate::AppState;
 
 /// GET /api/mcp
 /// Super admin: all. Normal user: own private + tenant public
@@ -85,12 +85,11 @@ pub async fn update(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateMcpServerRequest>,
 ) -> AppResult<Json<McpServer>> {
-    let existing =
-        sqlx::query_as::<_, McpServer>("SELECT * FROM mcp_servers WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound("MCP server not found".to_string()))?;
+    let existing = sqlx::query_as::<_, McpServer>("SELECT * FROM mcp_servers WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("MCP server not found".to_string()))?;
 
     if !auth_user.is_super_admin() {
         let has_access = existing.user_id == Some(auth_user.user_id)
@@ -130,12 +129,11 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let existing =
-        sqlx::query_as::<_, McpServer>("SELECT * FROM mcp_servers WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound("MCP server not found".to_string()))?;
+    let existing = sqlx::query_as::<_, McpServer>("SELECT * FROM mcp_servers WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("MCP server not found".to_string()))?;
 
     if !auth_user.is_super_admin() {
         let has_access = existing.user_id == Some(auth_user.user_id)

@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     extract::{Path, State},
     response::sse::{Event, Sse},
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
@@ -10,10 +10,10 @@ use std::pin::Pin;
 use std::time::Duration;
 use tokio_stream::Stream;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::services::claude::{ChatImageData, ClaudeService, StreamChunk};
-use crate::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct ChatImage {
@@ -70,7 +70,14 @@ pub async fn stream(
     // Build per-user .claude/skills/ with symlinks to authorized skills
     setup_user_skill_symlinks(&state, &user_work_dir, auth_user.user_id, auth_user.tenant_id).await;
 
-    let service = ClaudeService::new(claude_bin, user_work_dir.clone(), timeout, model, max_turns, state.pool.clone());
+    let service = ClaudeService::new(
+        claude_bin,
+        user_work_dir.clone(),
+        timeout,
+        model,
+        max_turns,
+        state.pool.clone(),
+    );
 
     // Try to find active session if not provided and not explicitly requesting a new one
     let session_id = if req.new_session {
@@ -88,13 +95,7 @@ pub async fn stream(
     };
 
     // Build system prompt with account-level context
-    let system_prompt = build_system_prompt(
-        &state,
-        &auth_user,
-        &user_work_dir,
-        req.system_prompt.as_deref(),
-    )
-    .await;
+    let system_prompt = build_system_prompt(&state, &auth_user, &user_work_dir, req.system_prompt.as_deref()).await;
 
     // Convert images for Claude CLI stream-json input
     tracing::info!(
@@ -132,61 +133,53 @@ pub async fn stream(
         all_env_vars,
     ) {
         Ok(claude_stream) => {
-            let sse_stream =
-                tokio_stream::StreamExt::map(claude_stream, move |chunk| {
-                    // Save session on init or done
-                    match &chunk {
-                        StreamChunk::Init {
-                            session_id: Some(sid),
-                        } => {
-                            let pool = pool.clone();
-                            let sid = sid.clone();
-                            let msg = message_text.clone();
-                            tokio::spawn(async move {
-                                let title = if msg.len() > 50 {
-                                    format!("{}...", &msg[..50])
-                                } else {
-                                    msg
-                                };
-                                let svc = ClaudeService::new(
-                                    String::new(),
-                                    PathBuf::from("."),
-                                    Duration::from_secs(1),
-                                    String::new(),
-                                    25,
-                                    pool,
-                                );
-                                let _ = svc
-                                    .save_session(&sid, user_id, tenant_id, Some(&title))
-                                    .await;
-                            });
-                        }
-                        StreamChunk::Done {
-                            session_id: Some(sid),
-                            ..
-                        } => {
-                            let pool = pool.clone();
-                            let sid = sid.clone();
-                            tokio::spawn(async move {
-                                let svc = ClaudeService::new(
-                                    String::new(),
-                                    PathBuf::from("."),
-                                    Duration::from_secs(1),
-                                    String::new(),
-                                    25,
-                                    pool,
-                                );
-                                let _ = svc
-                                    .save_session(&sid, user_id, tenant_id, None)
-                                    .await;
-                            });
-                        }
-                        _ => {}
+            let sse_stream = tokio_stream::StreamExt::map(claude_stream, move |chunk| {
+                // Save session on init or done
+                match &chunk {
+                    StreamChunk::Init { session_id: Some(sid) } => {
+                        let pool = pool.clone();
+                        let sid = sid.clone();
+                        let msg = message_text.clone();
+                        tokio::spawn(async move {
+                            let title = if msg.len() > 50 {
+                                format!("{}...", &msg[..50])
+                            } else {
+                                msg
+                            };
+                            let svc = ClaudeService::new(
+                                String::new(),
+                                PathBuf::from("."),
+                                Duration::from_secs(1),
+                                String::new(),
+                                25,
+                                pool,
+                            );
+                            let _ = svc.save_session(&sid, user_id, tenant_id, Some(&title)).await;
+                        });
                     }
+                    StreamChunk::Done {
+                        session_id: Some(sid), ..
+                    } => {
+                        let pool = pool.clone();
+                        let sid = sid.clone();
+                        tokio::spawn(async move {
+                            let svc = ClaudeService::new(
+                                String::new(),
+                                PathBuf::from("."),
+                                Duration::from_secs(1),
+                                String::new(),
+                                25,
+                                pool,
+                            );
+                            let _ = svc.save_session(&sid, user_id, tenant_id, None).await;
+                        });
+                    }
+                    _ => {}
+                }
 
-                    let data = serde_json::to_string(&chunk).unwrap_or_default();
-                    Ok::<_, Infallible>(Event::default().data(data))
-                });
+                let data = serde_json::to_string(&chunk).unwrap_or_default();
+                Ok::<_, Infallible>(Event::default().data(data))
+            });
             Box::pin(sse_stream)
         }
         Err(e) => {
@@ -211,15 +204,10 @@ pub async fn stream(
 
 /// Build AWS credential environment variables from the tenant's primary cloud account.
 /// Returns env vars to inject into the Claude CLI subprocess.
-async fn build_aws_env_vars(
-    state: &AppState,
-    auth_user: &AuthUser,
-) -> Vec<(String, String)> {
+async fn build_aws_env_vars(state: &AppState, auth_user: &AuthUser) -> Vec<(String, String)> {
     let mut env_vars = Vec::new();
 
-    let account_ids = crate::handlers::account_access::get_accessible_account_ids(
-        &state.pool, auth_user,
-    ).await;
+    let account_ids = crate::handlers::account_access::get_accessible_account_ids(&state.pool, auth_user).await;
 
     if account_ids.is_empty() {
         return env_vars;
@@ -238,16 +226,16 @@ async fn build_aws_env_vars(
     .flatten();
 
     if let Some((role_arn, profile, regions)) = account {
-        if let Some(arn) = role_arn {
-            if !arn.is_empty() {
-                env_vars.push(("AWS_ROLE_ARN".to_string(), arn));
-                env_vars.push(("AWS_ROLE_SESSION_NAME".to_string(), "openops-chat".to_string()));
-            }
+        if let Some(arn) = role_arn
+            && !arn.is_empty()
+        {
+            env_vars.push(("AWS_ROLE_ARN".to_string(), arn));
+            env_vars.push(("AWS_ROLE_SESSION_NAME".to_string(), "openops-chat".to_string()));
         }
-        if let Some(prof) = profile {
-            if !prof.is_empty() {
-                env_vars.push(("AWS_PROFILE".to_string(), prof));
-            }
+        if let Some(prof) = profile
+            && !prof.is_empty()
+        {
+            env_vars.push(("AWS_PROFILE".to_string(), prof));
         }
         if let Some(first_region) = regions.first() {
             env_vars.push(("AWS_DEFAULT_REGION".to_string(), first_region.clone()));
@@ -255,7 +243,10 @@ async fn build_aws_env_vars(
     }
 
     if !env_vars.is_empty() {
-        tracing::info!("Injecting AWS env vars: {:?}", env_vars.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>());
+        tracing::info!(
+            "Injecting AWS env vars: {:?}",
+            env_vars.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>()
+        );
     }
 
     env_vars
@@ -265,14 +256,11 @@ async fn build_aws_env_vars(
 async fn build_system_prompt(
     state: &AppState,
     auth_user: &AuthUser,
-    user_work_dir: &PathBuf,
+    user_work_dir: &std::path::Path,
     custom: Option<&str>,
 ) -> String {
-    let account_ids = crate::handlers::account_access::get_accessible_account_ids(
-        &state.pool, auth_user,
-    ).await;
-    let workspace_path = std::fs::canonicalize(user_work_dir)
-        .unwrap_or_else(|_| user_work_dir.clone());
+    let account_ids = crate::handlers::account_access::get_accessible_account_ids(&state.pool, auth_user).await;
+    let workspace_path = std::fs::canonicalize(user_work_dir).unwrap_or_else(|_| user_work_dir.to_path_buf());
 
     let mut parts = vec![
         "You are OpenOps AI, a multi-cloud infrastructure operations assistant.".to_string(),
@@ -295,14 +283,13 @@ async fn build_system_prompt(
     .bind(&account_ids)
     .fetch_all(&state.pool)
     .await
+        && !terms.is_empty()
     {
-        if !terms.is_empty() {
-            parts.push("\n## Internal Glossary".to_string());
-            for (term, full_name, desc) in terms {
-                let full = full_name.unwrap_or_default();
-                let d = desc.unwrap_or_default();
-                parts.push(format!("- **{}** ({}): {}", term, full, d));
-            }
+        parts.push("\n## Internal Glossary".to_string());
+        for (term, full_name, desc) in terms {
+            let full = full_name.unwrap_or_default();
+            let d = desc.unwrap_or_default();
+            parts.push(format!("- **{}** ({}): {}", term, full, d));
         }
     }
 
@@ -313,8 +300,7 @@ async fn build_system_prompt(
     .bind(&account_ids)
     .fetch_all(&state.pool)
     .await
-    {
-        if !docs.is_empty() {
+        && !docs.is_empty() {
             parts.push("\n## Knowledge Base".to_string());
             for (title, content) in docs {
                 let c = content.unwrap_or_default();
@@ -322,7 +308,6 @@ async fn build_system_prompt(
                 parts.push(format!("### {}\n{}", title, truncated));
             }
         }
-    }
 
     // Inject cloud accounts info (with regions array, filtered by accessible accounts)
     if let Ok(accounts) = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Vec<String>)>(
@@ -331,8 +316,7 @@ async fn build_system_prompt(
     .bind(&account_ids)
     .fetch_all(&state.pool)
     .await
-    {
-        if !accounts.is_empty() {
+        && !accounts.is_empty() {
             parts.push("\n## Available Cloud Accounts".to_string());
             for (provider, name, account_id, role_arn, regions) in &accounts {
                 let aid = account_id.as_deref().unwrap_or("-");
@@ -341,7 +325,6 @@ async fn build_system_prompt(
                 parts.push(format!("- {} ({}) — Account: {}, Regions: [{}]{}", name, provider, aid, regions_str, role_info));
             }
         }
-    }
 
     // Append custom system prompt
     if let Some(custom) = custom {
@@ -356,7 +339,7 @@ async fn build_system_prompt(
 /// skills the user has permission to access (private + tenant-public).
 async fn setup_user_skill_symlinks(
     state: &AppState,
-    user_work_dir: &PathBuf,
+    user_work_dir: &std::path::Path,
     user_id: uuid::Uuid,
     tenant_id: Option<uuid::Uuid>,
 ) {
@@ -419,10 +402,10 @@ async fn setup_user_skill_symlinks(
                     // Stale symlink, remove
                     let _ = tokio::fs::remove_file(&link).await;
                 }
-                if src.exists() {
-                    if let Err(e) = tokio::fs::symlink(src, &link).await {
-                        tracing::warn!("Failed to symlink skill {:?} -> {:?}: {}", link, src, e);
-                    }
+                if src.exists()
+                    && let Err(e) = tokio::fs::symlink(src, &link).await
+                {
+                    tracing::warn!("Failed to symlink skill {:?} -> {:?}: {}", link, src, e);
                 }
             }
         }
@@ -451,10 +434,7 @@ pub async fn list_sessions(
 }
 
 /// Build provider-specific environment variables for Claude CLI
-fn build_provider_env_vars(
-    provider_type: &str,
-    config: &serde_json::Value,
-) -> Vec<(String, String)> {
+fn build_provider_env_vars(provider_type: &str, config: &serde_json::Value) -> Vec<(String, String)> {
     let mut env = Vec::new();
     match provider_type {
         "bedrock" => {
@@ -464,15 +444,15 @@ fn build_provider_env_vars(
             }
         }
         "gateway" => {
-            if let Some(u) = config.get("base_url").and_then(|v| v.as_str()) {
-                if !u.is_empty() {
-                    env.push(("ANTHROPIC_BASE_URL".to_string(), u.to_string()));
-                }
+            if let Some(u) = config.get("base_url").and_then(|v| v.as_str())
+                && !u.is_empty()
+            {
+                env.push(("ANTHROPIC_BASE_URL".to_string(), u.to_string()));
             }
-            if let Some(k) = config.get("api_key").and_then(|v| v.as_str()) {
-                if !k.is_empty() {
-                    env.push(("ANTHROPIC_API_KEY".to_string(), k.to_string()));
-                }
+            if let Some(k) = config.get("api_key").and_then(|v| v.as_str())
+                && !k.is_empty()
+            {
+                env.push(("ANTHROPIC_API_KEY".to_string(), k.to_string()));
             }
         }
         _ => {}
@@ -489,14 +469,12 @@ async fn load_provider_config(
 ) -> (String, Duration, u32, Vec<(String, String)>) {
     let row = if let Some(pid) = provider_id {
         // Use specific provider
-        sqlx::query_as::<_, (String, serde_json::Value)>(
-            "SELECT provider_type, config FROM providers WHERE id = $1",
-        )
-        .bind(pid)
-        .fetch_optional(&state.pool)
-        .await
-        .ok()
-        .flatten()
+        sqlx::query_as::<_, (String, serde_json::Value)>("SELECT provider_type, config FROM providers WHERE id = $1")
+            .bind(pid)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten()
     } else {
         // Tenant default → global default → fallback
         sqlx::query_as::<_, (String, serde_json::Value)>(
@@ -523,10 +501,7 @@ async fn load_provider_config(
             .get("timeout")
             .and_then(|v| v.as_u64())
             .unwrap_or(state.config.claude_timeout_ms);
-        let max_turns = config
-            .get("max_turns")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(25) as u32;
+        let max_turns = config.get("max_turns").and_then(|v| v.as_u64()).unwrap_or(25) as u32;
         let provider_envs = build_provider_env_vars(&provider_type, &config);
 
         (model, Duration::from_millis(timeout_ms), max_turns, provider_envs)
@@ -576,19 +551,20 @@ pub async fn workspace_list(
 }
 
 /// Recursively collect files from workspace, using relative paths from root
-async fn collect_workspace_files(
-    root: &std::path::Path,
-    dir: &std::path::Path,
-    files: &mut Vec<WorkspaceFile>,
-) {
-    let Ok(mut entries) = tokio::fs::read_dir(dir).await else { return };
+async fn collect_workspace_files(root: &std::path::Path, dir: &std::path::Path, files: &mut Vec<WorkspaceFile>) {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
     while let Ok(Some(entry)) = entries.next_entry().await {
         let name = entry.file_name().to_string_lossy().to_string();
         // Skip hidden dirs (.claude, .git, etc.)
-        if name.starts_with('.') { continue; }
+        if name.starts_with('.') {
+            continue;
+        }
         let path = entry.path();
         if let Ok(meta) = entry.metadata().await {
-            let rel_path = path.strip_prefix(root)
+            let rel_path = path
+                .strip_prefix(root)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or(name.clone());
             if meta.is_dir() {
@@ -598,7 +574,7 @@ async fn collect_workspace_files(
                     name: rel_path,
                     size: meta.len(),
                     modified: chrono::DateTime::<chrono::Utc>::from(
-                        meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                        meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH),
                     )
                     .format("%Y-%m-%d %H:%M")
                     .to_string(),
@@ -627,17 +603,18 @@ pub async fn workspace_download(
     let file_path = user_dir.join(&filename);
 
     // Ensure resolved path is still under user dir (prevent symlink escape)
-    if let (Ok(resolved), Ok(user_resolved)) = (file_path.canonicalize(), user_dir.canonicalize()) {
-        if !resolved.starts_with(&user_resolved) {
-            return Err(AppError::BadRequest("Invalid path".to_string()));
-        }
+    if let (Ok(resolved), Ok(user_resolved)) = (file_path.canonicalize(), user_dir.canonicalize())
+        && !resolved.starts_with(&user_resolved)
+    {
+        return Err(AppError::BadRequest("Invalid path".to_string()));
     }
 
     if !file_path.exists() || file_path.is_dir() {
         return Err(AppError::NotFound("File not found".to_string()));
     }
 
-    let bytes = tokio::fs::read(&file_path).await
+    let bytes = tokio::fs::read(&file_path)
+        .await
         .map_err(|e| AppError::Internal(format!("Failed to read file: {}", e)))?;
 
     let content_type = if filename.ends_with(".xlsx") {
@@ -655,10 +632,17 @@ pub async fn workspace_download(
     Ok((
         [
             (http::header::CONTENT_TYPE, content_type),
-            (http::header::CONTENT_DISPOSITION, &format!("attachment; filename=\"{}\"", filename.split('/').last().unwrap_or(&filename))),
+            (
+                http::header::CONTENT_DISPOSITION,
+                &format!(
+                    "attachment; filename=\"{}\"",
+                    filename.split('/').next_back().unwrap_or(&filename)
+                ),
+            ),
         ],
         bytes,
-    ).into_response())
+    )
+        .into_response())
 }
 
 /// DELETE /api/chat/workspace/*filepath — delete a file from workspace
@@ -677,10 +661,10 @@ pub async fn workspace_delete(
     let file_path = user_dir.join(&filename);
 
     // Ensure resolved path is still under user dir
-    if let (Ok(resolved), Ok(user_resolved)) = (file_path.canonicalize(), user_dir.canonicalize()) {
-        if !resolved.starts_with(&user_resolved) {
-            return Err(AppError::BadRequest("Invalid path".to_string()));
-        }
+    if let (Ok(resolved), Ok(user_resolved)) = (file_path.canonicalize(), user_dir.canonicalize())
+        && !resolved.starts_with(&user_resolved)
+    {
+        return Err(AppError::BadRequest("Invalid path".to_string()));
     }
 
     if !file_path.exists() {
@@ -688,10 +672,12 @@ pub async fn workspace_delete(
     }
 
     if file_path.is_dir() {
-        tokio::fs::remove_dir_all(&file_path).await
+        tokio::fs::remove_dir_all(&file_path)
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to delete directory: {}", e)))?;
     } else {
-        tokio::fs::remove_file(&file_path).await
+        tokio::fs::remove_file(&file_path)
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to delete file: {}", e)))?;
     }
 
@@ -700,9 +686,13 @@ pub async fn workspace_delete(
     let user_dir_resolved = user_dir.canonicalize().unwrap_or(user_dir.clone());
     while let Some(p) = current {
         let p_resolved = p.canonicalize().unwrap_or(p.clone());
-        if p_resolved == user_dir_resolved { break; }
+        if p_resolved == user_dir_resolved {
+            break;
+        }
         // Try to remove — only succeeds if empty
-        if tokio::fs::remove_dir(&p).await.is_err() { break; }
+        if tokio::fs::remove_dir(&p).await.is_err() {
+            break;
+        }
         current = p.parent().map(|pp| pp.to_path_buf());
     }
 

@@ -1,15 +1,15 @@
 use axum::{
-    extract::{Path, Query, State},
     Json,
+    extract::{Path, Query, State},
 };
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
-use crate::handlers::account_access::{get_accessible_account_ids, can_write_account};
+use crate::handlers::account_access::{can_write_account, get_accessible_account_ids};
 use crate::middleware::auth::AuthUser;
 use crate::models::glossary::{CreateGlossaryRequest, GlossaryEntry, UpdateGlossaryRequest};
-use crate::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct GlossaryListQuery {
@@ -72,10 +72,10 @@ pub async fn create(
     };
 
     // Validate write access to the account
-    if let Some(account_id) = req.account_id {
-        if !can_write_account(&state.pool, &auth_user, account_id).await {
-            return Err(AppError::Forbidden("Read-only access to this account".to_string()));
-        }
+    if let Some(account_id) = req.account_id
+        && !can_write_account(&state.pool, &auth_user, account_id).await
+    {
+        return Err(AppError::Forbidden("Read-only access to this account".to_string()));
     }
 
     let user_id = if visibility == "private" {
@@ -86,13 +86,11 @@ pub async fn create(
 
     // Derive tenant_id from account if provided
     let tenant_id = if let Some(aid) = req.account_id {
-        sqlx::query_scalar::<_, Option<Uuid>>(
-            "SELECT tenant_id FROM cloud_accounts WHERE id = $1",
-        )
-        .bind(aid)
-        .fetch_optional(&state.pool)
-        .await?
-        .flatten()
+        sqlx::query_scalar::<_, Option<Uuid>>("SELECT tenant_id FROM cloud_accounts WHERE id = $1")
+            .bind(aid)
+            .fetch_optional(&state.pool)
+            .await?
+            .flatten()
     } else {
         auth_user.tenant_id
     };
@@ -115,11 +113,10 @@ pub async fn create(
     .fetch_one(&state.pool)
     .await
     .map_err(|e| {
-        if let sqlx::Error::Database(ref db_err) = e {
-            if db_err.constraint().is_some_and(|c| c.starts_with("idx_glossary_term")) {
+        if let sqlx::Error::Database(ref db_err) = e
+            && db_err.constraint().is_some_and(|c| c.starts_with("idx_glossary_term")) {
                 return AppError::Conflict(format!("Term '{}' already exists", req.term));
             }
-        }
         AppError::Database(e)
     })?;
 
@@ -133,13 +130,11 @@ pub async fn update(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateGlossaryRequest>,
 ) -> AppResult<Json<GlossaryEntry>> {
-    let existing = sqlx::query_as::<_, GlossaryEntry>(
-        "SELECT * FROM glossary WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Glossary entry not found".to_string()))?;
+    let existing = sqlx::query_as::<_, GlossaryEntry>("SELECT * FROM glossary WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Glossary entry not found".to_string()))?;
 
     // Check write access to the account this entry belongs to
     if let Some(aid) = existing.account_id {
@@ -151,10 +146,10 @@ pub async fn update(
     }
 
     // Validate write access to new account_id if being changed
-    if let Some(new_aid) = req.account_id {
-        if !can_write_account(&state.pool, &auth_user, new_aid).await {
-            return Err(AppError::Forbidden("Read-only access to target account".to_string()));
-        }
+    if let Some(new_aid) = req.account_id
+        && !can_write_account(&state.pool, &auth_user, new_aid).await
+    {
+        return Err(AppError::Forbidden("Read-only access to target account".to_string()));
     }
 
     let entry = sqlx::query_as::<_, GlossaryEntry>(
@@ -181,10 +176,10 @@ pub async fn update(
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| {
-        if let sqlx::Error::Database(ref db_err) = e {
-            if db_err.constraint().is_some_and(|c| c.starts_with("idx_glossary_term")) {
-                return AppError::Conflict(format!("Term already exists"));
-            }
+        if let sqlx::Error::Database(ref db_err) = e
+            && db_err.constraint().is_some_and(|c| c.starts_with("idx_glossary_term"))
+        {
+            return AppError::Conflict("Term already exists".to_string());
         }
         AppError::Database(e)
     })?
@@ -199,13 +194,11 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let existing = sqlx::query_as::<_, GlossaryEntry>(
-        "SELECT * FROM glossary WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Glossary entry not found".to_string()))?;
+    let existing = sqlx::query_as::<_, GlossaryEntry>("SELECT * FROM glossary WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Glossary entry not found".to_string()))?;
 
     if let Some(aid) = existing.account_id {
         if !can_write_account(&state.pool, &auth_user, aid).await {

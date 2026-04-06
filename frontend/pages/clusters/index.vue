@@ -75,11 +75,6 @@ function statusVariant(status: string): 'success' | 'warning' | 'destructive' | 
   }
 }
 
-function formatDate(dateStr: string): string {
-  if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
-
 async function fetchClusters() {
   loading.value = true
   try {

@@ -1,28 +1,22 @@
-use axum::{extract::State, http::header::SET_COOKIE, Json};
 use axum::response::{IntoResponse, Response};
+use axum::{Json, extract::State, http::header::SET_COOKIE};
 use chrono::Utc;
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{EncodingKey, Header, encode};
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::{AuthUser, Claims};
-use crate::models::user::{
-    ChangePasswordRequest, LoginRequest, LoginResponse, UserInfo,
-};
-use crate::AppState;
+use crate::models::user::{ChangePasswordRequest, LoginRequest, LoginResponse, UserInfo};
 
 /// POST /api/auth/login
-pub async fn login(
-    State(state): State<AppState>,
-    Json(req): Json<LoginRequest>,
-) -> AppResult<Response> {
+pub async fn login(State(state): State<AppState>, Json(req): Json<LoginRequest>) -> AppResult<Response> {
     // Find user by username
-    let user = sqlx::query_as::<_, crate::models::user::User>(
-        "SELECT * FROM users WHERE username = $1 AND is_active = true",
-    )
-    .bind(&req.username)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::Unauthorized("Invalid credentials".to_string()))?;
+    let user =
+        sqlx::query_as::<_, crate::models::user::User>("SELECT * FROM users WHERE username = $1 AND is_active = true")
+            .bind(&req.username)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| AppError::Unauthorized("Invalid credentials".to_string()))?;
 
     // Verify password (use spawn_blocking for bcrypt)
     let password = req.password.clone();
@@ -68,10 +62,7 @@ pub async fn login(
             token
         )
     } else {
-        format!(
-            "token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400",
-            token
-        )
+        format!("token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400", token)
     };
 
     let body = Json(LoginResponse {
@@ -80,9 +71,7 @@ pub async fn login(
     });
 
     let mut response = body.into_response();
-    response
-        .headers_mut()
-        .insert(SET_COOKIE, cookie_value.parse().unwrap());
+    response.headers_mut().insert(SET_COOKIE, cookie_value.parse().unwrap());
 
     Ok(response)
 }
@@ -90,11 +79,8 @@ pub async fn login(
 /// POST /api/auth/logout
 pub async fn logout() -> Response {
     let cookie = "token=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0";
-    let mut response =
-        Json(serde_json::json!({"message": "Logged out"})).into_response();
-    response
-        .headers_mut()
-        .insert(SET_COOKIE, cookie.parse().unwrap());
+    let mut response = Json(serde_json::json!({"message": "Logged out"})).into_response();
+    response.headers_mut().insert(SET_COOKIE, cookie.parse().unwrap());
     response
 }
 
@@ -121,12 +107,10 @@ pub async fn change_password(
     }
 
     // Verify current password
-    let user = sqlx::query_as::<_, crate::models::user::User>(
-        "SELECT * FROM users WHERE id = $1",
-    )
-    .bind(auth_user.user_id)
-    .fetch_one(&state.pool)
-    .await?;
+    let user = sqlx::query_as::<_, crate::models::user::User>("SELECT * FROM users WHERE id = $1")
+        .bind(auth_user.user_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     let current_pw = req.current_password.clone();
     let hash = user.password_hash.clone();
@@ -136,9 +120,7 @@ pub async fn change_password(
         .map_err(|_| AppError::Unauthorized("Current password is incorrect".to_string()))?;
 
     if !valid {
-        return Err(AppError::Unauthorized(
-            "Current password is incorrect".to_string(),
-        ));
+        return Err(AppError::Unauthorized("Current password is incorrect".to_string()));
     }
 
     // Hash and update
@@ -153,7 +135,5 @@ pub async fn change_password(
         .execute(&state.pool)
         .await?;
 
-    Ok(Json(
-        serde_json::json!({"message": "Password changed successfully"}),
-    ))
+    Ok(Json(serde_json::json!({"message": "Password changed successfully"})))
 }

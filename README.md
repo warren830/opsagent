@@ -7,8 +7,9 @@ AI-powered multi-cloud infrastructure operations platform. A modern, frontend-ba
 - **Multi-Cloud**: AWS native, Alicloud (mock), Azure (mock)
 - **Multi-Tenant**: Per-tenant skills, MCP servers, cloud accounts, and provider isolation
 - **Claude Integration**: Real-time streaming chat with Claude Code CLI, persistent sessions
+- **Skills System**: Installable skills (EOS scanner, billing reports, browser agent) with per-user symlink isolation
 - **Admin Console**: Modern web UI (Nuxt 3 + shadcn-vue) for managing all resources
-- **Role-Based Access**: Super Admin (full) vs Tenant Admin (team-scoped)
+- **Role-Based Access**: Super Admin / Tenant Admin / User with per-account read/write grants
 - **Dark/Light Theme**: System-aware theme switching
 - **i18n**: English and Chinese language support
 - **Security**: JWT auth, bcrypt passwords, AWS Secrets Manager + ESO, CORS/CSP/CSRF, WAF
@@ -62,6 +63,32 @@ openops/
 ├── docker-compose.yml   # Local dev (PostgreSQL + Redis)
 └── .env.example         # Local dev environment template
 ```
+
+## Code Quality
+
+Pre-commit hooks enforce code quality on every commit:
+
+```bash
+# Setup (one-time) — uses uv to manage Python dev tools in .venv/
+uv sync
+
+# Run all checks
+uv run pre-commit run --all-files
+```
+
+| Hook | Scope | Description |
+|------|-------|-------------|
+| trailing-whitespace | All | Remove trailing whitespace |
+| end-of-file-fixer | All | Ensure files end with newline |
+| check-yaml | All | Validate YAML syntax |
+| check-added-large-files | All | Block files > 500KB |
+| cargo fmt | `backend/**/*.rs` | Rust code formatting |
+| cargo clippy | `backend/**/*.rs` | Rust linter (warnings = errors) |
+| ESLint | `frontend/**/*.{vue,ts,js}` | TypeScript/Vue linting |
+| terraform_fmt | `iac/**/*.tf` | Terraform formatting |
+| terraform_validate | `iac/**/*.tf` | Terraform validation |
+| detect-secrets | All | ML-based secret detection |
+| aws-secrets-check | All | AWS credential pattern matching |
 
 ## Deployment (AWS)
 

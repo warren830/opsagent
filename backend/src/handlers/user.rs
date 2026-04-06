@@ -1,13 +1,13 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::user::{CreateUserRequest, UpdateUserRequest, User, UserInfo};
-use crate::AppState;
 
 /// GET /api/users
 pub async fn list_users(
@@ -21,12 +21,10 @@ pub async fn list_users(
     } else {
         match auth_user.tenant_id {
             Some(tid) => {
-                sqlx::query_as::<_, User>(
-                    "SELECT * FROM users WHERE tenant_id = $1 ORDER BY username",
-                )
-                .bind(tid)
-                .fetch_all(&state.pool)
-                .await?
+                sqlx::query_as::<_, User>("SELECT * FROM users WHERE tenant_id = $1 ORDER BY username")
+                    .bind(tid)
+                    .fetch_all(&state.pool)
+                    .await?
             }
             None => vec![],
         }
@@ -42,9 +40,7 @@ pub async fn create_user(
     Json(req): Json<CreateUserRequest>,
 ) -> AppResult<Json<UserInfo>> {
     if !auth_user.is_super_admin() {
-        return Err(AppError::Forbidden(
-            "Only super admins can create users".to_string(),
-        ));
+        return Err(AppError::Forbidden("Only super admins can create users".to_string()));
     }
 
     if req.username.trim().is_empty() || req.password.len() < 8 {
@@ -78,15 +74,15 @@ pub async fn create_user(
     .bind(&req.username)
     .bind(&password_hash)
     .bind(&req.role)
-    .bind(&req.tenant_id)
+    .bind(req.tenant_id)
     .bind(&req.email)
     .fetch_one(&state.pool)
     .await
     .map_err(|e| {
-        if let sqlx::Error::Database(ref db_err) = e {
-            if db_err.constraint() == Some("users_username_key") {
-                return AppError::Conflict("Username already exists".to_string());
-            }
+        if let sqlx::Error::Database(ref db_err) = e
+            && db_err.constraint() == Some("users_username_key")
+        {
+            return AppError::Conflict("Username already exists".to_string());
         }
         AppError::Database(e)
     })?;
@@ -102,9 +98,7 @@ pub async fn update_user(
     Json(req): Json<UpdateUserRequest>,
 ) -> AppResult<Json<UserInfo>> {
     if !auth_user.is_super_admin() {
-        return Err(AppError::Forbidden(
-            "Only super admins can update users".to_string(),
-        ));
+        return Err(AppError::Forbidden("Only super admins can update users".to_string()));
     }
 
     let password_hash = match &req.password {
@@ -140,9 +134,9 @@ pub async fn update_user(
     .bind(&req.username)
     .bind(&password_hash)
     .bind(&req.role)
-    .bind(&req.tenant_id)
+    .bind(req.tenant_id)
     .bind(&req.email)
-    .bind(&req.is_active)
+    .bind(req.is_active)
     .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
@@ -157,9 +151,7 @@ pub async fn delete_user(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
     if !auth_user.is_super_admin() {
-        return Err(AppError::Forbidden(
-            "Only super admins can delete users".to_string(),
-        ));
+        return Err(AppError::Forbidden("Only super admins can delete users".to_string()));
     }
 
     if auth_user.user_id == id {

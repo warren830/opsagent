@@ -1,15 +1,13 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
-use crate::models::scheduled_job::{
-    CreateScheduledJobRequest, ScheduledJob, UpdateScheduledJobRequest,
-};
-use crate::AppState;
+use crate::models::scheduled_job::{CreateScheduledJobRequest, ScheduledJob, UpdateScheduledJobRequest};
 
 /// GET /api/scheduled-jobs
 /// Super admin: all. Normal user: own private + tenant public
@@ -45,9 +43,7 @@ pub async fn create(
         return Err(AppError::BadRequest("Name is required".to_string()));
     }
     if req.cron_expression.trim().is_empty() {
-        return Err(AppError::BadRequest(
-            "Cron expression is required".to_string(),
-        ));
+        return Err(AppError::BadRequest("Cron expression is required".to_string()));
     }
 
     let visibility = match req.visibility.as_str() {
@@ -91,12 +87,11 @@ pub async fn update(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateScheduledJobRequest>,
 ) -> AppResult<Json<ScheduledJob>> {
-    let existing =
-        sqlx::query_as::<_, ScheduledJob>("SELECT * FROM scheduled_jobs WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Scheduled job not found".to_string()))?;
+    let existing = sqlx::query_as::<_, ScheduledJob>("SELECT * FROM scheduled_jobs WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Scheduled job not found".to_string()))?;
 
     if !auth_user.is_super_admin() {
         let has_access = existing.user_id == Some(auth_user.user_id)
@@ -140,12 +135,11 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let existing =
-        sqlx::query_as::<_, ScheduledJob>("SELECT * FROM scheduled_jobs WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Scheduled job not found".to_string()))?;
+    let existing = sqlx::query_as::<_, ScheduledJob>("SELECT * FROM scheduled_jobs WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Scheduled job not found".to_string()))?;
 
     if !auth_user.is_super_admin() {
         let has_access = existing.user_id == Some(auth_user.user_id)
@@ -160,7 +154,5 @@ pub async fn delete(
         .execute(&state.pool)
         .await?;
 
-    Ok(Json(
-        serde_json::json!({"message": "Scheduled job deleted"}),
-    ))
+    Ok(Json(serde_json::json!({"message": "Scheduled job deleted"})))
 }

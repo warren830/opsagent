@@ -437,11 +437,11 @@ async function handlePaste(e: ClipboardEvent) {
 }
 
 function toggleThinking(id: string) {
-  expandedThinking.value.has(id) ? expandedThinking.value.delete(id) : expandedThinking.value.add(id)
+  if (expandedThinking.value.has(id)) { expandedThinking.value.delete(id) } else { expandedThinking.value.add(id) }
 }
 
 function toggleTool(id: string) {
-  expandedTools.value.has(id) ? expandedTools.value.delete(id) : expandedTools.value.add(id)
+  if (expandedTools.value.has(id)) { expandedTools.value.delete(id) } else { expandedTools.value.add(id) }
 }
 
 function renderMd(text: string): string {
@@ -800,44 +800,47 @@ function startResize(e: MouseEvent) {
           </div>
         </div>
 
-        <div class="flex gap-1.5 items-end" :class="chatFullscreen ? 'max-w-3xl mx-auto' : ''">
-          <!-- Attach button -->
-          <button
-            class="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
-            title="Attach image"
-            @click="openFilePicker"
-          >
-            <Paperclip class="h-3.5 w-3.5" />
-          </button>
-          <textarea
-            ref="inputRef"
-            v-model="inputText"
-            :placeholder="t('chat.placeholder')"
-            rows="1"
-            class="flex-1 resize-none rounded-lg bg-secondary/40 px-3 py-2 text-[13px] placeholder:text-muted-foreground/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 border-0 transition-colors leading-relaxed"
-            @keydown="handleKeydown"
-            @input="handleInput"
-            @paste="handlePaste"
-          />
-          <!-- Send or Stop button -->
-          <Button
-            v-if="!isStreaming"
-            size="icon"
-            class="h-8 w-8 shrink-0 rounded-lg"
-            :disabled="!inputText.trim() && pendingImages.length === 0"
-            @click="send"
-          >
-            <Send class="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            v-else
-            size="icon"
-            variant="outline"
-            class="h-8 w-8 shrink-0 rounded-lg border-destructive/30 text-destructive hover:bg-destructive/10"
-            @click="abortStream"
-          >
-            <Square class="h-3 w-3" />
-          </Button>
+        <!-- Animated gradient border wrapper -->
+        <div class="relative rounded-xl p-[1.5px]" :class="[chatFullscreen ? 'max-w-3xl mx-auto' : '', isStreaming ? 'chat-input-glow' : 'chat-input-idle']">
+          <div class="flex gap-1.5 items-end rounded-[10px] bg-card/95 backdrop-blur-sm px-1.5 py-1.5">
+            <!-- Attach button -->
+            <button
+              class="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
+              title="Attach image"
+              @click="openFilePicker"
+            >
+              <Paperclip class="h-3.5 w-3.5" />
+            </button>
+            <textarea
+              ref="inputRef"
+              v-model="inputText"
+              :placeholder="t('chat.placeholder')"
+              rows="1"
+              class="flex-1 resize-none rounded-lg bg-transparent px-3 py-2 text-[13px] placeholder:text-muted-foreground/40 focus-visible:outline-none border-0 transition-colors leading-relaxed"
+              @keydown="handleKeydown"
+              @input="handleInput"
+              @paste="handlePaste"
+            />
+            <!-- Send or Stop button -->
+            <Button
+              v-if="!isStreaming"
+              size="icon"
+              class="h-8 w-8 shrink-0 rounded-lg"
+              :disabled="!inputText.trim() && pendingImages.length === 0"
+              @click="send"
+            >
+              <Send class="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              v-else
+              size="icon"
+              variant="outline"
+              class="h-8 w-8 shrink-0 rounded-lg border-destructive/30 text-destructive hover:bg-destructive/10"
+              @click="abortStream"
+            >
+              <Square class="h-3 w-3" />
+            </Button>
+          </div>
         </div>
         <div class="text-center mt-1">
           <span class="text-[10px] text-muted-foreground/30">{{ t('chat.slashHint') }}</span>
@@ -975,4 +978,33 @@ function startResize(e: MouseEvent) {
 /* Mermaid */
 .chat-markdown pre.mermaid { background: transparent; border: none; padding: 0.5em 0; text-align: center; }
 .chat-markdown pre.mermaid svg { max-width: 100%; height: auto; }
+
+/* Chat input border */
+.chat-input-idle {
+  background: linear-gradient(135deg, #ff6600, #ff8533, #ffad66, #e85d00, #ff6600);
+}
+
+/* Streaming: conic-gradient "snake" that chases around the border */
+.chat-input-glow {
+  background: conic-gradient(
+    from var(--glow-angle, 0deg),
+    transparent 0%,
+    transparent 60%,
+    #ff6600 75%,
+    #ff8533 85%,
+    #ffad66 92%,
+    transparent 100%
+  );
+  animation: glow-spin 3s linear infinite;
+}
+
+@keyframes glow-spin {
+  to { --glow-angle: 360deg; }
+}
+
+@property --glow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
 </style>

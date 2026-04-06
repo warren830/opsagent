@@ -16,24 +16,14 @@ pub fn build_cors_layer(config: &AppConfig) -> CorsLayer {
         let origins: Vec<_> = vec!["http://localhost:3000".parse().unwrap()];
         AllowOrigin::list(origins)
     } else {
-        let origins: Vec<_> = config
-            .allowed_origins
-            .iter()
-            .filter_map(|o| o.parse().ok())
-            .collect();
+        let origins: Vec<_> = config.allowed_origins.iter().filter_map(|o| o.parse().ok()).collect();
         tracing::info!("CORS: Allowed origins: {:?}", config.allowed_origins);
         AllowOrigin::list(origins)
     };
 
     CorsLayer::new()
         .allow_origin(allow_origin)
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             http::header::CONTENT_TYPE,
             http::header::AUTHORIZATION,

@@ -1,12 +1,9 @@
-use axum::{
-    extract::State,
-    Json,
-};
+use axum::{Json, extract::State};
 
+use crate::AppState;
 use crate::error::AppResult;
 use crate::middleware::auth::AuthUser;
 use crate::models::telemetry::{TelemetryConfig, UpsertTelemetryRequest};
-use crate::AppState;
 
 /// GET /api/telemetry
 pub async fn get(
@@ -15,18 +12,14 @@ pub async fn get(
 ) -> AppResult<Json<Option<TelemetryConfig>>> {
     let row = if auth_user.is_super_admin() {
         // Super admin sees the first config or the one without tenant
-        sqlx::query_as::<_, TelemetryConfig>(
-            "SELECT * FROM telemetry_config ORDER BY created_at LIMIT 1",
-        )
-        .fetch_optional(&state.pool)
-        .await?
+        sqlx::query_as::<_, TelemetryConfig>("SELECT * FROM telemetry_config ORDER BY created_at LIMIT 1")
+            .fetch_optional(&state.pool)
+            .await?
     } else {
-        sqlx::query_as::<_, TelemetryConfig>(
-            "SELECT * FROM telemetry_config WHERE tenant_id = $1",
-        )
-        .bind(auth_user.tenant_id)
-        .fetch_optional(&state.pool)
-        .await?
+        sqlx::query_as::<_, TelemetryConfig>("SELECT * FROM telemetry_config WHERE tenant_id = $1")
+            .bind(auth_user.tenant_id)
+            .fetch_optional(&state.pool)
+            .await?
     };
     Ok(Json(row))
 }
@@ -61,9 +54,7 @@ pub async fn upsert(
 }
 
 /// POST /api/telemetry/test (mock)
-pub async fn test_connection(
-    _auth_user: axum::Extension<AuthUser>,
-) -> AppResult<Json<serde_json::Value>> {
+pub async fn test_connection(_auth_user: axum::Extension<AuthUser>) -> AppResult<Json<serde_json::Value>> {
     Ok(Json(serde_json::json!({
         "status": "ok",
         "message": "Telemetry connection test successful"

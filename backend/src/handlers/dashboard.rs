@@ -1,9 +1,9 @@
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 
+use crate::AppState;
 use crate::error::AppResult;
 use crate::middleware::auth::AuthUser;
 use crate::models::dashboard::DashboardStats;
-use crate::AppState;
 
 /// GET /api/dashboard/stats
 /// Returns aggregated counts for the dashboard overview
@@ -29,10 +29,9 @@ pub async fn stats(
             sqlx::query_as("SELECT COUNT(*) FROM issues WHERE status IN ('open', 'investigating')")
                 .fetch_one(&state.pool)
                 .await?;
-        let active_sessions: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM claude_sessions WHERE is_active = true")
-                .fetch_one(&state.pool)
-                .await?;
+        let active_sessions: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM claude_sessions WHERE is_active = true")
+            .fetch_one(&state.pool)
+            .await?;
 
         DashboardStats {
             tenants: tenants.0,
@@ -46,16 +45,11 @@ pub async fn stats(
         // Tenant-scoped stats — user sees own private + tenant public resources
         let tid = auth_user.tenant_id;
         let uid = auth_user.user_id;
-        let tenants: (i64,) = if tid.is_some() {
-            (1,)
-        } else {
-            (0,)
-        };
-        let users: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM users WHERE tenant_id = $1")
-                .bind(tid)
-                .fetch_one(&state.pool)
-                .await?;
+        let tenants: (i64,) = if tid.is_some() { (1,) } else { (0,) };
+        let users: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE tenant_id = $1")
+            .bind(tid)
+            .fetch_one(&state.pool)
+            .await?;
         let skills: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM skills WHERE (user_id = $1) OR (user_id IS NULL AND tenant_id IS NOT DISTINCT FROM $2)",
         )
@@ -63,23 +57,20 @@ pub async fn stats(
         .bind(tid)
         .fetch_one(&state.pool)
         .await?;
-        let clusters: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM clusters WHERE tenant_id = $1")
+        let clusters: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM clusters WHERE tenant_id = $1")
+            .bind(tid)
+            .fetch_one(&state.pool)
+            .await?;
+        let issues_open: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM issues WHERE tenant_id = $1 AND status IN ('open', 'investigating')")
                 .bind(tid)
                 .fetch_one(&state.pool)
                 .await?;
-        let issues_open: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM issues WHERE tenant_id = $1 AND status IN ('open', 'investigating')",
-        )
-        .bind(tid)
-        .fetch_one(&state.pool)
-        .await?;
-        let active_sessions: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM claude_sessions WHERE user_id = $1 AND is_active = true",
-        )
-        .bind(uid)
-        .fetch_one(&state.pool)
-        .await?;
+        let active_sessions: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM claude_sessions WHERE user_id = $1 AND is_active = true")
+                .bind(uid)
+                .fetch_one(&state.pool)
+                .await?;
 
         DashboardStats {
             tenants: tenants.0,

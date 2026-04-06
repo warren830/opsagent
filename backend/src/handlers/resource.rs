@@ -1,12 +1,12 @@
 use axum::{
-    extract::{Query, State},
     Json,
+    extract::{Query, State},
 };
 
+use crate::AppState;
 use crate::error::AppResult;
 use crate::middleware::auth::AuthUser;
 use crate::models::resource::{Resource, ResourceListQuery};
-use crate::AppState;
 
 /// GET /api/resources
 pub async fn list(
@@ -47,9 +47,7 @@ pub async fn list(
 }
 
 /// POST /api/resources/scan (mock)
-pub async fn scan(
-    _auth_user: axum::Extension<AuthUser>,
-) -> AppResult<Json<serde_json::Value>> {
+pub async fn scan(_auth_user: axum::Extension<AuthUser>) -> AppResult<Json<serde_json::Value>> {
     Ok(Json(serde_json::json!({
         "status": "ok",
         "message": "Resource scan initiated"

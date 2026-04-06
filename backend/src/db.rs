@@ -39,20 +39,17 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateE
 
 /// Check database health.
 pub async fn is_healthy(pool: &PgPool) -> bool {
-    sqlx::query("SELECT 1")
-        .execute(pool)
-        .await
-        .is_ok()
+    sqlx::query("SELECT 1").execute(pool).await.is_ok()
 }
 
 /// Mask password in database URL for logging.
 fn mask_url(url: &str) -> String {
-    if let Some(at_pos) = url.find('@') {
-        if let Some(colon_pos) = url[..at_pos].rfind(':') {
-            let prefix = &url[..colon_pos + 1];
-            let suffix = &url[at_pos..];
-            return format!("{}****{}", prefix, suffix);
-        }
+    if let Some(at_pos) = url.find('@')
+        && let Some(colon_pos) = url[..at_pos].rfind(':')
+    {
+        let prefix = &url[..colon_pos + 1];
+        let suffix = &url[at_pos..];
+        return format!("{}****{}", prefix, suffix);
     }
     url.to_string()
 }

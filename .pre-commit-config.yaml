@@ -1,0 +1,91 @@
+exclude: ^backend/workspace/
+
+repos:
+# --- General checks ---
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.6.0
+  hooks:
+  - id: trailing-whitespace
+  - id: end-of-file-fixer
+  - id: check-yaml
+    args: ['--allow-multiple-documents']
+    exclude: ^k8s/.*\.yaml$
+  - id: check-added-large-files
+    args: ['--maxkb=500']
+  - id: check-case-conflict
+  - id: check-merge-conflict
+  - id: check-executables-have-shebangs
+  - id: check-shebang-scripts-are-executable
+
+# --- Rust format & lint ---
+- repo: local
+  hooks:
+  - id: cargo-fmt
+    name: cargo fmt
+    entry: bash -c 'cd backend && cargo fmt -- --check'
+    language: system
+    files: ^backend/.*\.rs$
+    pass_filenames: false
+  - id: cargo-clippy
+    name: cargo clippy
+    entry: bash -c 'cd backend && cargo clippy --all-targets --all-features -- -D warnings'
+    language: system
+    files: ^backend/.*\.rs$
+    pass_filenames: false
+
+# --- Frontend ESLint ---
+- repo: local
+  hooks:
+  - id: eslint
+    name: ESLint
+    entry: bash -c 'cd frontend && npx eslint .'
+    language: system
+    files: ^frontend/.*\.(vue|ts|js)$
+    pass_filenames: false
+
+# --- Terraform ---
+- repo: https://github.com/antonbabenko/pre-commit-terraform
+  rev: v1.99.0
+  hooks:
+  - id: terraform_fmt
+  - id: terraform_validate
+    files: ^iac/.*\.tf$
+
+# --- Secret detection ---
+- repo: https://github.com/Yelp/detect-secrets
+  rev: v1.5.0
+  hooks:
+  - id: detect-secrets
+    args: ['--baseline', '.secrets.baseline']
+    exclude: |
+      (?x)^(
+        .*\.lock$|
+        .*lock\.yaml$|
+        .*lock\.json$|
+        .*\.tfstate$|
+        .*\.tfstate\.backup$|
+        .*\.terraform/.*$
+      )$
+
+# --- AWS credential pattern check ---
+- repo: local
+  hooks:
+  - id: aws-secrets-check
+    name: AWS Secrets Check
+    entry: bash
+    args:
+      - -c
+      - |
+        COMMON_EXCLUDES="--exclude-dir=.git --exclude-dir=.terraform --exclude-dir=node_modules --exclude-dir=target --exclude-dir=workspace --exclude=*.tfstate* --exclude=*.lock --binary-files=without-match"
+        if grep -r -E "AKIA[0-9A-Z]{16}" $COMMON_EXCLUDES .; then
+          echo "❌ AWS Access Key ID detected!"
+          exit 1
+        fi
+        if grep -r -E "aws_secret_access_key\s*[:=]\s*['\"][A-Za-z0-9/+=]{40}['\"]" $COMMON_EXCLUDES .; then
+          echo "❌ AWS Secret Access Key detected!"
+          exit 1
+        fi
+        echo "✅ No AWS credentials detected"
+    language: system
+    pass_filenames: false
+    always_run: true

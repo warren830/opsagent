@@ -7,9 +7,8 @@ mod models;
 mod services;
 
 use axum::{
-    middleware as axum_middleware,
+    Router, middleware as axum_middleware,
     routing::{delete, get, post, put},
-    Router,
 };
 use std::net::SocketAddr;
 use tokio::signal;
@@ -42,9 +41,7 @@ async fn main() {
     tracing::info!("Starting OpenOps backend (env={:?})", config.env);
 
     // Create database pool
-    let pool = db::create_pool(&config)
-        .await
-        .expect("Failed to create database pool");
+    let pool = db::create_pool(&config).await.expect("Failed to create database pool");
 
     // Run migrations
     db::run_migrations(&pool)
@@ -66,9 +63,7 @@ async fn main() {
     // Build router
     let app = build_router(state)
         .layer(cors)
-        .layer(axum_middleware::from_fn(
-            middleware::security::security_headers,
-        ))
+        .layer(axum_middleware::from_fn(middleware::security::security_headers))
         .layer(TraceLayer::new_for_http())
         .layer(RequestBodyLimitLayer::new(20 * 1024 * 1024)); // 20MB (images can be large)
 
@@ -100,19 +95,13 @@ fn build_router(state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/api/auth/logout", post(handlers::auth::logout))
         .route("/api/auth/me", get(handlers::auth::me))
-        .route(
-            "/api/auth/change-password",
-            put(handlers::auth::change_password),
-        )
+        .route("/api/auth/change-password", put(handlers::auth::change_password))
         // Tenants
         .route("/api/tenants", get(handlers::tenant::list_tenants))
         .route("/api/tenants", post(handlers::tenant::create_tenant))
         .route("/api/tenants/{id}", get(handlers::tenant::get_tenant))
         .route("/api/tenants/{id}", put(handlers::tenant::update_tenant))
-        .route(
-            "/api/tenants/{id}",
-            delete(handlers::tenant::delete_tenant),
-        )
+        .route("/api/tenants/{id}", delete(handlers::tenant::delete_tenant))
         // Users
         .route("/api/users", get(handlers::user::list_users))
         .route("/api/users", post(handlers::user::create_user))
@@ -128,14 +117,8 @@ fn build_router(state: AppState) -> Router {
             put(handlers::glossary::update).delete(handlers::glossary::delete),
         )
         // Skills (DB + git clone)
-        .route(
-            "/api/skills",
-            get(handlers::skill::list).post(handlers::skill::create),
-        )
-        .route(
-            "/api/skills/discover",
-            post(handlers::skill::discover),
-        )
+        .route("/api/skills", get(handlers::skill::list).post(handlers::skill::create))
+        .route("/api/skills/discover", post(handlers::skill::discover))
         .route(
             "/api/skills/{id}",
             put(handlers::skill::update).delete(handlers::skill::delete),
@@ -154,10 +137,7 @@ fn build_router(state: AppState) -> Router {
             "/api/accounts/{id}/users",
             get(handlers::account_access::list_account_users),
         )
-        .route(
-            "/api/account-access/grant",
-            post(handlers::account_access::grant),
-        )
+        .route("/api/account-access/grant", post(handlers::account_access::grant))
         .route(
             "/api/account-access/{user_id}/{account_id}",
             delete(handlers::account_access::revoke),
@@ -166,28 +146,16 @@ fn build_router(state: AppState) -> Router {
             "/api/my/accessible-accounts",
             get(handlers::account_access::my_accessible_accounts),
         )
-        .route(
-            "/api/accounts/discover",
-            post(handlers::cloud_account::discover),
-        )
+        .route("/api/accounts/discover", post(handlers::cloud_account::discover))
         .route(
             "/api/accounts/{id}/test",
             post(handlers::cloud_account::test_connection),
         )
-        .route(
-            "/api/accounts/seed-mock",
-            post(handlers::cloud_account::seed_mock),
-        )
+        .route("/api/accounts/seed-mock", post(handlers::cloud_account::seed_mock))
         // Approvals
         .route("/api/approvals", get(handlers::approval::list))
-        .route(
-            "/api/approvals/{id}/approve",
-            post(handlers::approval::approve),
-        )
-        .route(
-            "/api/approvals/{id}/reject",
-            post(handlers::approval::reject),
-        )
+        .route("/api/approvals/{id}/approve", post(handlers::approval::approve))
+        .route("/api/approvals/{id}/reject", post(handlers::approval::reject))
         // Channels
         .route(
             "/api/channels",
@@ -248,28 +216,19 @@ fn build_router(state: AppState) -> Router {
             "/api/telemetry",
             get(handlers::telemetry::get).put(handlers::telemetry::upsert),
         )
-        .route(
-            "/api/telemetry/test",
-            post(handlers::telemetry::test_connection),
-        )
+        .route("/api/telemetry/test", post(handlers::telemetry::test_connection))
         // Providers (LLM model config)
         .route(
             "/api/providers",
             get(handlers::provider::list).post(handlers::provider::create),
         )
-        .route(
-            "/api/providers/types",
-            get(handlers::provider::available_types),
-        )
+        .route("/api/providers/types", get(handlers::provider::available_types))
         .route(
             "/api/providers/{id}",
             put(handlers::provider::update).delete(handlers::provider::delete),
         )
         // MCP Servers
-        .route(
-            "/api/mcp",
-            get(handlers::mcp::list).post(handlers::mcp::create),
-        )
+        .route("/api/mcp", get(handlers::mcp::list).post(handlers::mcp::create))
         .route(
             "/api/mcp/{id}",
             put(handlers::mcp::update).delete(handlers::mcp::delete),
@@ -278,7 +237,10 @@ fn build_router(state: AppState) -> Router {
         .route("/api/chat", post(handlers::chat::stream))
         .route("/api/chat/sessions", get(handlers::chat::list_sessions))
         .route("/api/chat/workspace", get(handlers::chat::workspace_list))
-        .route("/api/chat/workspace/{*filepath}", get(handlers::chat::workspace_download).delete(handlers::chat::workspace_delete))
+        .route(
+            "/api/chat/workspace/{*filepath}",
+            get(handlers::chat::workspace_download).delete(handlers::chat::workspace_delete),
+        )
         // Dashboard
         .route("/api/dashboard/stats", get(handlers::dashboard::stats))
         .layer(axum_middleware::from_fn_with_state(
@@ -297,8 +259,7 @@ async fn seed_admin_user(pool: &sqlx::PgPool) {
         .unwrap_or((0,));
 
     if count.0 == 0 {
-        let password_hash =
-            bcrypt::hash("admin123", 10).expect("Failed to hash default password");
+        let password_hash = bcrypt::hash("admin123", 10).expect("Failed to hash default password");
 
         let result = sqlx::query(
             r#"INSERT INTO users (username, password_hash, role, email)
@@ -310,9 +271,7 @@ async fn seed_admin_user(pool: &sqlx::PgPool) {
 
         match result {
             Ok(_) => {
-                tracing::info!(
-                    "Default admin user created (username: admin, password: admin123)"
-                );
+                tracing::info!("Default admin user created (username: admin, password: admin123)");
                 tracing::warn!("Change the default password immediately!");
             }
             Err(e) => {
@@ -322,13 +281,10 @@ async fn seed_admin_user(pool: &sqlx::PgPool) {
     }
 }
 
-
 /// Graceful shutdown signal handler
 async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("Failed to install Ctrl+C handler");
+        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]
@@ -347,4 +303,3 @@ async fn shutdown_signal() {
         _ = terminate => tracing::info!("Received SIGTERM, shutting down..."),
     }
 }
-

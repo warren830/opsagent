@@ -1,13 +1,13 @@
 use axum::{
-    extract::{Path, Query, State},
     Json,
+    extract::{Path, Query, State},
 };
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::approval::{Approval, ApprovalListQuery};
-use crate::AppState;
 
 /// GET /api/approvals
 pub async fn list(
@@ -18,19 +18,15 @@ pub async fn list(
     let approvals = if auth_user.is_super_admin() {
         match &query.status {
             Some(status) => {
-                sqlx::query_as::<_, Approval>(
-                    "SELECT * FROM approvals WHERE status = $1 ORDER BY created_at DESC",
-                )
-                .bind(status)
-                .fetch_all(&state.pool)
-                .await?
+                sqlx::query_as::<_, Approval>("SELECT * FROM approvals WHERE status = $1 ORDER BY created_at DESC")
+                    .bind(status)
+                    .fetch_all(&state.pool)
+                    .await?
             }
             None => {
-                sqlx::query_as::<_, Approval>(
-                    "SELECT * FROM approvals ORDER BY created_at DESC",
-                )
-                .fetch_all(&state.pool)
-                .await?
+                sqlx::query_as::<_, Approval>("SELECT * FROM approvals ORDER BY created_at DESC")
+                    .fetch_all(&state.pool)
+                    .await?
             }
         }
     } else {
@@ -48,12 +44,10 @@ pub async fn list(
                 .await?
             }
             None => {
-                sqlx::query_as::<_, Approval>(
-                    "SELECT * FROM approvals WHERE tenant_id = $1 ORDER BY created_at DESC",
-                )
-                .bind(tid)
-                .fetch_all(&state.pool)
-                .await?
+                sqlx::query_as::<_, Approval>("SELECT * FROM approvals WHERE tenant_id = $1 ORDER BY created_at DESC")
+                    .bind(tid)
+                    .fetch_all(&state.pool)
+                    .await?
             }
         }
     };
@@ -69,23 +63,18 @@ pub async fn approve(
 ) -> AppResult<Json<Approval>> {
     // Verify access
     if !auth_user.is_super_admin() {
-        let existing = sqlx::query_as::<_, Approval>(
-            "SELECT * FROM approvals WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Approval not found".to_string()))?;
+        let existing = sqlx::query_as::<_, Approval>("SELECT * FROM approvals WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Approval not found".to_string()))?;
 
         if existing.tenant_id != auth_user.tenant_id {
             return Err(AppError::Forbidden("Access denied".to_string()));
         }
 
         if existing.status != "pending" {
-            return Err(AppError::BadRequest(format!(
-                "Approval is already {}",
-                existing.status
-            )));
+            return Err(AppError::BadRequest(format!("Approval is already {}", existing.status)));
         }
     }
 
@@ -101,9 +90,7 @@ pub async fn approve(
     .bind(auth_user.user_id)
     .fetch_optional(&state.pool)
     .await?
-    .ok_or_else(|| {
-        AppError::NotFound("Approval not found or already processed".to_string())
-    })?;
+    .ok_or_else(|| AppError::NotFound("Approval not found or already processed".to_string()))?;
 
     Ok(Json(approval))
 }
@@ -116,23 +103,18 @@ pub async fn reject(
 ) -> AppResult<Json<Approval>> {
     // Verify access
     if !auth_user.is_super_admin() {
-        let existing = sqlx::query_as::<_, Approval>(
-            "SELECT * FROM approvals WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Approval not found".to_string()))?;
+        let existing = sqlx::query_as::<_, Approval>("SELECT * FROM approvals WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Approval not found".to_string()))?;
 
         if existing.tenant_id != auth_user.tenant_id {
             return Err(AppError::Forbidden("Access denied".to_string()));
         }
 
         if existing.status != "pending" {
-            return Err(AppError::BadRequest(format!(
-                "Approval is already {}",
-                existing.status
-            )));
+            return Err(AppError::BadRequest(format!("Approval is already {}", existing.status)));
         }
     }
 
@@ -148,9 +130,7 @@ pub async fn reject(
     .bind(auth_user.user_id)
     .fetch_optional(&state.pool)
     .await?
-    .ok_or_else(|| {
-        AppError::NotFound("Approval not found or already processed".to_string())
-    })?;
+    .ok_or_else(|| AppError::NotFound("Approval not found or already processed".to_string()))?;
 
     Ok(Json(approval))
 }

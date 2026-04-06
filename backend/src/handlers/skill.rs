@@ -1,24 +1,21 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::process::Command;
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::skill::Skill;
-use crate::AppState;
 
 // ─── List ────────────────────────────────────────────────────────────────────
 
 /// GET /api/skills — list skills visible to current user
-pub async fn list(
-    auth_user: axum::Extension<AuthUser>,
-    State(state): State<AppState>,
-) -> AppResult<Json<Vec<Skill>>> {
+pub async fn list(auth_user: axum::Extension<AuthUser>, State(state): State<AppState>) -> AppResult<Json<Vec<Skill>>> {
     let skills = if auth_user.is_super_admin() {
         sqlx::query_as::<_, Skill>(
             r#"SELECT id, name, description, instructions, git_url, repo_path,
@@ -87,10 +84,7 @@ pub async fn discover(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::BadRequest(format!(
-            "Git clone failed: {}",
-            stderr.trim()
-        )));
+        return Err(AppError::BadRequest(format!("Git clone failed: {}", stderr.trim())));
     }
 
     let mut discovered = Vec::new();
@@ -108,24 +102,21 @@ pub async fn discover(
 
     // 2) Scan skills/*/ subdirectories
     let skills_dir = tmp_dir.join("skills");
-    if skills_dir.is_dir() {
-        if let Ok(mut entries) = tokio::fs::read_dir(&skills_dir).await {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let sub_path = entry.path();
-                if sub_path.is_dir() {
-                    let md = sub_path.join("SKILL.md");
-                    if md.exists() {
-                        let (name, desc) = parse_skill_md(&md).await;
-                        let rel = format!(
-                            "skills/{}",
-                            sub_path.file_name().unwrap_or_default().to_string_lossy()
-                        );
-                        discovered.push(DiscoveredSkill {
-                            name,
-                            description: desc,
-                            path: rel,
-                        });
-                    }
+    if skills_dir.is_dir()
+        && let Ok(mut entries) = tokio::fs::read_dir(&skills_dir).await
+    {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let sub_path = entry.path();
+            if sub_path.is_dir() {
+                let md = sub_path.join("SKILL.md");
+                if md.exists() {
+                    let (name, desc) = parse_skill_md(&md).await;
+                    let rel = format!("skills/{}", sub_path.file_name().unwrap_or_default().to_string_lossy());
+                    discovered.push(DiscoveredSkill {
+                        name,
+                        description: desc,
+                        path: rel,
+                    });
                 }
             }
         }
@@ -175,9 +166,7 @@ pub async fn create(
         return Err(AppError::BadRequest("git_url is required".to_string()));
     }
     if req.selected.is_empty() {
-        return Err(AppError::BadRequest(
-            "At least one skill must be selected".to_string(),
-        ));
+        return Err(AppError::BadRequest("At least one skill must be selected".to_string()));
     }
 
     let visibility = match req.visibility.as_str() {
@@ -205,31 +194,24 @@ pub async fn create(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let _ = tokio::fs::remove_dir_all(&tmp_dir).await;
-        return Err(AppError::BadRequest(format!(
-            "Git clone failed: {}",
-            stderr.trim()
-        )));
+        return Err(AppError::BadRequest(format!("Git clone failed: {}", stderr.trim())));
     }
 
-    let tenant_dir = tenant_id
-        .map(|t| t.to_string())
-        .unwrap_or_else(|| "global".to_string());
+    let tenant_dir = tenant_id.map(|t| t.to_string()).unwrap_or_else(|| "global".to_string());
 
     // Build skills_base with absolute path — create dir first so canonicalize works
     let raw_workspace = PathBuf::from(&state.config.claude_work_dir);
     let raw_skills_base = raw_workspace.join(&tenant_dir).join("skills");
     if let Err(e) = tokio::fs::create_dir_all(&raw_skills_base).await {
         let _ = tokio::fs::remove_dir_all(&tmp_dir).await;
-        return Err(AppError::Internal(format!(
-            "Failed to create skills directory: {}",
-            e
-        )));
+        return Err(AppError::Internal(format!("Failed to create skills directory: {}", e)));
     }
     // Now canonicalize to get absolute path (dir exists so this should succeed)
-    let skills_base = std::fs::canonicalize(&raw_skills_base)
-        .unwrap_or_else(|_| std::env::current_dir()
+    let skills_base = std::fs::canonicalize(&raw_skills_base).unwrap_or_else(|_| {
+        std::env::current_dir()
             .map(|cwd| cwd.join(&raw_skills_base))
-            .unwrap_or(raw_skills_base));
+            .unwrap_or(raw_skills_base)
+    });
 
     let mut installed = Vec::new();
 
@@ -307,9 +289,7 @@ pub async fn create(
     let _ = tokio::fs::remove_dir_all(&tmp_dir).await;
 
     if installed.is_empty() {
-        return Err(AppError::Internal(
-            "No skills were installed successfully".to_string(),
-        ));
+        return Err(AppError::Internal("No skills were installed successfully".to_string()));
     }
 
     Ok(Json(installed))
@@ -352,10 +332,7 @@ pub async fn update(
         let stderr = String::from_utf8_lossy(&output.stderr);
         let _ = tokio::fs::remove_dir_all(&tmp_dir).await;
         tracing::warn!("git clone failed for skill update {}: {}", id, stderr);
-        return Err(AppError::BadRequest(format!(
-            "Git clone failed: {}",
-            stderr.trim()
-        )));
+        return Err(AppError::BadRequest(format!("Git clone failed: {}", stderr.trim())));
     }
 
     let src = match sub_path {
@@ -368,10 +345,7 @@ pub async fn update(
     let _ = tokio::fs::remove_dir_all(&dest).await;
     if let Err(e) = copy_dir_recursive(&src, &dest).await {
         let _ = tokio::fs::remove_dir_all(&tmp_dir).await;
-        return Err(AppError::Internal(format!(
-            "Failed to copy updated skill: {}",
-            e
-        )));
+        return Err(AppError::Internal(format!("Failed to copy updated skill: {}", e)));
     }
 
     let _ = tokio::fs::remove_dir_all(&tmp_dir).await;
@@ -409,10 +383,10 @@ pub async fn delete(
         .execute(&state.pool)
         .await?;
 
-    if let Some(ref path) = skill.repo_path {
-        if let Err(e) = tokio::fs::remove_dir_all(path).await {
-            tracing::warn!("Failed to remove skill directory {}: {}", path, e);
-        }
+    if let Some(ref path) = skill.repo_path
+        && let Err(e) = tokio::fs::remove_dir_all(path).await
+    {
+        tracing::warn!("Failed to remove skill directory {}: {}", path, e);
     }
 
     Ok(Json(serde_json::json!({ "message": "Skill removed" })))
@@ -420,11 +394,7 @@ pub async fn delete(
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async fn get_skill_with_access(
-    state: &AppState,
-    id: Uuid,
-    auth_user: &AuthUser,
-) -> Result<Skill, AppError> {
+async fn get_skill_with_access(state: &AppState, id: Uuid, auth_user: &AuthUser) -> Result<Skill, AppError> {
     let skill = sqlx::query_as::<_, Skill>(
         r#"SELECT id, name, description, instructions, git_url, repo_path,
                   visibility, enabled, tenant_id, user_id, created_by, created_at, updated_at
@@ -506,11 +476,7 @@ async fn copy_dir_recursive(src: &PathBuf, dest: &PathBuf) -> std::io::Result<()
         let dest_path = dest.join(entry.file_name());
 
         // Skip .git directory
-        if src_path
-            .file_name()
-            .map(|n| n == ".git")
-            .unwrap_or(false)
-        {
+        if src_path.file_name().map(|n| n == ".git").unwrap_or(false) {
             continue;
         }
 

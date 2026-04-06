@@ -1,13 +1,13 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::channel::{Channel, CreateChannelRequest, UpdateChannelRequest};
-use crate::AppState;
 
 /// GET /api/channels
 pub async fn list(
@@ -19,12 +19,10 @@ pub async fn list(
             .fetch_all(&state.pool)
             .await?
     } else {
-        sqlx::query_as::<_, Channel>(
-            "SELECT * FROM channels WHERE tenant_id = $1 ORDER BY name",
-        )
-        .bind(auth_user.tenant_id)
-        .fetch_all(&state.pool)
-        .await?
+        sqlx::query_as::<_, Channel>("SELECT * FROM channels WHERE tenant_id = $1 ORDER BY name")
+            .bind(auth_user.tenant_id)
+            .fetch_all(&state.pool)
+            .await?
     };
     Ok(Json(rows))
 }
