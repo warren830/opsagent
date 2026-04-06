@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ─── Light mode (clean, but we default to dark) ─── */
+  :root {
+    --background: 0 0% 98%;
+    --foreground: 220 20% 14%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 14%;
+    --primary: 24 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 92%;
+    --secondary-foreground: 220 20% 14%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 220 14% 92%;
+    --accent-foreground: 220 20% 14%;
+    --destructive: 354 70% 54%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 110 44% 58%;
+    --success-foreground: 0 0% 100%;
+    --warning: 30 100% 58%;
+    --warning-foreground: 0 0% 100%;
+    --info: 217 72% 64%;
+    --info-foreground: 0 0% 100%;
+    --border: 220 13% 87%;
+    --input: 220 13% 87%;
+    --ring: 24 100% 50%;
+    --radius: 0.375rem;
+    --panel: 0 0% 100%;
+    --panel-foreground: 220 20% 14%;
+  }
+
+  /* ─── Dark mode — Grafana-inspired ─── */
+  .dark {
+    --background: 228 22% 7%;        /* #111217 — deepest bg */
+    --foreground: 210 6% 87%;        /* #d8d9da — body text */
+    --card: 225 16% 11%;             /* #181b1f — panel/card bg */
+    --card-foreground: 210 6% 87%;
+    --popover: 225 16% 11%;
+    --popover-foreground: 210 6% 87%;
+    --primary: 24 100% 50%;          /* #FF6600 — Grafana orange */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 12% 16%;        /* #23262b — secondary surfaces */
+    --secondary-foreground: 210 6% 87%;
+    --muted: 220 12% 16%;
+    --muted-foreground: 220 6% 55%;  /* #858688 — muted text */
+    --accent: 220 12% 20%;           /* #2c3035 — hover/accent surface */
+    --accent-foreground: 210 6% 93%;
+    --destructive: 354 75% 55%;      /* #F2495C — Grafana red */
+    --destructive-foreground: 0 0% 100%;
+    --success: 110 44% 58%;          /* #73BF69 — Grafana green */
+    --success-foreground: 0 0% 100%;
+    --warning: 30 90% 58%;           /* #FF9830 — Grafana amber */
+    --warning-foreground: 0 0% 100%;
+    --info: 217 85% 64%;             /* #5794F2 — Grafana blue */
+    --info-foreground: 0 0% 100%;
+    --border: 220 12% 18%;           /* #2c3235 — subtle borders */
+    --input: 220 12% 18%;
+    --ring: 24 100% 50%;
+    --panel: 228 16% 9%;             /* #141619 — panel alt bg */
+    --panel-foreground: 210 6% 87%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  /* Smooth scrollbars — Grafana style */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+@layer utilities {
+  /* Grafana-style glow effects */
+  .glow-primary {
+    box-shadow: 0 0 12px hsl(var(--primary) / 0.25);
+  }
+  .glow-success {
+    box-shadow: 0 0 10px hsl(var(--success) / 0.3);
+  }
+  .glow-warning {
+    box-shadow: 0 0 10px hsl(var(--warning) / 0.3);
+  }
+  .glow-destructive {
+    box-shadow: 0 0 10px hsl(var(--destructive) / 0.3);
+  }
+  .glow-info {
+    box-shadow: 0 0 10px hsl(var(--info) / 0.3);
+  }
+
+  /* Panel left accent border */
+  .panel-accent {
+    border-left: 3px solid hsl(var(--primary));
+  }
+  .panel-accent-success {
+    border-left: 3px solid hsl(var(--success));
+  }
+  .panel-accent-warning {
+    border-left: 3px solid hsl(var(--warning));
+  }
+  .panel-accent-info {
+    border-left: 3px solid hsl(var(--info));
+  }
+
+  /* Grafana-style gradient text */
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-orange-400 to-amber-500;
+  }
+
+  /* Subtle noise texture overlay for depth */
+  .panel-surface {
+    @apply bg-card border border-border/60 rounded-md;
+  }
+}

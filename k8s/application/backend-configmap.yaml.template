@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: openops
+data:
+  # ── Environment ──────────────────────────────
+  OPENOPS_ENV: "${DEPLOY_ENV}"
+  BACKEND_PORT: "3080"
+  RUST_LOG: "openops=info,tower_http=info"
+
+  # ── Database ─────────────────────────────────
+  # DATABASE_URL comes from Secret (ESO)
+  DB_MAX_CONNECTIONS: "20"
+  DB_MIN_CONNECTIONS: "5"
+
+  # ── CORS ─────────────────────────────────────
+  ALLOWED_ORIGINS: "https://${FRONTEND_DOMAIN}"
+
+  # ── Claude Code ──────────────────────────────
+  CLAUDE_TIMEOUT_MS: "300000"
+  CLAUDE_MODEL: "opus"
+  CLAUDE_WORK_DIR: "/app/workspace"
+
+  # ── AWS ──────────────────────────────────────
+  AWS_REGION: "${AWS_REGION}"

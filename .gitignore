@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+frontend/.nuxt/
+frontend/.output/
+frontend/dist/
+
+# Rust
+backend/target/
+backend/*.rs.bk
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Terraform
+iac/.terraform/
+iac/*.tfstate
+iac/*.tfstate.*
+iac/*.tfplan
+iac/.terraform.lock.hcl
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# Test
+coverage/
+test-results/
+
+# Build
+dist/
+build/

@@ -1,0 +1,22 @@
+# OpenOps Frontend - Multi-stage build
+# Stage 1: Build Nuxt
+FROM node:20-slim AS builder
+
+WORKDIR /app
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/ .
+RUN npm run build
+
+# Stage 2: Serve with Nitro (SSR mode)
+FROM node:20-slim
+
+WORKDIR /app
+COPY --from=builder /app/.output .output
+
+EXPOSE 3000
+ENV NITRO_PORT=3000
+ENV NITRO_HOST=0.0.0.0
+
+CMD ["node", ".output/server/index.mjs"]

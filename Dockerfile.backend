@@ -1,0 +1,45 @@
+# OpenOps Backend - Multi-stage build
+# Stage 1: Build Rust binary
+FROM rust:1.83-slim-bookworm AS builder
+
+WORKDIR /app
+RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+
+# Cache dependencies
+COPY backend/Cargo.toml backend/Cargo.lock* ./
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo build --release 2>/dev/null || true
+RUN rm -rf src
+
+# Build actual binary
+COPY backend/ .
+RUN cargo build --release
+
+# Stage 2: Runtime image
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    unzip \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# AWS CLI v2 (for Secrets Manager access)
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
+    && unzip awscliv2.zip && ./aws/install && rm -rf aws awscliv2.zip
+
+# Copy binary
+COPY --from=builder /app/target/release/openops /usr/local/bin/openops
+
+# Create non-root user
+RUN groupadd -r openops && useradd -r -g openops -d /app openops
+RUN mkdir -p /app/workspace && chown -R openops:openops /app
+
+USER openops
+WORKDIR /app
+
+EXPOSE 3080
+ENV RUST_LOG=openops=info,tower_http=info
+
+CMD ["openops"]

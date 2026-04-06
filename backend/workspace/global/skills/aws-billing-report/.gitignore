@@ -1,0 +1,32 @@
+# Intermediate billing data files
+billing_*.json
+
+# Generated Excel reports
+aws_billing_*.xlsx
+*.xlsx
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Test outputs
+test_*.json
+test_*.xlsx
