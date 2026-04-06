@@ -223,7 +223,7 @@ function toggleChat() {
           :default-open="group.defaultOpen || groupHasActive(group)"
           class="space-y-0.5"
         >
-          <CollapsibleTrigger class="flex w-full items-center justify-between rounded px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70 hover:text-muted-foreground transition-colors group">
+          <CollapsibleTrigger class="flex w-full items-center justify-between rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors group">
             <span>{{ group.label }}</span>
             <ChevronDown class="h-3 w-3 transition-transform duration-200 group-data-[state=closed]:-rotate-90" />
           </CollapsibleTrigger>
@@ -232,8 +232,8 @@ function toggleChat() {
               v-for="item in group.items"
               :key="item.to"
               :to="item.to"
-              class="flex items-center gap-2.5 rounded px-2.5 py-1.5 text-[13px] transition-all duration-150"
-              :class="isActive(item.to) ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+              class="flex items-center gap-2 rounded-md ml-2 px-2.5 py-1.5 text-[12px] transition-all duration-150 border-l-2"
+              :class="isActive(item.to) ? 'bg-primary/15 text-primary font-medium border-primary' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground border-transparent'"
             >
               <component :is="item.icon" class="h-4 w-4 shrink-0" />
               <span class="flex-1">{{ item.label }}</span>

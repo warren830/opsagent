@@ -27,8 +27,8 @@ const resources = ref<Resource[]>([])
 const loading = ref(true)
 const scanning = ref(false)
 const search = ref('')
-const filterType = ref('')
-const filterRegion = ref('')
+const filterType = ref('__all__')
+const filterRegion = ref('__all__')
 
 const columns = computed(() => [
   { key: 'resource_type', label: t('resource.type') },
@@ -68,8 +68,8 @@ async function fetchResources() {
   try {
     const params = new URLSearchParams()
     if (search.value) params.set('q', search.value)
-    if (filterType.value) params.set('type', filterType.value)
-    if (filterRegion.value) params.set('region', filterRegion.value)
+    if (filterType.value && filterType.value !== '__all__') params.set('type', filterType.value)
+    if (filterRegion.value && filterRegion.value !== '__all__') params.set('region', filterRegion.value)
     const qs = params.toString()
     resources.value = await api.get<Resource[]>(`/api/resources${qs ? '?' + qs : ''}`)
   } catch (err: unknown) {
@@ -122,14 +122,14 @@ onMounted(() => { fetchResources() })
       <Select v-model="filterType">
         <SelectTrigger><SelectValue :placeholder="t('resource.type')" /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="">{{ t('resource.type') }}</SelectItem>
+          <SelectItem value="__all__">{{ t('resource.type') }}</SelectItem>
           <SelectItem v-for="rt in resourceTypes" :key="rt" :value="rt">{{ rt }}</SelectItem>
         </SelectContent>
       </Select>
       <Select v-model="filterRegion">
         <SelectTrigger><SelectValue :placeholder="t('resource.region')" /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="">{{ t('resource.region') }}</SelectItem>
+          <SelectItem value="__all__">{{ t('resource.region') }}</SelectItem>
           <SelectItem v-for="r in regions" :key="r" :value="r">{{ r }}</SelectItem>
         </SelectContent>
       </Select>

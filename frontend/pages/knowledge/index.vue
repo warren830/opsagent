@@ -178,7 +178,7 @@ async function saveFile() {
     const payload: Record<string, unknown> = {
       filename: form.value.filename,
       content: form.value.content,
-      account_id: form.value.account_id || null,
+      account_id: form.value.account_id === '__none__' ? null : (form.value.account_id || null),
     }
     if (isEditing.value) {
       await api.put(`/api/knowledge/${editingFile.value!.id}`, payload)
@@ -297,7 +297,7 @@ async function deleteFile() {
             <Select v-model="form.account_id">
               <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">-</SelectItem>
+                <SelectItem value="__none__">-</SelectItem>
                 <SelectItem v-for="acc in accounts" :key="acc.id" :value="acc.id">{{ acc.name }} ({{ acc.provider }})</SelectItem>
               </SelectContent>
             </Select>
