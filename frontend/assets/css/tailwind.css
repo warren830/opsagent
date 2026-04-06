@@ -75,6 +75,11 @@
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+  /* Native select dropdown — force readable colors in dark mode */
+  .dark select option {
+    background: #1e2028;
+    color: #e0e0e0;
+  }
   /* Smooth scrollbars — Grafana style */
   ::-webkit-scrollbar {
     width: 6px;

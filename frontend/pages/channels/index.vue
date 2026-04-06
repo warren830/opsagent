@@ -15,6 +15,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import DataTable from '@/components/shared/DataTable.vue'
 import ConfirmDialog from '@/components/shared/ConfirmDialog.vue'
 
@@ -209,14 +210,14 @@ async function deleteChannel() {
         <form class="space-y-3" @submit.prevent="saveChannel">
           <div class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('channel.platform') }}</label>
-            <select
-              v-model="form.platform"
-              class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-            >
-              <option value="slack">{{ t('channel.slack') }}</option>
-              <option value="feishu">{{ t('channel.feishu') }}</option>
-              <option value="teams">{{ t('channel.teams') }}</option>
-            </select>
+            <Select v-model="form.platform">
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="slack">{{ t('channel.slack') }}</SelectItem>
+                <SelectItem value="feishu">{{ t('channel.feishu') }}</SelectItem>
+                <SelectItem value="teams">{{ t('channel.teams') }}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div class="space-y-1.5">

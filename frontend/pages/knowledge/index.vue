@@ -15,6 +15,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import DataTable from '@/components/shared/DataTable.vue'
 import ConfirmDialog from '@/components/shared/ConfirmDialog.vue'
 
@@ -293,13 +294,13 @@ async function deleteFile() {
         <form class="space-y-3" @submit.prevent="saveFile">
           <div class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('knowledge.account') }}</label>
-            <select
-              v-model="form.account_id"
-              class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-            >
-              <option value="">-</option>
-              <option v-for="acc in accounts" :key="acc.id" :value="acc.id">{{ acc.name }} ({{ acc.provider }})</option>
-            </select>
+            <Select v-model="form.account_id">
+              <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">-</SelectItem>
+                <SelectItem v-for="acc in accounts" :key="acc.id" :value="acc.id">{{ acc.name }} ({{ acc.provider }})</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div class="space-y-1.5">

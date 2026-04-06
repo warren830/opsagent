@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -82,25 +83,25 @@ async function changePassword() {
       <form class="space-y-3" @submit.prevent="saveGeneral">
         <div class="space-y-1.5">
           <label class="text-xs font-medium">Language</label>
-          <select
-            v-model="selectedLocale"
-            class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-          >
-            <option value="zh">中文</option>
-            <option value="en">English</option>
-          </select>
+          <Select v-model="selectedLocale">
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="zh">中文</SelectItem>
+              <SelectItem value="en">English</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <div class="space-y-1.5">
           <label class="text-xs font-medium">Theme</label>
-          <select
-            v-model="selectedTheme"
-            class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-          >
-            <option value="dark">{{ t('theme.dark') }}</option>
-            <option value="light">{{ t('theme.light') }}</option>
-            <option value="system">{{ t('theme.system') }}</option>
-          </select>
+          <Select v-model="selectedTheme">
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="dark">{{ t('theme.dark') }}</SelectItem>
+              <SelectItem value="light">{{ t('theme.light') }}</SelectItem>
+              <SelectItem value="system">{{ t('theme.system') }}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <div class="pt-1">

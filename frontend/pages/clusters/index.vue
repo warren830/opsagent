@@ -13,6 +13,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import DataTable from '@/components/shared/DataTable.vue'
 import ConfirmDialog from '@/components/shared/ConfirmDialog.vue'
 
@@ -224,27 +225,27 @@ async function deleteCluster() {
 
           <div class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('cluster.cloud') }}</label>
-            <select
-              v-model="form.cloud"
-              class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-            >
-              <option value="aws">AWS</option>
-              <option value="alicloud">Alicloud</option>
-              <option value="azure">Azure</option>
-            </select>
+            <Select v-model="form.cloud">
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="aws">AWS</SelectItem>
+                <SelectItem value="alicloud">Alicloud</SelectItem>
+                <SelectItem value="azure">Azure</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('cluster.type') }}</label>
-            <select
-              v-model="form.cluster_type"
-              class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-            >
-              <option value="eks">EKS</option>
-              <option value="ack">ACK</option>
-              <option value="aks">AKS</option>
-              <option value="k3s">K3s</option>
-            </select>
+            <Select v-model="form.cluster_type">
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="eks">EKS</SelectItem>
+                <SelectItem value="ack">ACK</SelectItem>
+                <SelectItem value="aks">AKS</SelectItem>
+                <SelectItem value="k3s">K3s</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div class="space-y-1.5">

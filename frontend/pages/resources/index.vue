@@ -5,6 +5,7 @@ import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import DataTable from '@/components/shared/DataTable.vue'
 
 definePageMeta({ middleware: 'auth' })
@@ -118,20 +119,20 @@ onMounted(() => { fetchResources() })
     <!-- Search & Filters -->
     <div class="flex items-center gap-1.5">
       <Input v-model="search" :placeholder="t('common.search')" class="max-w-[200px]" />
-      <select
-        v-model="filterType"
-        class="flex h-8 rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-      >
-        <option value="">{{ t('resource.type') }}</option>
-        <option v-for="rt in resourceTypes" :key="rt" :value="rt">{{ rt }}</option>
-      </select>
-      <select
-        v-model="filterRegion"
-        class="flex h-8 rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-      >
-        <option value="">{{ t('resource.region') }}</option>
-        <option v-for="r in regions" :key="r" :value="r">{{ r }}</option>
-      </select>
+      <Select v-model="filterType">
+        <SelectTrigger><SelectValue :placeholder="t('resource.type')" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="">{{ t('resource.type') }}</SelectItem>
+          <SelectItem v-for="rt in resourceTypes" :key="rt" :value="rt">{{ rt }}</SelectItem>
+        </SelectContent>
+      </Select>
+      <Select v-model="filterRegion">
+        <SelectTrigger><SelectValue :placeholder="t('resource.region')" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="">{{ t('resource.region') }}</SelectItem>
+          <SelectItem v-for="r in regions" :key="r" :value="r">{{ r }}</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
 
     <!-- Data Table -->

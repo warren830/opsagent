@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -244,26 +245,23 @@ function getTenantName(tenantId: string | null): string {
 
           <div class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('user.role') }}</label>
-            <select
-              v-model="form.role"
-              class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-              @change="onRoleChange"
-            >
-              <option value="super_admin">{{ t('user.superAdmin') }}</option>
-              <option value="tenant_admin">{{ t('user.tenantAdmin') }}</option>
-            </select>
+            <Select v-model="form.role" @update:model-value="onRoleChange">
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="super_admin">{{ t('user.superAdmin') }}</SelectItem>
+                <SelectItem value="tenant_admin">{{ t('user.tenantAdmin') }}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div v-if="form.role === 'tenant_admin'" class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('user.tenant') }} <span class="text-destructive">*</span></label>
-            <select
-              v-model="form.tenant_id"
-              class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-              required
-            >
-              <option value="" disabled>{{ t('user.selectTenant') }}</option>
-              <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</option>
-            </select>
+            <Select v-model="form.tenant_id">
+              <SelectTrigger><SelectValue :placeholder="t('user.selectTenant')" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div class="flex items-center justify-between rounded border border-border/60 px-3 py-2">

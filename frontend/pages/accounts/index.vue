@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -458,25 +459,24 @@ async function revokeAccess(userId: string) {
         <form class="space-y-3" @submit.prevent="saveAccount">
           <div class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('user.tenant') }}</label>
-            <select
-              v-model="form.tenant_id"
-              required
-              class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-            >
-              <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</option>
-            </select>
+            <Select v-model="form.tenant_id">
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('account.provider') }}</label>
-            <select
-              v-model="form.provider"
-              class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-            >
-              <option value="aws">{{ t('account.aws') }}</option>
-              <option value="alicloud">{{ t('account.alicloud') }}</option>
-              <option value="azure">{{ t('account.azure') }}</option>
-            </select>
+            <Select v-model="form.provider">
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="aws">{{ t('account.aws') }}</SelectItem>
+                <SelectItem value="alicloud">{{ t('account.alicloud') }}</SelectItem>
+                <SelectItem value="azure">{{ t('account.azure') }}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div class="space-y-1.5">
@@ -612,20 +612,19 @@ async function revokeAccess(userId: string) {
         <div class="space-y-2.5">
           <!-- Add user — compact inline -->
           <div class="flex items-center gap-1.5">
-            <select
-              v-model="grantForm.user_id"
-              class="flex h-7 flex-1 rounded bg-secondary/50 px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-            >
-              <option value="" disabled>{{ t('account.selectUser') }}...</option>
-              <option v-for="u in availableUsers" :key="u.id" :value="u.id">{{ u.username }}</option>
-            </select>
-            <select
-              v-model="grantForm.role"
-              class="flex h-7 w-20 shrink-0 rounded bg-secondary/50 px-1.5 text-[11px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-            >
-              <option value="readonly">{{ t('account.accessReadonly') }}</option>
-              <option value="admin">{{ t('account.accessAdmin') }}</option>
-            </select>
+            <Select v-model="grantForm.user_id" class="flex-1">
+              <SelectTrigger class="h-7"><SelectValue :placeholder="`${t('account.selectUser')}...`" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="u in availableUsers" :key="u.id" :value="u.id">{{ u.username }}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select v-model="grantForm.role">
+              <SelectTrigger class="h-7 w-20 shrink-0"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="readonly">{{ t('account.accessReadonly') }}</SelectItem>
+                <SelectItem value="admin">{{ t('account.accessAdmin') }}</SelectItem>
+              </SelectContent>
+            </Select>
             <Button
               size="icon-sm"
               variant="ghost"

@@ -5,6 +5,7 @@ import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
@@ -241,12 +242,12 @@ async function deleteJob() {
 
           <div class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('scheduledJob.timezone') }}</label>
-            <select
-              v-model="form.timezone"
-              class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-            >
-              <option v-for="tz in timezones" :key="tz" :value="tz">{{ tz }}</option>
-            </select>
+            <Select v-model="form.timezone">
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="tz in timezones" :key="tz" :value="tz">{{ tz }}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div class="space-y-1.5">

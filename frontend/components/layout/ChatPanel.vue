@@ -5,6 +5,7 @@ import {
   FolderOpen, Trash2, Download, FileText,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
@@ -536,13 +537,12 @@ function startResize(e: MouseEvent) {
           <Sparkles class="h-3.5 w-3.5 text-primary" />
           <span class="font-medium text-xs">{{ t('chat.title') }}</span>
           <!-- Model selector -->
-          <select
-            v-if="showModelSelector"
-            v-model="selectedProviderId"
-            class="ml-1.5 h-5 rounded border border-border/40 bg-secondary/30 px-1.5 text-[10px] text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors cursor-pointer"
-          >
-            <option v-for="p in availableProviders" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
+          <Select v-if="showModelSelector" v-model="selectedProviderId">
+            <SelectTrigger class="ml-1.5 h-5 w-auto gap-1 border-border/40 bg-secondary/30 px-1.5 text-[10px] text-muted-foreground"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="p in availableProviders" :key="p.id" :value="p.id">{{ p.name }}</SelectItem>
+            </SelectContent>
+          </Select>
           <span v-else-if="currentProviderName" class="text-[10px] text-muted-foreground/50 ml-1">{{ currentProviderName }}</span>
         </div>
         <div class="flex items-center gap-0.5">

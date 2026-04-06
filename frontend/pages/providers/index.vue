@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -313,12 +314,12 @@ async function deleteProvider() {
           <!-- Provider Type -->
           <div class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('provider.providerType') }}</label>
-            <select
-              v-model="form.provider_type"
-              class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-            >
-              <option v-for="pt in providerTypes" :key="pt.value" :value="pt.value">{{ pt.label }}</option>
-            </select>
+            <Select v-model="form.provider_type">
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="pt in providerTypes" :key="pt.value" :value="pt.value">{{ pt.label }}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <!-- Model (Combobox-like: input + dropdown) -->
@@ -356,12 +357,12 @@ async function deleteProvider() {
           <!-- Bedrock: Region -->
           <div v-if="isBedrock" class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('provider.region') }}</label>
-            <select
-              v-model="form.region"
-              class="flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors"
-            >
-              <option v-for="r in awsRegions" :key="r" :value="r">{{ r }}</option>
-            </select>
+            <Select v-model="form.region">
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="r in awsRegions" :key="r" :value="r">{{ r }}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <!-- Gateway: Base URL -->
