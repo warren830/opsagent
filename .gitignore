@@ -29,11 +29,11 @@ backend/*.rs.bk
 Thumbs.db
 
 # Terraform
-iac/.terraform/
-iac/*.tfstate
-iac/*.tfstate.*
-iac/*.tfplan
-iac/.terraform.lock.hcl
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+**/.terraform.lock.hcl
 
 # Docker
 docker-compose.override.yml
