@@ -32,6 +32,7 @@ helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ 2>/dev/null || true
 helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
 helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
+helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
 helm repo update
 
 # Create gp3 StorageClass (default)
@@ -112,6 +113,46 @@ helm upgrade --install redis bitnami/redis \
     --timeout 600s \
     --wait
 log "Redis installed"
+
+# Observability Stack (Mimir + Loki + Tempo + Alloy)
+if [[ "$SKIP_OBSERVABILITY" != "true" ]]; then
+    step "Creating monitoring namespace"
+    kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+    step "Installing Mimir (metrics)"
+    helm upgrade --install mimir grafana/mimir-distributed \
+        -n monitoring \
+        -f "$SCRIPT_DIR/mimir-values.yaml" \
+        --timeout 600s \
+        --wait
+    log "Mimir installed"
+
+    step "Installing Loki (logs)"
+    helm upgrade --install loki grafana/loki \
+        -n monitoring \
+        -f "$SCRIPT_DIR/loki-values.yaml" \
+        --timeout 600s \
+        --wait
+    log "Loki installed"
+
+    step "Installing Tempo (traces)"
+    helm upgrade --install tempo grafana/tempo \
+        -n monitoring \
+        -f "$SCRIPT_DIR/tempo-values.yaml" \
+        --timeout 600s \
+        --wait
+    log "Tempo installed"
+
+    step "Installing Alloy (collector)"
+    helm upgrade --install alloy grafana/alloy \
+        -n monitoring \
+        -f "$SCRIPT_DIR/alloy-values.yaml" \
+        --timeout 600s \
+        --wait
+    log "Alloy installed"
+else
+    warn "Skipping Observability Stack (SKIP_OBSERVABILITY=true)"
+fi
 
 echo ""
 log "All Helm installations complete!"

@@ -42,8 +42,23 @@ pub async fn create(
     if req.name.trim().is_empty() {
         return Err(AppError::BadRequest("Name is required".to_string()));
     }
-    if req.command.trim().is_empty() {
-        return Err(AppError::BadRequest("Command is required".to_string()));
+
+    // Validate transport type
+    let transport = match req.transport_type.as_str() {
+        "stdio" | "sse" | "http" => req.transport_type.clone(),
+        _ => "stdio".to_string(),
+    };
+
+    // For stdio, command is required; for sse/http, url is required
+    if transport == "stdio" && req.command.trim().is_empty() {
+        return Err(AppError::BadRequest(
+            "Command is required for STDIO transport".to_string(),
+        ));
+    }
+    if (transport == "sse" || transport == "http") && req.url.as_deref().unwrap_or("").is_empty() {
+        return Err(AppError::BadRequest(
+            "URL is required for SSE/HTTP transport".to_string(),
+        ));
     }
 
     let visibility = match req.visibility.as_str() {
@@ -59,8 +74,8 @@ pub async fn create(
     };
 
     let row = sqlx::query_as::<_, McpServer>(
-        r#"INSERT INTO mcp_servers (name, command, args, env, enabled, tenant_id, user_id, created_by, visibility)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        r#"INSERT INTO mcp_servers (name, command, args, env, enabled, tenant_id, user_id, created_by, visibility, transport_type, url, headers, description)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
            RETURNING *"#,
     )
     .bind(&req.name)
@@ -72,6 +87,10 @@ pub async fn create(
     .bind(user_id)
     .bind(auth_user.user_id)
     .bind(&visibility)
+    .bind(&transport)
+    .bind(&req.url)
+    .bind(&req.headers)
+    .bind(&req.description)
     .fetch_one(&state.pool)
     .await?;
 
@@ -106,6 +125,10 @@ pub async fn update(
            args = COALESCE($4, args),
            env = COALESCE($5, env),
            enabled = COALESCE($6, enabled),
+           transport_type = COALESCE($7, transport_type),
+           url = COALESCE($8, url),
+           headers = COALESCE($9, headers),
+           description = COALESCE($10, description),
            updated_at = NOW()
            WHERE id = $1
            RETURNING *"#,
@@ -116,6 +139,10 @@ pub async fn update(
     .bind(&req.args)
     .bind(&req.env)
     .bind(req.enabled)
+    .bind(&req.transport_type)
+    .bind(&req.url)
+    .bind(&req.headers)
+    .bind(&req.description)
     .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| AppError::NotFound("MCP server not found".to_string()))?;

@@ -1,0 +1,100 @@
+# Grafana Alloy — metrics/logs/traces collector (DaemonSet)
+# Internal service only — no Ingress/ALB
+# Scrapes pod metrics → Mimir, collects logs → Loki, forwards traces → Tempo
+
+alloy:
+  configMap:
+    content: |
+      // ─── Kubernetes Discovery ───────────────────────────
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      discovery.kubernetes "nodes" {
+        role = "node"
+      }
+
+      // ─── Metrics: scrape pods with prometheus.io annotations ───
+      discovery.relabel "pod_metrics" {
+        targets = discovery.kubernetes.pods.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+          regex         = "true"
+          action        = "keep"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_port"]
+          target_label  = "__address__"
+          regex         = "(\\d+)"
+          replacement   = "${1}"
+          action        = "replace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+      }
+
+      prometheus.scrape "pods" {
+        targets    = discovery.relabel.pod_metrics.output
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      prometheus.remote_write "mimir" {
+        endpoint {
+          url = "http://mimir.monitoring.svc:9009/api/v1/push"
+        }
+      }
+
+      // ─── Logs: collect from all pods ────────────────────
+      loki.source.kubernetes "pods" {
+        targets    = discovery.kubernetes.pods.targets
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+        }
+      }
+
+      // ─── Traces: receive OTLP and forward to Tempo ─────
+      otelcol.receiver.otlp "default" {
+        grpc {
+          endpoint = "0.0.0.0:4317"
+        }
+        http {
+          endpoint = "0.0.0.0:4318"
+        }
+        output {
+          traces = [otelcol.exporter.otlp.tempo.input]
+        }
+      }
+
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "tempo.monitoring.svc:4317"
+          tls {
+            insecure = true
+          }
+        }
+      }
+
+controller:
+  type: DaemonSet
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+nodeSelector:
+  karpenter.sh/nodepool: common-nodepool

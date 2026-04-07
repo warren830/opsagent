@@ -73,14 +73,17 @@ SELECT * FROM (VALUES
 ) AS v(provider, name, account_id, config, is_mock)
 WHERE NOT EXISTS (SELECT 1 FROM cloud_accounts LIMIT 1);
 
--- Issues
-INSERT INTO issues (title, description, source, severity, status)
-SELECT * FROM (VALUES
-  ('ECS task OOM kills in prod-api cluster',
-   'Multiple ECS tasks in prod-api service are being killed due to memory limits. Affects 3 tasks in the last hour.',
-   'cloudwatch', 'high', 'open'),
-  ('Unusual cost spike in us-west-2 NAT Gateway',
-   'NAT Gateway data processing charges increased 340% compared to last week. Investigating source of traffic.',
-   'cost-explorer', 'medium', 'investigating')
-) AS v(title, description, source, severity, status)
-WHERE NOT EXISTS (SELECT 1 FROM issues LIMIT 1);
+-- Telemetry config (Grafana Cloud endpoints — API token left blank for security)
+INSERT INTO telemetry_config (provider, config, enabled)
+SELECT 'grafana', '{
+  "api_token": "",
+  "loki_user_id": "1535497",
+  "loki_endpoint_url": "https://logs-prod-030.grafana.net",
+  "tempo_user_id": "1529802",
+  "tempo_endpoint_url": "https://tempo-prod-20-prod-ap-northeast-0.grafana.net/tempo",
+  "mimir_user_id": "3079644",
+  "mimir_endpoint_url": "https://prometheus-prod-49-prod-ap-northeast-0.grafana.net/api/prom"
+}'::jsonb, false
+WHERE NOT EXISTS (SELECT 1 FROM telemetry_config LIMIT 1);
+
+-- Issues: no seed data — real issues come from Grafana webhooks via POST /api/alerts

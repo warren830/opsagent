@@ -1,0 +1,34 @@
+# Grafana Tempo — monolithic mode (trace storage)
+# Internal service only — no Ingress/ALB
+# Endpoint: http://tempo.monitoring.svc:3200
+
+tempo:
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+  retention: 168h  # 7 days
+
+persistence:
+  enabled: true
+  storageClassName: gp3
+  size: 10Gi
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1
+    memory: 1Gi
+
+nodeSelector:
+  karpenter.sh/nodepool: common-nodepool

@@ -29,7 +29,7 @@ pub async fn stats(
             sqlx::query_as("SELECT COUNT(*) FROM issues WHERE status IN ('open', 'investigating')")
                 .fetch_one(&state.pool)
                 .await?;
-        let active_sessions: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM claude_sessions WHERE is_active = true")
+        let active_sessions: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM claude_sessions ")
             .fetch_one(&state.pool)
             .await?;
 
@@ -66,11 +66,10 @@ pub async fn stats(
                 .bind(tid)
                 .fetch_one(&state.pool)
                 .await?;
-        let active_sessions: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM claude_sessions WHERE user_id = $1 AND is_active = true")
-                .bind(uid)
-                .fetch_one(&state.pool)
-                .await?;
+        let active_sessions: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM claude_sessions WHERE user_id = $1")
+            .bind(uid)
+            .fetch_one(&state.pool)
+            .await?;
 
         DashboardStats {
             tenants: tenants.0,

@@ -2,7 +2,7 @@
 import {
   Send, PanelRightClose, RotateCcw, ChevronDown, ChevronRight, Sparkles,
   AlertCircle, Terminal, Maximize2, Minimize2, Square, Pencil, Check, Paperclip,
-  FolderOpen, Trash2, Download, FileText,
+  FolderOpen, Trash2, Download, FileText, History,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -27,7 +27,7 @@ marked.setOptions({ breaks: true, gfm: true, renderer })
 const { t } = useI18n()
 const chatOpen = useState('chatPanelOpen', () => false)
 const chatFullscreen = useState('chatFullscreen', () => false)
-const { messages, isStreaming, sendMessage, editAndResend, abortStream, startNewChat, clearMessages, selectedProviderId } = useChat()
+const { messages, isStreaming, sendMessage, editAndResend, abortStream, startNewChat, clearMessages, selectedProviderId, currentSessionId, resumeSession } = useChat()
 
 // Model selector
 interface ProviderOption {
@@ -61,12 +61,22 @@ async function loadProviders() {
   } catch { /* ignore */ }
 }
 
-onMounted(loadProviders)
-watch(chatOpen, (open) => { if (open) loadProviders() })
+onMounted(() => { loadProviders(); loadSessions() })
+watch(chatOpen, (open) => { if (open) { loadProviders(); loadSessions() } })
 
 const inputText = ref('')
 const messagesEnd = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
+
+// Accept pre-filled prompts from other pages (e.g., Security Insights → Chat with Agent)
+const chatPrefill = useState<string>('chatPrefill', () => '')
+watch(chatPrefill, (val) => {
+  if (val) {
+    inputText.value = val
+    chatPrefill.value = ''
+    nextTick(() => inputRef.value?.focus())
+  }
+})
 
 // Expand/collapse state
 const expandedThinking = ref<Set<string>>(new Set())
@@ -89,6 +99,36 @@ const slashFilter = ref('')
 const slashSelectedIdx = ref(0)
 
 const api = useApi()
+
+// --- Sessions ---
+interface ChatSessionInfo {
+  id: string
+  claude_session_id: string
+  title: string | null
+  last_active_at: string
+}
+const recentSessions = ref<ChatSessionInfo[]>([])
+const showSessionPicker = ref(false)
+
+async function loadSessions() {
+  try {
+    recentSessions.value = await api.get<ChatSessionInfo[]>('/api/chat/sessions')
+  } catch { recentSessions.value = [] }
+}
+
+function selectSession(s: ChatSessionInfo) {
+  resumeSession(s.claude_session_id)
+  showSessionPicker.value = false
+  toast.success(t('chat.sessionResumed'))
+}
+
+function formatSessionTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return t('chat.justNow')
+  if (mins < 60) return `${mins}m`
+  return `${Math.floor(mins / 60)}h`
+}
 
 interface SlashCommand {
   name: string
@@ -242,7 +282,17 @@ function formatSize(bytes: number): string {
 function close() {
   chatOpen.value = false
   chatFullscreen.value = false
+  showSessionPicker.value = false
 }
+
+// Close session picker on click outside
+function onDocClick(e: MouseEvent) {
+  if (showSessionPicker.value && !(e.target as HTMLElement)?.closest('.relative')) {
+    showSessionPicker.value = false
+  }
+}
+onMounted(() => document.addEventListener('click', onDocClick))
+onUnmounted(() => document.removeEventListener('click', onDocClick))
 
 function toggleFullscreen() {
   chatFullscreen.value = !chatFullscreen.value
@@ -546,6 +596,52 @@ function startResize(e: MouseEvent) {
           <span v-else-if="currentProviderName" class="text-[10px] text-muted-foreground/50 ml-1">{{ currentProviderName }}</span>
         </div>
         <div class="flex items-center gap-0.5">
+          <div class="relative">
+            <button
+              class="h-6 w-6 rounded flex items-center justify-center transition-colors"
+              :class="showSessionPicker ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'"
+              :title="t('chat.sessions')"
+              @click="showSessionPicker = !showSessionPicker; if (showSessionPicker) loadSessions()"
+            >
+              <History class="h-3 w-3" />
+            </button>
+            <!-- Session dropdown -->
+            <Transition
+              enter-active-class="transition-all duration-150 ease-out"
+              leave-active-class="transition-all duration-100 ease-in"
+              enter-from-class="opacity-0 scale-95"
+              enter-to-class="opacity-100 scale-100"
+              leave-from-class="opacity-100 scale-100"
+              leave-to-class="opacity-0 scale-95"
+            >
+              <div
+                v-if="showSessionPicker"
+                class="absolute right-0 top-full mt-1 w-56 bg-card border border-border/60 rounded-lg shadow-lg z-30 overflow-hidden"
+              >
+                <div class="px-2.5 py-1.5 border-b border-border/40 flex items-center justify-between">
+                  <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">{{ t('chat.recentSessions') }}</span>
+                  <span class="text-[9px] text-muted-foreground/40">1h</span>
+                </div>
+                <div class="max-h-48 overflow-y-auto">
+                  <div v-if="recentSessions.length === 0" class="px-3 py-4 text-center text-[11px] text-muted-foreground/50">
+                    {{ t('chat.noSessions') }}
+                  </div>
+                  <button
+                    v-for="s in recentSessions"
+                    :key="s.id"
+                    class="w-full flex items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-accent/50"
+                    :class="currentSessionId === s.claude_session_id ? 'bg-primary/10 text-primary' : 'text-foreground'"
+                    @click="selectSession(s)"
+                  >
+                    <div class="min-w-0 flex-1">
+                      <div class="text-[11px] truncate">{{ s.title || s.claude_session_id.slice(0, 8) }}</div>
+                    </div>
+                    <span class="text-[9px] text-muted-foreground/50 shrink-0">{{ formatSessionTime(s.last_active_at) }}</span>
+                  </button>
+                </div>
+              </div>
+            </Transition>
+          </div>
           <button
             class="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             :title="t('chat.newChat')"

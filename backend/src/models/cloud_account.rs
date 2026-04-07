@@ -36,6 +36,9 @@ pub struct CreateCloudAccountRequest {
     pub tenant_id: Option<Uuid>,
     #[serde(default)]
     pub is_mock: bool,
+    /// If true, trigger Organization discovery after creating this account
+    #[serde(default)]
+    pub discover_org: bool,
 }
 
 #[derive(Debug, Deserialize)]

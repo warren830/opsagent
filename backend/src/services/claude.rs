@@ -158,12 +158,17 @@ impl ClaudeService {
     /// When `use_stream_input` is true, uses `--input-format stream-json` and reads from stdin
     /// instead of passing the message as a positional argument (needed for images).
     /// Skills are discovered natively by Claude CLI from `.claude/skills/` in `work_dir`.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_args(
         &self,
         message: &str,
         session_id: Option<&str>,
         system_prompt: Option<&str>,
         use_stream_input: bool,
+        permission_mode: &str,
+        disallowed_tools: &[String],
+        allowed_tools: &[String],
+        mcp_config: Option<&str>,
     ) -> Vec<String> {
         let mut args = vec!["-p".to_string()];
 
@@ -181,8 +186,26 @@ impl ClaudeService {
             "--model".to_string(),
             self.model.clone(),
             "--permission-mode".to_string(),
-            "bypassPermissions".to_string(),
+            permission_mode.to_string(),
         ]);
+
+        // Tool blocklist: restricts which tools the agent CANNOT use
+        if !disallowed_tools.is_empty() {
+            args.push("--disallowedTools".to_string());
+            args.push(disallowed_tools.join(","));
+        }
+
+        // Tool allowlist patterns: e.g. Bash(read-only:*) restricts Bash to read-only
+        if !allowed_tools.is_empty() {
+            args.push("--allowedTools".to_string());
+            args.push(allowed_tools.join(","));
+        }
+
+        // MCP server configuration (JSON string)
+        if let Some(cfg) = mcp_config {
+            args.push("--mcp-config".to_string());
+            args.push(cfg.to_string());
+        }
 
         if use_stream_input {
             args.push("--input-format".to_string());
@@ -241,6 +264,7 @@ impl ClaudeService {
     /// When `images` is non-empty, uses `--input-format stream-json` to pipe
     /// multimodal content via stdin (base64 images + text).
     /// `env_vars` are injected into the child process (e.g. AWS_PROFILE, AWS_ROLE_ARN).
+    #[allow(clippy::too_many_arguments)]
     pub fn run(
         self,
         message: &str,
@@ -248,16 +272,30 @@ impl ClaudeService {
         system_prompt: Option<&str>,
         images: Vec<ChatImageData>,
         env_vars: Vec<(String, String)>,
+        permission_mode: &str,
+        disallowed_tools: &[String],
+        allowed_tools: &[String],
+        mcp_config: Option<&str>,
     ) -> Result<impl Stream<Item = StreamChunk> + Send + 'static, std::io::Error> {
         let has_images = !images.is_empty();
-        let args = self.build_args(message, session_id, system_prompt, has_images);
+        let args = self.build_args(
+            message,
+            session_id,
+            system_prompt,
+            has_images,
+            permission_mode,
+            disallowed_tools,
+            allowed_tools,
+            mcp_config,
+        );
         let timeout = self.timeout;
 
         tracing::info!(
-            "Spawning claude with {} images, {} env vars, args: {:?} in {:?}",
+            "Spawning claude: model={}, {} images, env_vars={:?}, args: {:?} in {:?}",
+            self.model,
             images.len(),
-            env_vars.len(),
-            &args[..3.min(args.len())],
+            env_vars.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
+            &args,
             self.work_dir
         );
 
@@ -282,6 +320,14 @@ impl ClaudeService {
             .stdin(stdin_mode)
             .kill_on_drop(true);
 
+        // Remove inherited env vars that interfere with model routing
+        // These force Claude CLI into Bedrock mode, breaking non-Bedrock models (Gemini, etc.)
+        cmd.env_remove("AWS_BEARER_TOKEN_BEDROCK");
+        cmd.env_remove("AWS_BEARER_TOKEN");
+        cmd.env_remove("CLAUDE_CODE_USE_BEDROCK");
+        cmd.env_remove("ANTHROPIC_BASE_URL");
+        cmd.env_remove("ANTHROPIC_API_KEY");
+
         // Inject environment variables (e.g. AWS_PROFILE, AWS_ROLE_ARN)
         for (key, value) in &env_vars {
             cmd.env(key, value);
@@ -293,6 +339,7 @@ impl ClaudeService {
         let child_stdin = child.stdin.take();
 
         let stdout = child.stdout.take().ok_or_else(|| std::io::Error::other("No stdout"))?;
+        let stderr = child.stderr.take();
 
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
@@ -356,6 +403,16 @@ impl ClaudeService {
                         // 60s line timeout — still waiting, continue
                         continue;
                     }
+                }
+            }
+
+            // Read stderr for debugging
+            if let Some(stderr) = stderr {
+                let mut stderr_reader = BufReader::new(stderr);
+                let mut stderr_buf = String::new();
+                let _ = tokio::io::AsyncReadExt::read_to_string(&mut stderr_reader, &mut stderr_buf).await;
+                if !stderr_buf.is_empty() {
+                    tracing::warn!("Claude CLI stderr: {}", &stderr_buf[..stderr_buf.len().min(2000)]);
                 }
             }
 

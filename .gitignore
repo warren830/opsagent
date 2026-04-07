@@ -51,4 +51,7 @@ dist/
 build/
 
 # Workspace (runtime user data)
-backend/workspace/
+workspace/
+
+# Service Screener (cloned locally)
+.openops/

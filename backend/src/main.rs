@@ -57,6 +57,29 @@ async fn main() {
         config: config.clone(),
     };
 
+    // Spawn prediction scheduler (background task)
+    if std::env::var("SKIP_PREDICTION").unwrap_or_default() != "true" {
+        let scheduler_pool = state.pool.clone();
+        let interval_secs: u64 = std::env::var("PREDICTION_INTERVAL_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1800);
+        tracing::info!("Prediction scheduler enabled (interval={}s)", interval_secs);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            // Skip the first immediate tick — let the server warm up
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                if let Err(e) = services::prediction::run_prediction_check(&scheduler_pool).await {
+                    tracing::error!("Prediction check failed: {}", e);
+                }
+            }
+        });
+    } else {
+        tracing::info!("Prediction scheduler disabled (SKIP_PREDICTION=true)");
+    }
+
     // Build CORS layer
     let cors = middleware::cors::build_cors_layer(&config);
 
@@ -89,7 +112,11 @@ fn build_router(state: AppState) -> Router {
     // Public routes (no auth required)
     let public_routes = Router::new()
         .route("/health", get(handlers::health::health_check))
-        .route("/api/auth/login", post(handlers::auth::login));
+        .route("/api/auth/login", post(handlers::auth::login))
+        // Alerting webhooks (no auth — external services cannot send JWT)
+        .route("/api/alerts", post(handlers::alerts::receive))
+        .route("/api/alerts/datadog", post(handlers::alerts::receive_datadog))
+        .route("/api/alerts/dynatrace", post(handlers::alerts::receive_dynatrace));
 
     // Protected routes (auth required)
     let protected_routes = Router::new()
@@ -151,6 +178,10 @@ fn build_router(state: AppState) -> Router {
             "/api/accounts/{id}/test",
             post(handlers::cloud_account::test_connection),
         )
+        .route(
+            "/api/accounts/{id}/discover-org",
+            post(handlers::cloud_account::discover_org),
+        )
         .route("/api/accounts/seed-mock", post(handlers::cloud_account::seed_mock))
         // Approvals
         .route("/api/approvals", get(handlers::approval::list))
@@ -170,15 +201,29 @@ fn build_router(state: AppState) -> Router {
             "/api/clusters",
             get(handlers::cluster::list).post(handlers::cluster::create),
         )
+        .route("/api/clusters/discover", post(handlers::cluster::discover))
         .route(
             "/api/clusters/{id}",
             put(handlers::cluster::update).delete(handlers::cluster::delete),
         )
-        // Resources
+        // Resources / Security Insights
         .route("/api/resources", get(handlers::resource::list))
         .route("/api/resources/scan", post(handlers::resource::scan))
+        .route("/api/resources/scans", get(handlers::resource::list_scans))
+        .route("/api/resources/scans/{id}", get(handlers::resource::get_scan))
+        .route("/api/resources/findings", get(handlers::resource::list_findings))
+        .route("/api/resources/dashboard", get(handlers::resource::dashboard))
+        .route(
+            "/api/resources/screener/status",
+            get(handlers::resource::screener_status),
+        )
+        .route(
+            "/api/resources/screener/setup",
+            post(handlers::resource::setup_screener),
+        )
         // Issues
         .route("/api/issues", get(handlers::issue::list))
+        .route("/api/issues/count", get(handlers::issue::count))
         .route(
             "/api/issues/{id}",
             get(handlers::issue::get).put(handlers::issue::update),
@@ -208,8 +253,16 @@ fn build_router(state: AppState) -> Router {
             get(handlers::pipeline::list).post(handlers::pipeline::create),
         )
         .route(
+            "/api/pipeline/repos/test",
+            post(handlers::pipeline::test_connection_inline),
+        )
+        .route(
             "/api/pipeline/repos/{id}",
             put(handlers::pipeline::update).delete(handlers::pipeline::delete),
+        )
+        .route(
+            "/api/pipeline/repos/{id}/test",
+            post(handlers::pipeline::test_connection),
         )
         // Telemetry
         .route(

@@ -57,6 +57,9 @@ export default defineNuxtConfig({
     },
   },
 
+  // Note: shadcn-vue ui/ barrel files (index.ts) cause harmless duplicate
+  // component name warnings. These are safe to ignore.
+
   // TypeScript
   typescript: {
     strict: true,

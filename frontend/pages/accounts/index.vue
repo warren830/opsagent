@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Pencil, Trash2, Search, Zap, BookOpen, X, Shield } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Zap, BookOpen, X, Shield, Building2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -81,6 +81,7 @@ const loading = ref(true)
 const saving = ref(false)
 const discovering = ref(false)
 const testingId = ref<string | null>(null)
+const discoveringOrgId = ref<string | null>(null)
 
 const showFormDialog = ref(false)
 const editingAccount = ref<Account | null>(null)
@@ -108,6 +109,7 @@ const form = ref({
   selectedRegions: ['us-east-1'] as string[],
   tenant_id: '',
   is_mock: false,
+  discover_org: false,
 })
 
 const isEditing = computed(() => !!editingAccount.value)
@@ -199,7 +201,7 @@ onMounted(() => {
 
 function openCreate() {
   editingAccount.value = null
-  form.value = { provider: 'aws', name: '', account_id: '', mode: 'cloud', role_arn: '', profile: '', allRegions: false, selectedRegions: ['us-east-1'], tenant_id: tenants.value[0]?.id || '', is_mock: false }
+  form.value = { provider: 'aws', name: '', account_id: '', mode: 'cloud', role_arn: '', profile: '', allRegions: false, selectedRegions: ['us-east-1'], tenant_id: tenants.value[0]?.id || '', is_mock: false, discover_org: false }
   showRegionPicker.value = false
   showFormDialog.value = true
 }
@@ -219,6 +221,7 @@ function openEdit(account: Account) {
     selectedRegions: isAll ? [] : [...regions],
     tenant_id: account.tenant_id || '',
     is_mock: account.is_mock,
+    discover_org: false,
   }
   showRegionPicker.value = false
   showFormDialog.value = true
@@ -242,6 +245,7 @@ async function saveAccount() {
       regions,
       tenant_id: form.value.tenant_id || null,
       is_mock: form.value.is_mock,
+      discover_org: form.value.discover_org && form.value.provider === 'aws',
       config: {},
     }
     if (isEditing.value) {
@@ -249,9 +253,18 @@ async function saveAccount() {
     } else {
       await api.post('/api/accounts', payload)
     }
+    const didDiscoverOrg = !isEditing.value && payload.discover_org
     toast.success(t('common.success'))
     showFormDialog.value = false
     await fetchAccounts()
+    // Org discovery runs in background — refresh again after a few seconds
+    if (didDiscoverOrg) {
+      toast.info(t('account.discovering'))
+      setTimeout(async () => {
+        await fetchAccounts()
+        toast.success(t('account.discoverSuccess', { count: accounts.value.filter(a => a.source === 'organization').length }))
+      }, 4000)
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : t('common.error')
     toast.error(msg)
@@ -274,7 +287,7 @@ async function deleteAccount() {
   }
 }
 
-async function discoverAccounts() {
+async function _discoverAccounts() {
   discovering.value = true
   try {
     const result = await api.post<Account[]>('/api/accounts/discover', {})
@@ -289,6 +302,24 @@ async function discoverAccounts() {
     toast.error(msg)
   } finally {
     discovering.value = false
+  }
+}
+
+async function discoverOrg(account: Account) {
+  discoveringOrgId.value = account.id
+  try {
+    const result = await api.post<Account[]>(`/api/accounts/${account.id}/discover-org`, {})
+    if (result.length > 0) {
+      toast.success(t('account.discoverSuccess', { count: result.length }))
+      await fetchAccounts()
+    } else {
+      toast.info(t('account.discoverEmpty'))
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : t('common.error')
+    toast.error(msg)
+  } finally {
+    discoveringOrgId.value = null
   }
 }
 
@@ -367,16 +398,10 @@ async function revokeAccess(userId: string) {
     <!-- Page Header -->
     <div class="flex items-center justify-between">
       <h1 class="text-base font-semibold text-foreground">{{ t('account.title') }}</h1>
-      <div class="flex items-center gap-2">
-        <Button variant="outline" size="sm" :disabled="discovering" @click="discoverAccounts">
-          <Search class="h-3.5 w-3.5" :class="{ 'animate-spin': discovering }" />
-          {{ discovering ? t('account.discovering') : t('account.discover') }}
-        </Button>
-        <Button size="sm" @click="openCreate">
-          <Plus class="h-3.5 w-3.5" />
-          {{ t('account.addAccount') }}
-        </Button>
-      </div>
+      <Button size="sm" @click="openCreate">
+        <Plus class="h-3.5 w-3.5" />
+        {{ t('account.addAccount') }}
+      </Button>
     </div>
 
     <!-- Data Table -->
@@ -432,9 +457,20 @@ async function revokeAccess(userId: string) {
           variant="ghost"
           size="icon-sm"
           :disabled="testingId === (row as Account).id"
+          :title="t('account.testConnection')"
           @click="testConnection(row as Account)"
         >
           <Zap class="h-3 w-3" :class="{ 'animate-pulse text-yellow-500': testingId === (row as Account).id }" />
+        </Button>
+        <Button
+          v-if="(row as Account).provider === 'aws' && !(row as Account).is_mock"
+          variant="ghost"
+          size="icon-sm"
+          :disabled="discoveringOrgId === (row as Account).id"
+          :title="t('account.discoverOrg')"
+          @click="discoverOrg(row as Account)"
+        >
+          <Building2 class="h-3 w-3" :class="{ 'animate-spin text-primary': discoveringOrgId === (row as Account).id }" />
         </Button>
         <Button variant="ghost" size="icon-sm" @click="openAccessDialog(row as Account)" :title="t('account.manageAccess')">
           <Shield class="h-3 w-3" />
@@ -589,6 +625,15 @@ async function revokeAccess(userId: string) {
           <div class="flex items-center justify-between rounded border border-border/60 px-3 py-2">
             <label class="text-xs font-medium">Mock</label>
             <Switch v-model:checked="form.is_mock" />
+          </div>
+
+          <!-- Discover Organization (AWS only, create mode) -->
+          <div v-if="form.provider === 'aws' && !isEditing" class="flex items-center justify-between rounded border border-primary/30 bg-primary/5 px-3 py-2">
+            <div>
+              <label class="text-xs font-medium">{{ t('account.discoverOrg') }}</label>
+              <p class="text-[10px] text-muted-foreground">{{ t('account.discoverOrgDesc') }}</p>
+            </div>
+            <Switch v-model:checked="form.discover_org" />
           </div>
 
           <DialogFooter class="gap-1.5 pt-1">

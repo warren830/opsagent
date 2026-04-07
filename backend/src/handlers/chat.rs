@@ -12,7 +12,7 @@ use tokio_stream::Stream;
 
 use crate::AppState;
 use crate::error::{AppError, AppResult};
-use crate::middleware::auth::AuthUser;
+use crate::middleware::auth::{AuthUser, Claims};
 use crate::services::claude::{ChatImageData, ClaudeService, StreamChunk};
 
 #[derive(Debug, Deserialize)]
@@ -64,18 +64,31 @@ pub async fn stream(
     let user_work_dir = base_work_dir.join("users").join(auth_user.user_id.to_string());
 
     // Read model config from providers table, fallback to env config
-    let (model, timeout, max_turns, provider_env_vars) =
-        load_provider_config(&state, auth_user.tenant_id, req.provider_id).await;
+    let provider = load_provider_config(&state, auth_user.tenant_id, req.provider_id).await;
+
+    tracing::info!(
+        "Provider config: model={}, provider_id={:?}, permission={}, disallowed={:?}, allowed={:?}, env_keys={:?}",
+        provider.model,
+        req.provider_id,
+        provider.permission_mode,
+        provider.disallowed_tools,
+        provider.allowed_tools,
+        provider.env_vars.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>()
+    );
 
     // Build per-user .claude/skills/ with symlinks to authorized skills
     setup_user_skill_symlinks(&state, &user_work_dir, auth_user.user_id, auth_user.tenant_id).await;
 
+    // Write CLAUDE.md to user workspace — Claude CLI natively loads this as project instructions.
+    // This is far more effective than --system-prompt for controlling agent behavior.
+    write_user_claude_md(&state, &auth_user, &user_work_dir).await;
+
     let service = ClaudeService::new(
         claude_bin,
         user_work_dir.clone(),
-        timeout,
-        model,
-        max_turns,
+        provider.timeout,
+        provider.model.clone(),
+        provider.max_turns,
         state.pool.clone(),
     );
 
@@ -120,9 +133,21 @@ pub async fn stream(
     let message_text = req.message.clone();
 
     // Build env vars: provider config + AWS credentials from cloud accounts
-    let mut all_env_vars = provider_env_vars;
+    let mut all_env_vars = provider.env_vars;
     let aws_env_vars = build_aws_env_vars(&state, &auth_user).await;
     all_env_vars.extend(aws_env_vars);
+
+    // Generate short-lived API token for agent to call OpenOps APIs
+    if let Some(token) = generate_agent_token(&auth_user, &state.config.jwt_secret) {
+        all_env_vars.push(("OPENOPS_API_TOKEN".to_string(), token));
+        all_env_vars.push((
+            "OPENOPS_API_BASE".to_string(),
+            format!("http://localhost:{}", state.config.backend_port),
+        ));
+    }
+
+    // Build MCP config from user's enabled MCP servers
+    let mcp_config = build_mcp_config(&state, &auth_user).await;
 
     // Spawn Claude CLI process — skills are discovered via .claude/skills/ in user_work_dir
     let event_stream: SseEventStream = match service.run(
@@ -131,6 +156,10 @@ pub async fn stream(
         Some(&system_prompt),
         images,
         all_env_vars,
+        &provider.permission_mode,
+        &provider.disallowed_tools,
+        &provider.allowed_tools,
+        mcp_config.as_deref(),
     ) {
         Ok(claude_stream) => {
             let sse_stream = tokio_stream::StreamExt::map(claude_stream, move |chunk| {
@@ -154,7 +183,9 @@ pub async fn stream(
                                 25,
                                 pool,
                             );
-                            let _ = svc.save_session(&sid, user_id, tenant_id, Some(&title)).await;
+                            if let Err(e) = svc.save_session(&sid, user_id, tenant_id, Some(&title)).await {
+                                tracing::error!("Failed to save session (init): {}", e);
+                            }
                         });
                     }
                     StreamChunk::Done {
@@ -171,7 +202,9 @@ pub async fn stream(
                                 25,
                                 pool,
                             );
-                            let _ = svc.save_session(&sid, user_id, tenant_id, None).await;
+                            if let Err(e) = svc.save_session(&sid, user_id, tenant_id, None).await {
+                                tracing::error!("Failed to save session (done): {}", e);
+                            }
                         });
                     }
                     _ => {}
@@ -200,6 +233,25 @@ pub async fn stream(
             .interval(Duration::from_secs(15))
             .text("ping"),
     )
+}
+
+/// Generate a short-lived JWT for the agent to call OpenOps APIs
+fn generate_agent_token(auth_user: &AuthUser, jwt_secret: &str) -> Option<String> {
+    let now = chrono::Utc::now().timestamp() as usize;
+    let claims = Claims {
+        sub: auth_user.user_id,
+        role: auth_user.role.clone(),
+        tenant_id: auth_user.tenant_id,
+        username: auth_user.username.clone(),
+        iat: now,
+        exp: now + 7200, // 2 hours — covers long-running agent sessions
+    };
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(jwt_secret.as_bytes()),
+    )
+    .ok()
 }
 
 /// Build AWS credential environment variables from the tenant's primary cloud account.
@@ -252,31 +304,161 @@ async fn build_aws_env_vars(state: &AppState, auth_user: &AuthUser) -> Vec<(Stri
     env_vars
 }
 
-/// Build system prompt with account-level context (glossary, knowledge, accounts)
+/// Build MCP config JSON string for Claude CLI --mcp-config flag.
+/// Queries enabled MCP servers accessible to the user and formats them as Claude CLI expects.
+async fn build_mcp_config(state: &AppState, auth_user: &AuthUser) -> Option<String> {
+    let servers = sqlx::query_as::<_, crate::models::mcp::McpServer>(
+        r#"SELECT * FROM mcp_servers
+           WHERE enabled = true
+           AND ((user_id = $1) OR (user_id IS NULL AND tenant_id IS NOT DISTINCT FROM $2))
+           ORDER BY name"#,
+    )
+    .bind(auth_user.user_id)
+    .bind(auth_user.tenant_id)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap_or_default();
+
+    if servers.is_empty() {
+        return None;
+    }
+
+    let mut mcp_servers = serde_json::Map::new();
+
+    for srv in &servers {
+        let entry = match srv.transport_type.as_str() {
+            "sse" | "http" => {
+                let mut obj = serde_json::Map::new();
+                obj.insert("type".to_string(), serde_json::json!(srv.transport_type));
+                if let Some(url) = &srv.url {
+                    obj.insert("url".to_string(), serde_json::json!(url));
+                }
+                if srv.headers != serde_json::json!({}) {
+                    obj.insert("headers".to_string(), srv.headers.clone());
+                }
+                if srv.env != serde_json::json!({}) {
+                    obj.insert("env".to_string(), srv.env.clone());
+                }
+                serde_json::Value::Object(obj)
+            }
+            _ => {
+                // stdio
+                let mut obj = serde_json::Map::new();
+                obj.insert("command".to_string(), serde_json::json!(srv.command));
+                if srv.args != serde_json::json!([]) {
+                    obj.insert("args".to_string(), srv.args.clone());
+                }
+                if srv.env != serde_json::json!({}) {
+                    obj.insert("env".to_string(), srv.env.clone());
+                }
+                serde_json::Value::Object(obj)
+            }
+        };
+        mcp_servers.insert(srv.name.clone(), entry);
+    }
+
+    let config = serde_json::json!({ "mcpServers": mcp_servers });
+    let json_str = serde_json::to_string(&config).ok()?;
+
+    tracing::info!(
+        "MCP config: {} server(s): {:?}",
+        servers.len(),
+        servers.iter().map(|s| &s.name).collect::<Vec<_>>()
+    );
+
+    Some(json_str)
+}
+
+/// Build system prompt — lightweight since CLAUDE.md handles the heavy lifting.
+/// System prompt is for basic role identity; CLAUDE.md (loaded natively by Claude CLI)
+/// handles all detailed instructions, API endpoints, glossary, and accounts.
 async fn build_system_prompt(
-    state: &AppState,
-    auth_user: &AuthUser,
-    user_work_dir: &std::path::Path,
+    _state: &AppState,
+    _auth_user: &AuthUser,
+    _user_work_dir: &std::path::Path,
     custom: Option<&str>,
 ) -> String {
+    let mut parts = vec![
+        "You are OpenOps AI, a multi-cloud infrastructure operations assistant.".to_string(),
+        "Answer in the user's language. Be concise and actionable.".to_string(),
+        "Follow all instructions in CLAUDE.md carefully.".to_string(),
+    ];
+
+    if let Some(custom) = custom {
+        parts.push(format!("\n{}", custom));
+    }
+
+    parts.join("\n")
+}
+
+/// Write CLAUDE.md into the user's workspace directory.
+/// Claude CLI natively loads CLAUDE.md as project-level instructions with high priority.
+/// This is far more effective than --system-prompt for controlling agent behavior.
+async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_dir: &std::path::Path) {
     let account_ids = crate::handlers::account_access::get_accessible_account_ids(&state.pool, auth_user).await;
     let workspace_path = std::fs::canonicalize(user_work_dir).unwrap_or_else(|_| user_work_dir.to_path_buf());
 
-    let mut parts = vec![
-        "You are OpenOps AI, a multi-cloud infrastructure operations assistant.".to_string(),
-        "You help users manage AWS, Alicloud, and Azure cloud resources.".to_string(),
-        "Answer in the user's language. Be concise and actionable.".to_string(),
-        format!("\n## CRITICAL ENVIRONMENT RULES (override any skill instructions)"),
-        "You are running inside the OpenOps platform. The following rules OVERRIDE any instructions from skills or SKILL.md files:".to_string(),
-        format!("1. WORKSPACE: All output files MUST be saved to: {}", workspace_path.display()),
-        "2. CREDENTIALS: AWS credentials are ALREADY configured via environment variables and IAM roles. NEVER ask the user for AWS Profile, AK/SK, credentials, or authentication method. Always use `--auth default` or equivalent default credential chain.".to_string(),
-        "3. ACCOUNTS: The tenant's cloud accounts are listed below. Use them directly. NEVER ask the user to provide account IDs.".to_string(),
-        "4. AUTO-FILL THESE (do NOT ask): auth method (always default credentials), output path (always workspace).".to_string(),
-        format!("   - Output path: {}", workspace_path.display()),
-        "5. MUST ASK USER for scope selection: When a skill requires the user to choose regions, months, time ranges, or other scan scope parameters, you MUST ask and wait for the user's response before executing. Do NOT auto-select all or assume defaults for scope.".to_string(),
-    ];
+    let mut lines = Vec::new();
 
-    // Inject glossary terms (filtered by accessible accounts)
+    lines.push("# OpenOps Agent Instructions".to_string());
+    lines.push(String::new());
+    lines.push("You are OpenOps AI, a multi-cloud infrastructure operations assistant.".to_string());
+    lines.push("Answer in the user's language. Be concise and actionable.".to_string());
+    lines.push(String::new());
+
+    // Environment rules
+    lines.push("## Environment Rules".to_string());
+    lines.push(String::new());
+    lines.push(format!(
+        "- **Workspace**: All output files MUST be saved to `{}`",
+        workspace_path.display()
+    ));
+    lines.push("- **Credentials**: AWS credentials are pre-configured via environment variables. NEVER ask the user for credentials.".to_string());
+    lines.push(
+        "- **Scope**: When a task requires choosing regions, months, time ranges — always ASK the user first."
+            .to_string(),
+    );
+    lines.push(String::new());
+
+    // Knowledge API — the critical part
+    lines.push("## How to Answer Knowledge Questions".to_string());
+    lines.push(String::new());
+    lines.push("When the user asks about **internal terminology, glossary, abbreviations, runbooks, knowledge base entries, cloud accounts, or security findings**, you MUST query the OpenOps API.".to_string());
+    lines.push(String::new());
+    lines.push("The knowledge is stored in a database, NOT in local files. Do NOT search or read local files for this information.".to_string());
+    lines.push(String::new());
+    lines.push("Use these commands (env vars are pre-set):".to_string());
+    lines.push(String::new());
+    lines.push("```bash".to_string());
+    lines.push("# Glossary (internal terminology)".to_string());
+    lines
+        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/glossary\"".to_string());
+    lines.push(String::new());
+    lines.push("# Knowledge base (runbooks, docs)".to_string());
+    lines.push(
+        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/knowledge\"".to_string(),
+    );
+    lines.push(String::new());
+    lines.push("# Cloud accounts".to_string());
+    lines
+        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/accounts\"".to_string());
+    lines.push(String::new());
+    lines.push("# Security findings".to_string());
+    lines
+        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/findings\"".to_string());
+    lines.push(String::new());
+    lines.push("# Kubernetes clusters".to_string());
+    lines
+        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters\"".to_string());
+    lines.push(String::new());
+    lines.push("# Active issues / alerts".to_string());
+    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/issues\"".to_string());
+    lines.push("```".to_string());
+    lines.push(String::new());
+    lines.push("Always call the API FIRST before answering. If the API returns empty results, tell the user no data is available.".to_string());
+    lines.push(String::new());
+
+    // Inject glossary inline as quick reference (so agent doesn't need API call for common terms)
     if let Ok(terms) = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
         "SELECT term, full_name, description FROM glossary WHERE account_id = ANY($1) OR account_id IS NULL LIMIT 50",
     )
@@ -285,53 +467,92 @@ async fn build_system_prompt(
     .await
         && !terms.is_empty()
     {
-        parts.push("\n## Internal Glossary".to_string());
+        lines.push("## Quick Glossary Reference".to_string());
+        lines.push(String::new());
         for (term, full_name, desc) in terms {
             let full = full_name.unwrap_or_default();
             let d = desc.unwrap_or_default();
-            parts.push(format!("- **{}** ({}): {}", term, full, d));
+            lines.push(format!("- **{}** ({}): {}", term, full, d));
         }
+        lines.push(String::new());
     }
 
-    // Inject knowledge base items (filtered by accessible accounts)
-    if let Ok(docs) = sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT filename, content FROM knowledge_files WHERE (account_id = ANY($1) OR account_id IS NULL) AND content IS NOT NULL LIMIT 20",
-    )
-    .bind(&account_ids)
-    .fetch_all(&state.pool)
-    .await
-        && !docs.is_empty() {
-            parts.push("\n## Knowledge Base".to_string());
-            for (title, content) in docs {
-                let c = content.unwrap_or_default();
-                let truncated = if c.len() > 500 { &c[..500] } else { &c };
-                parts.push(format!("### {}\n{}", title, truncated));
-            }
-        }
-
-    // Inject cloud accounts info (with regions array, filtered by accessible accounts)
+    // Inject cloud accounts
     if let Ok(accounts) = sqlx::query_as::<_, (String, String, Option<String>, Option<String>, Vec<String>)>(
         "SELECT provider, name, account_id, role_arn, regions FROM cloud_accounts WHERE id = ANY($1) AND is_mock = false LIMIT 20",
     )
     .bind(&account_ids)
     .fetch_all(&state.pool)
     .await
-        && !accounts.is_empty() {
-            parts.push("\n## Available Cloud Accounts".to_string());
-            for (provider, name, account_id, role_arn, regions) in &accounts {
-                let aid = account_id.as_deref().unwrap_or("-");
-                let regions_str = if regions.is_empty() { "ALL (no restriction)".to_string() } else { regions.join(", ") };
-                let role_info = role_arn.as_deref().map(|r| format!(", Role: {}", r)).unwrap_or_default();
-                parts.push(format!("- {} ({}) — Account: {}, Regions: [{}]{}", name, provider, aid, regions_str, role_info));
-            }
+        && !accounts.is_empty()
+    {
+        lines.push("## Available Cloud Accounts".to_string());
+        lines.push(String::new());
+        for (provider, name, account_id, role_arn, regions) in &accounts {
+            let aid = account_id.as_deref().unwrap_or("-");
+            let regions_str = if regions.is_empty() { "ALL".to_string() } else { regions.join(", ") };
+            let role_info = role_arn.as_deref().map(|r| format!(", Role: {}", r)).unwrap_or_default();
+            lines.push(format!("- {} ({}) — Account: {}, Regions: [{}]{}", name, provider, aid, regions_str, role_info));
         }
-
-    // Append custom system prompt
-    if let Some(custom) = custom {
-        parts.push(format!("\n## Additional Context\n{}", custom));
+        lines.push(String::new());
     }
 
-    parts.join("\n")
+    // Inject clusters
+    if let Ok(clusters) = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, String)>(
+        "SELECT name, cloud, cluster_type, region, account_id, status FROM clusters WHERE tenant_id IS NOT DISTINCT FROM $1 LIMIT 20",
+    )
+    .bind(auth_user.tenant_id)
+    .fetch_all(&state.pool)
+    .await
+        && !clusters.is_empty()
+    {
+        lines.push("## Kubernetes Clusters".to_string());
+        lines.push(String::new());
+        for (name, cloud, ctype, region, account_id, status) in &clusters {
+            let r = region.as_deref().unwrap_or("?");
+            let aid = account_id.as_deref().unwrap_or("-");
+            lines.push(format!("- {} ({}/{}) — Region: {}, Account: {}, Status: {}", name, cloud, ctype, r, aid, status));
+        }
+        lines.push(String::new());
+    }
+
+    // ─── Observability note ──────────────────────────────────────
+    // Full prediction + RCA instructions are in project CLAUDE.md.
+    // Here we just remind the agent how to discover telemetry endpoints at runtime.
+    lines.push("## Observability".to_string());
+    lines.push(String::new());
+    lines.push(
+        "Prediction and RCA instructions are defined in the project CLAUDE.md. To get live telemetry endpoints:"
+            .to_string(),
+    );
+    lines.push(String::new());
+    lines.push("```bash".to_string());
+    lines.push("# Fetch configured telemetry provider + endpoints".to_string());
+    lines.push("curl -s -H 'Authorization: Bearer $TOKEN' http://localhost:3080/api/telemetry | jq .".to_string());
+    lines.push("```".to_string());
+    lines.push(String::new());
+
+    let content = lines.join("\n");
+    let claude_md_path = user_work_dir.join("CLAUDE.md");
+
+    // Only write if content changed (avoid unnecessary disk writes)
+    let should_write = match tokio::fs::read_to_string(&claude_md_path).await {
+        Ok(existing) => existing != content,
+        Err(_) => true,
+    };
+
+    if should_write {
+        // Ensure directory exists
+        if let Err(e) = tokio::fs::create_dir_all(user_work_dir).await {
+            tracing::warn!("Failed to create user work dir {:?}: {}", user_work_dir, e);
+            return;
+        }
+        if let Err(e) = tokio::fs::write(&claude_md_path, &content).await {
+            tracing::warn!("Failed to write CLAUDE.md to {:?}: {}", claude_md_path, e);
+        } else {
+            tracing::info!("Wrote CLAUDE.md ({} bytes) to {:?}", content.len(), claude_md_path);
+        }
+    }
 }
 
 /// Build per-user `.claude/skills/` directory with symlinks to authorized skills only.
@@ -422,8 +643,9 @@ pub async fn list_sessions(
            FROM claude_sessions
            WHERE user_id = $1
            AND ($2::UUID IS NULL OR tenant_id = $2)
+           AND last_active_at > NOW() - INTERVAL '1 hour'
            ORDER BY last_active_at DESC
-           LIMIT 50"#,
+           LIMIT 20"#,
     )
     .bind(auth_user.user_id)
     .bind(auth_user.tenant_id)
@@ -447,7 +669,10 @@ fn build_provider_env_vars(provider_type: &str, config: &serde_json::Value) -> V
             if let Some(u) = config.get("base_url").and_then(|v| v.as_str())
                 && !u.is_empty()
             {
-                env.push(("ANTHROPIC_BASE_URL".to_string(), u.to_string()));
+                // Claude CLI auto-appends /v1/messages, so strip trailing /v1 if present
+                let base = u.trim_end_matches('/');
+                let base = base.strip_suffix("/v1").unwrap_or(base);
+                env.push(("ANTHROPIC_BASE_URL".to_string(), base.to_string()));
             }
             if let Some(k) = config.get("api_key").and_then(|v| v.as_str())
                 && !k.is_empty()
@@ -460,13 +685,30 @@ fn build_provider_env_vars(provider_type: &str, config: &serde_json::Value) -> V
     env
 }
 
-/// Load model + timeout + max_turns + provider env vars from providers table, fallback to env config.
+/// Tools to block in readonly mode: all file-write tools
+const DEFAULT_DISALLOWED_TOOLS: &[&str] = &["Write", "Edit", "NotebookEdit"];
+
+/// Allowed tool patterns for readonly mode: restrict Bash to read-only
+const DEFAULT_ALLOWED_TOOLS: &[&str] = &["Bash(read-only:*)"];
+
+/// Provider configuration extracted from DB
+struct ProviderSettings {
+    model: String,
+    timeout: Duration,
+    max_turns: u32,
+    env_vars: Vec<(String, String)>,
+    permission_mode: String,
+    disallowed_tools: Vec<String>,
+    allowed_tools: Vec<String>,
+}
+
+/// Load model + timeout + max_turns + provider env vars + permission settings from providers table.
 /// If provider_id is given, use that specific provider; otherwise use the tenant's default.
 async fn load_provider_config(
     state: &AppState,
     tenant_id: Option<uuid::Uuid>,
     provider_id: Option<uuid::Uuid>,
-) -> (String, Duration, u32, Vec<(String, String)>) {
+) -> ProviderSettings {
     let row = if let Some(pid) = provider_id {
         // Use specific provider
         sqlx::query_as::<_, (String, serde_json::Value)>("SELECT provider_type, config FROM providers WHERE id = $1")
@@ -504,14 +746,56 @@ async fn load_provider_config(
         let max_turns = config.get("max_turns").and_then(|v| v.as_u64()).unwrap_or(25) as u32;
         let provider_envs = build_provider_env_vars(&provider_type, &config);
 
-        (model, Duration::from_millis(timeout_ms), max_turns, provider_envs)
+        // Permission settings: config stores "readonly" or "bypassPermissions"
+        // Maps to CLI --permission-mode: readonly→"default", bypassPermissions→"bypassPermissions"
+        let permission_mode = config
+            .get("permission_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("readonly")
+            .to_string();
+
+        // Map config value to CLI --permission-mode flag
+        // readonly → "default": blocks reads outside workspace (CWD), no interactive terminal
+        // bypassPermissions → "bypassPermissions": full access
+        let cli_permission_mode = if permission_mode == "bypassPermissions" {
+            "bypassPermissions".to_string()
+        } else {
+            "default".to_string()
+        };
+
+        let (disallowed_tools, allowed_tools) = if permission_mode == "bypassPermissions" {
+            // Full access — no restrictions
+            (Vec::new(), Vec::new())
+        } else {
+            // readonly: block write tools, restrict Bash to read-only
+            let disallowed = config
+                .get("disallowed_tools")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_else(|| DEFAULT_DISALLOWED_TOOLS.iter().map(|s| s.to_string()).collect());
+            let allowed = DEFAULT_ALLOWED_TOOLS.iter().map(|s| s.to_string()).collect();
+            (disallowed, allowed)
+        };
+
+        ProviderSettings {
+            model,
+            timeout: Duration::from_millis(timeout_ms),
+            max_turns,
+            env_vars: provider_envs,
+            permission_mode: cli_permission_mode,
+            disallowed_tools,
+            allowed_tools,
+        }
     } else {
-        (
-            state.config.claude_model.clone(),
-            Duration::from_millis(state.config.claude_timeout_ms),
-            25,
-            Vec::new(),
-        )
+        ProviderSettings {
+            model: state.config.claude_model.clone(),
+            timeout: Duration::from_millis(state.config.claude_timeout_ms),
+            max_turns: 25,
+            env_vars: Vec::new(),
+            permission_mode: "default".to_string(),
+            disallowed_tools: DEFAULT_DISALLOWED_TOOLS.iter().map(|s| s.to_string()).collect(),
+            allowed_tools: DEFAULT_ALLOWED_TOOLS.iter().map(|s| s.to_string()).collect(),
+        }
     }
 }
 
@@ -543,9 +827,18 @@ pub async fn workspace_list(
 ) -> AppResult<Json<Vec<WorkspaceFile>>> {
     let base = PathBuf::from(&state.config.claude_work_dir);
     let user_dir = base.join("users").join(auth_user.user_id.to_string());
+    let scans_dir = base.join("scans");
 
     let mut files = Vec::new();
+    // User-specific workspace files
     collect_workspace_files(&user_dir, &user_dir, &mut files).await;
+    // Shared scan reports (prefix paths with "scans/")
+    let mut scan_files = Vec::new();
+    collect_workspace_files(&scans_dir, &scans_dir, &mut scan_files).await;
+    for mut f in scan_files {
+        f.name = format!("scans/{}", f.name);
+        files.push(f);
+    }
     files.sort_by(|a, b| b.modified.cmp(&a.modified));
     Ok(Json(files))
 }
@@ -599,12 +892,18 @@ pub async fn workspace_download(
     }
 
     let base = PathBuf::from(&state.config.claude_work_dir);
-    let user_dir = base.join("users").join(auth_user.user_id.to_string());
-    let file_path = user_dir.join(&filename);
 
-    // Ensure resolved path is still under user dir (prevent symlink escape)
-    if let (Ok(resolved), Ok(user_resolved)) = (file_path.canonicalize(), user_dir.canonicalize())
-        && !resolved.starts_with(&user_resolved)
+    // Support both user files and shared scan reports
+    let (file_path, allowed_root) = if filename.starts_with("scans/") {
+        (base.join(&filename), base.join("scans"))
+    } else {
+        let user_dir = base.join("users").join(auth_user.user_id.to_string());
+        (user_dir.join(&filename), user_dir)
+    };
+
+    // Ensure resolved path is still under allowed root (prevent symlink escape)
+    if let (Ok(resolved), Ok(root_resolved)) = (file_path.canonicalize(), allowed_root.canonicalize())
+        && !resolved.starts_with(&root_resolved)
     {
         return Err(AppError::BadRequest("Invalid path".to_string()));
     }
@@ -657,12 +956,17 @@ pub async fn workspace_delete(
     }
 
     let base = PathBuf::from(&state.config.claude_work_dir);
-    let user_dir = base.join("users").join(auth_user.user_id.to_string());
-    let file_path = user_dir.join(&filename);
 
-    // Ensure resolved path is still under user dir
-    if let (Ok(resolved), Ok(user_resolved)) = (file_path.canonicalize(), user_dir.canonicalize())
-        && !resolved.starts_with(&user_resolved)
+    let (file_path, allowed_root) = if filename.starts_with("scans/") {
+        (base.join(&filename), base.join("scans"))
+    } else {
+        let user_dir = base.join("users").join(auth_user.user_id.to_string());
+        (user_dir.join(&filename), user_dir)
+    };
+
+    // Ensure resolved path is still under allowed root
+    if let (Ok(resolved), Ok(root_resolved)) = (file_path.canonicalize(), allowed_root.canonicalize())
+        && !resolved.starts_with(&root_resolved)
     {
         return Err(AppError::BadRequest("Invalid path".to_string()));
     }
@@ -683,7 +987,7 @@ pub async fn workspace_delete(
 
     // Clean up empty parent dirs (up to user_dir)
     let mut current = file_path.parent().map(|p| p.to_path_buf());
-    let user_dir_resolved = user_dir.canonicalize().unwrap_or(user_dir.clone());
+    let user_dir_resolved = allowed_root.canonicalize().unwrap_or(allowed_root.clone());
     while let Some(p) = current {
         let p_resolved = p.canonicalize().unwrap_or(p.clone());
         if p_resolved == user_dir_resolved {

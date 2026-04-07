@@ -93,6 +93,51 @@ pub async fn create(
     .fetch_one(&state.pool)
     .await?;
 
+    // If requested, discover Organization accounts using this account's credentials
+    if req.discover_org && req.provider == "aws" {
+        let profile = req.profile.clone();
+        let pool = state.pool.clone();
+        let tid = tenant_id;
+        tokio::spawn(async move {
+            let env_vars: Vec<(String, String)> = match &profile {
+                Some(p) => vec![("AWS_PROFILE".to_string(), p.clone())],
+                None => vec![],
+            };
+            if let Ok(org_output) = try_list_org_accounts(&env_vars).await {
+                for org_account in &org_output.accounts {
+                    if org_account.status.as_deref().is_some_and(|s| s == "SUSPENDED") {
+                        continue;
+                    }
+                    // Skip if already exists (any source)
+                    let exists = sqlx::query_scalar::<_, bool>(
+                        "SELECT EXISTS(SELECT 1 FROM cloud_accounts WHERE account_id = $1 AND tenant_id IS NOT DISTINCT FROM $2)",
+                    )
+                    .bind(&org_account.id)
+                    .bind(tid)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap_or(false);
+                    if exists {
+                        continue;
+                    }
+                    let role_arn = format!("arn:aws:iam::{}:role/OrganizationAccountAccessRole", org_account.id);
+                    let _ = sqlx::query(
+                        r#"INSERT INTO cloud_accounts (provider, name, account_id, role_arn, regions, tenant_id, source, config)
+                           VALUES ('aws', $1, $2, $3, '{}'::text[], $4, 'organization', '{}')
+                           ON CONFLICT (tenant_id, account_id) WHERE source = 'organization'
+                           DO UPDATE SET name = EXCLUDED.name, role_arn = EXCLUDED.role_arn, updated_at = NOW()"#,
+                    )
+                    .bind(&org_account.name)
+                    .bind(&org_account.id)
+                    .bind(&role_arn)
+                    .bind(tid)
+                    .execute(&pool)
+                    .await;
+                }
+            }
+        });
+    }
+
     Ok(Json(account))
 }
 
@@ -188,88 +233,186 @@ struct OrgListOutput {
 }
 
 /// POST /api/accounts/discover
-/// Discover AWS accounts from Organizations using `aws organizations list-accounts`
+/// Discover AWS accounts from Organizations using `aws organizations list-accounts`.
+/// Tries each existing AWS account's profile, then falls back to default credentials.
 pub async fn discover(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
 ) -> AppResult<Json<Vec<CloudAccount>>> {
     let tenant_id = auth_user.tenant_id;
 
-    // Call AWS CLI to list organization accounts
-    let output = tokio::process::Command::new("aws")
-        .args(["organizations", "list-accounts", "--output", "json"])
-        .output()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to run aws CLI: {}", e)))?;
+    // Get existing AWS accounts to borrow their profiles
+    let existing_accounts = sqlx::query_as::<_, CloudAccount>(
+        "SELECT * FROM cloud_accounts WHERE provider = 'aws' AND is_mock = false AND tenant_id = $1 ORDER BY created_at",
+    )
+    .bind(tenant_id)
+    .fetch_all(&state.pool)
+    .await?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::Internal(format!(
-            "AWS Organizations error: {}",
-            stderr.trim()
-        )));
+    let mut org_output: Option<OrgListOutput> = None;
+
+    // Try each account's profile
+    for account in &existing_accounts {
+        if let Some(ref profile) = account.profile
+            && let Ok(output) = try_list_org_accounts(&[("AWS_PROFILE".to_string(), profile.clone())]).await
+        {
+            org_output = Some(output);
+            break;
+        }
+    }
+    // Fallback to default credentials
+    if org_output.is_none()
+        && let Ok(output) = try_list_org_accounts(&[]).await
+    {
+        org_output = Some(output);
     }
 
-    let org_output: OrgListOutput = serde_json::from_slice(&output.stdout)
-        .map_err(|e| AppError::Internal(format!("Failed to parse AWS response: {}", e)))?;
+    let org_output = org_output.ok_or_else(|| {
+        AppError::Internal("Could not list Organization accounts with any available credentials".to_string())
+    })?;
 
     let mut results = Vec::new();
 
     for org_account in &org_output.accounts {
-        // Skip suspended accounts
         if org_account.status.as_deref().is_some_and(|s| s == "SUSPENDED") {
             continue;
         }
 
-        // Upsert: insert or update name for existing organization-discovered accounts
+        // Skip if already exists (any source)
+        let existing = sqlx::query_as::<_, CloudAccount>(
+            "SELECT * FROM cloud_accounts WHERE account_id = $1 AND tenant_id IS NOT DISTINCT FROM $2",
+        )
+        .bind(&org_account.id)
+        .bind(tenant_id)
+        .fetch_optional(&state.pool)
+        .await;
+
+        if let Ok(Some(a)) = existing {
+            results.push(a);
+            continue;
+        }
+
+        let role_arn = format!("arn:aws:iam::{}:role/OrganizationAccountAccessRole", org_account.id);
+
         let account = sqlx::query_as::<_, CloudAccount>(
-            r#"INSERT INTO cloud_accounts (provider, name, account_id, tenant_id, source, config)
-               VALUES ('aws', $1, $2, $3, 'organization', '{}')
+            r#"INSERT INTO cloud_accounts (provider, name, account_id, role_arn, regions, tenant_id, source, config)
+               VALUES ('aws', $1, $2, $3, '{}'::text[], $4, 'organization', '{}')
                ON CONFLICT (tenant_id, account_id) WHERE source = 'organization'
-               DO UPDATE SET name = EXCLUDED.name, updated_at = NOW()
+               DO UPDATE SET name = EXCLUDED.name, role_arn = EXCLUDED.role_arn, updated_at = NOW()
                RETURNING *"#,
         )
         .bind(&org_account.name)
         .bind(&org_account.id)
+        .bind(&role_arn)
         .bind(tenant_id)
         .fetch_optional(&state.pool)
         .await;
 
         match account {
             Ok(Some(a)) => results.push(a),
-            Ok(None) => {
-                // ON CONFLICT matched but RETURNING returned nothing — try fetching
-                if let Ok(existing) = sqlx::query_as::<_, CloudAccount>(
-                    "SELECT * FROM cloud_accounts WHERE account_id = $1 AND tenant_id = $2",
-                )
-                .bind(&org_account.id)
-                .bind(tenant_id)
-                .fetch_optional(&state.pool)
-                .await
-                    && let Some(a) = existing
-                {
-                    results.push(a);
-                }
-            }
             Err(e) => {
                 tracing::warn!("Failed to upsert org account {}: {}", org_account.id, e);
-                // Try simple insert (ON CONFLICT might fail due to missing partial index)
-                let fallback = sqlx::query_as::<_, CloudAccount>(
-                    r#"INSERT INTO cloud_accounts (provider, name, account_id, tenant_id, source, config)
-                       VALUES ('aws', $1, $2, $3, 'organization', '{}')
-                       ON CONFLICT DO NOTHING
-                       RETURNING *"#,
-                )
-                .bind(&org_account.name)
-                .bind(&org_account.id)
-                .bind(tenant_id)
-                .fetch_optional(&state.pool)
-                .await;
-
-                if let Ok(Some(a)) = fallback {
-                    results.push(a);
-                }
             }
+            _ => {}
+        }
+    }
+
+    Ok(Json(results))
+}
+
+/// Try calling `aws organizations list-accounts` with given env vars
+async fn try_list_org_accounts(env_vars: &[(String, String)]) -> Result<OrgListOutput, String> {
+    let mut cmd = tokio::process::Command::new("aws");
+    cmd.args(["organizations", "list-accounts", "--output", "json"]);
+    for (k, v) in env_vars {
+        cmd.env(k, v);
+    }
+    let output = cmd.output().await.map_err(|e| format!("Failed to run aws CLI: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(stderr.trim().to_string());
+    }
+    serde_json::from_slice(&output.stdout).map_err(|e| format!("Failed to parse response: {e}"))
+}
+
+/// POST /api/accounts/:id/discover-org
+/// Discover Organization accounts using a specific account's profile.
+pub async fn discover_org(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Vec<CloudAccount>>> {
+    let account = sqlx::query_as::<_, CloudAccount>("SELECT * FROM cloud_accounts WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Cloud account not found".to_string()))?;
+
+    if !auth_user.is_super_admin() && account.tenant_id != auth_user.tenant_id {
+        return Err(AppError::Forbidden("Access denied".to_string()));
+    }
+    if account.provider != "aws" {
+        return Err(AppError::BadRequest(
+            "Organization discovery only supported for AWS accounts".to_string(),
+        ));
+    }
+
+    // Use the source account's tenant_id so discovered accounts land in the same tenant
+    let tenant_id = account.tenant_id;
+
+    let env_vars: Vec<(String, String)> = match &account.profile {
+        Some(p) => vec![("AWS_PROFILE".to_string(), p.clone())],
+        None => vec![],
+    };
+
+    let org_output = try_list_org_accounts(&env_vars)
+        .await
+        .map_err(|e| AppError::Internal(format!("AWS Organizations error: {}", e)))?;
+
+    let mut results = Vec::new();
+
+    for org_account in &org_output.accounts {
+        if org_account.status.as_deref().is_some_and(|s| s == "SUSPENDED") {
+            continue;
+        }
+
+        // Skip if this account_id already exists (any source, any tenant — use IS NOT DISTINCT FROM for NULL-safe compare)
+        let existing = sqlx::query_as::<_, CloudAccount>(
+            "SELECT * FROM cloud_accounts WHERE account_id = $1 AND tenant_id IS NOT DISTINCT FROM $2",
+        )
+        .bind(&org_account.id)
+        .bind(tenant_id)
+        .fetch_optional(&state.pool)
+        .await;
+
+        if let Ok(Some(a)) = existing {
+            results.push(a);
+            continue;
+        }
+
+        // Auto-fill role_arn so the root account can assume into child accounts
+        let role_arn = format!("arn:aws:iam::{}:role/OrganizationAccountAccessRole", org_account.id);
+
+        let row = sqlx::query_as::<_, CloudAccount>(
+            r#"INSERT INTO cloud_accounts (provider, name, account_id, role_arn, regions, tenant_id, source, config)
+               VALUES ('aws', $1, $2, $3, '{}'::text[], $4, 'organization', '{}')
+               ON CONFLICT (tenant_id, account_id) WHERE source = 'organization'
+               DO UPDATE SET name = EXCLUDED.name, role_arn = EXCLUDED.role_arn, updated_at = NOW()
+               RETURNING *"#,
+        )
+        .bind(&org_account.name)
+        .bind(&org_account.id)
+        .bind(&role_arn)
+        .bind(tenant_id)
+        .fetch_optional(&state.pool)
+        .await;
+
+        match row {
+            Ok(Some(a)) => results.push(a),
+            Err(e) => {
+                tracing::warn!("Failed to upsert org account {}: {}", org_account.id, e);
+            }
+            _ => {}
         }
     }
 
@@ -315,29 +458,44 @@ pub async fn test_connection(
     let mut cmd = tokio::process::Command::new("aws");
     cmd.args(["sts", "get-caller-identity", "--output", "json"]);
 
-    // If role_arn is set, use it (via assume-role inline is complex, so test with profile or env)
     if let Some(ref profile) = account.profile {
         cmd.args(["--profile", profile]);
     }
 
     if let Some(ref role_arn) = account.role_arn {
-        // For role_arn, we do a two-step: assume-role first, then get-caller-identity
-        // Simpler approach: just test that the role_arn is assumable
-        let assume_output = tokio::process::Command::new("aws")
-            .args([
-                "sts",
-                "assume-role",
-                "--role-arn",
-                role_arn,
-                "--role-session-name",
-                "openops-test",
-                "--duration-seconds",
-                "900",
-                "--output",
-                "json",
-            ])
-            .output()
-            .await;
+        // For org-discovered accounts, assume-role needs the root account's profile.
+        // Find a profile from the same tenant to use as the caller identity.
+        let caller_profile: Option<String> = if account.profile.is_none() {
+            sqlx::query_scalar::<_, String>(
+                "SELECT profile FROM cloud_accounts WHERE provider = 'aws' AND profile IS NOT NULL AND tenant_id IS NOT DISTINCT FROM $1 LIMIT 1",
+            )
+            .bind(account.tenant_id)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten()
+        } else {
+            account.profile.clone()
+        };
+
+        let mut assume_cmd = tokio::process::Command::new("aws");
+        assume_cmd.args([
+            "sts",
+            "assume-role",
+            "--role-arn",
+            role_arn,
+            "--role-session-name",
+            "openops-test",
+            "--duration-seconds",
+            "900",
+            "--output",
+            "json",
+        ]);
+        if let Some(ref profile) = caller_profile {
+            assume_cmd.args(["--profile", profile]);
+        }
+
+        let assume_output = assume_cmd.output().await;
 
         match assume_output {
             Ok(out) if out.status.success() => {

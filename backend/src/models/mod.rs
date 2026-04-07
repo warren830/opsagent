@@ -4,6 +4,7 @@ pub mod channel;
 pub mod cloud_account;
 pub mod cluster;
 pub mod dashboard;
+pub mod finding;
 pub mod glossary;
 pub mod issue;
 pub mod knowledge;

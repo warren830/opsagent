@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import {
-  LayoutDashboard, Users, Building2, ShieldCheck,
-  Cloud, Server, Boxes, Radio, Brain,
+  LayoutDashboard, Users, Building2,
+  Cloud, Server, Boxes, Radio, Brain, Network,
   BookOpen, LibraryBig, Wrench, Plug, Clock,
   GitBranch, Activity, AlertTriangle, Settings,
   ChevronDown, MessageSquare, PanelLeftClose, PanelLeftOpen,
+  ChevronsUpDown, ChevronsDownUp,
 } from 'lucide-vue-next'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +14,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 const { t } = useI18n()
 const route = useRoute()
 const authStore = useAuthStore()
+const { issueCount, startPolling } = useIssueCount()
+onMounted(() => { startPolling() })
 
 const collapsed = useState('sidebarCollapsed', () => false)
 function toggleSidebar() {
@@ -41,7 +44,6 @@ const navGroups = computed<NavGroup[]>(() => {
       items: [
         { label: t('nav.users'), to: '/users', icon: Users, superAdminOnly: true },
         { label: t('nav.tenants'), to: '/tenants', icon: Building2, superAdminOnly: true },
-        { label: t('nav.approvals'), to: '/approvals', icon: ShieldCheck },
       ],
     },
     {
@@ -50,11 +52,13 @@ const navGroups = computed<NavGroup[]>(() => {
       items: [
         { label: t('nav.accounts'), to: '/accounts', icon: Cloud },
         { label: t('nav.clusters'), to: '/clusters', icon: Server },
+        { label: t('nav.topology'), to: '/topology', icon: Network },
         { label: t('nav.resources'), to: '/resources', icon: Boxes },
       ],
     },
     {
       label: t('nav.groups.integrations'),
+      defaultOpen: true,
       items: [
         { label: t('nav.channels'), to: '/channels', icon: Radio },
         { label: t('nav.providers'), to: '/providers', icon: Brain },
@@ -62,6 +66,7 @@ const navGroups = computed<NavGroup[]>(() => {
     },
     {
       label: t('nav.groups.knowledge'),
+      defaultOpen: true,
       items: [
         { label: t('nav.glossary'), to: '/glossary', icon: BookOpen },
         { label: t('nav.knowledgeBase'), to: '/knowledge', icon: LibraryBig },
@@ -69,6 +74,7 @@ const navGroups = computed<NavGroup[]>(() => {
     },
     {
       label: t('nav.groups.tools'),
+      defaultOpen: true,
       items: [
         { label: t('nav.skills'), to: '/skills', icon: Wrench },
         { label: t('nav.mcp'), to: '/mcp', icon: Plug },
@@ -76,21 +82,18 @@ const navGroups = computed<NavGroup[]>(() => {
       ],
     },
     {
-      label: t('nav.groups.pipeline'),
-      items: [
-        { label: t('nav.pipeline'), to: '/pipeline', icon: GitBranch },
-      ],
-    },
-    {
       label: t('nav.groups.telemetry'),
+      defaultOpen: true,
       items: [
         { label: t('nav.telemetry'), to: '/telemetry', icon: Activity },
+        { label: t('nav.pipeline'), to: '/repo', icon: GitBranch },
       ],
     },
     {
       label: t('nav.groups.ops'),
+      defaultOpen: true,
       items: [
-        { label: t('nav.issues'), to: '/issues', icon: AlertTriangle },
+        { label: t('nav.issues'), to: '/issues', icon: AlertTriangle, badge: issueCount.value || undefined },
       ],
     },
   ]
@@ -101,13 +104,33 @@ const navGroups = computed<NavGroup[]>(() => {
   })).filter(g => g.items.length > 0)
 })
 
+// Group open/close state — keyed by group label
+const groupOpen = ref<Record<string, boolean>>({})
+const groupOpenInitialized = ref(false)
+
+// Initialize group states once navGroups is computed
+watch(navGroups, (groups) => {
+  if (groupOpenInitialized.value) return
+  for (const g of groups) {
+    groupOpen.value[g.label] = g.defaultOpen || g.items.some(i => route.path.startsWith(i.to))
+  }
+  groupOpenInitialized.value = true
+}, { immediate: true })
+
+const allGroupsExpanded = computed(() => navGroups.value.every(g => groupOpen.value[g.label]))
+const _allGroupsCollapsed = computed(() => navGroups.value.every(g => !groupOpen.value[g.label]))
+
+function expandAllGroups() {
+  for (const g of navGroups.value) groupOpen.value[g.label] = true
+}
+
+function collapseAllGroups() {
+  for (const g of navGroups.value) groupOpen.value[g.label] = false
+}
+
 function isActive(path: string) {
   if (path === '/') return route.path === '/'
   return route.path.startsWith(path)
-}
-
-function groupHasActive(group: NavGroup) {
-  return group.items.some(i => isActive(i.to))
 }
 
 const chatOpen = useState('chatPanelOpen', () => false)
@@ -217,10 +240,30 @@ function toggleChat() {
 
         <div class="!my-2 h-px bg-border/50" />
 
+        <!-- Expand / Collapse all groups toggle -->
+        <div class="flex justify-end px-1 -mb-0.5">
+          <button
+            v-if="!allGroupsExpanded"
+            class="h-5 w-5 rounded flex items-center justify-center text-muted-foreground/30 hover:text-muted-foreground hover:bg-accent transition-colors"
+            :title="t('nav.expandAll')"
+            @click="expandAllGroups"
+          >
+            <ChevronsUpDown class="h-3 w-3" />
+          </button>
+          <button
+            v-else
+            class="h-5 w-5 rounded flex items-center justify-center text-muted-foreground/30 hover:text-muted-foreground hover:bg-accent transition-colors"
+            :title="t('nav.collapseAll')"
+            @click="collapseAllGroups"
+          >
+            <ChevronsDownUp class="h-3 w-3" />
+          </button>
+        </div>
+
         <Collapsible
           v-for="group in navGroups"
           :key="group.label"
-          :default-open="group.defaultOpen || groupHasActive(group)"
+          v-model:open="groupOpen[group.label]"
           class="space-y-0.5"
         >
           <CollapsibleTrigger class="flex w-full items-center justify-between rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors group">
@@ -237,7 +280,7 @@ function toggleChat() {
             >
               <component :is="item.icon" class="h-4 w-4 shrink-0" />
               <span class="flex-1">{{ item.label }}</span>
-              <Badge v-if="item.badge" variant="secondary" class="h-4 min-w-4 justify-center text-[9px] px-1">
+              <Badge v-if="item.badge" variant="destructive" class="h-4 min-w-4 justify-center text-[9px] px-1 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]">
                 {{ item.badge }}
               </Badge>
             </NuxtLink>

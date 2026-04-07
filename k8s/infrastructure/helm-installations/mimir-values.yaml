@@ -1,0 +1,64 @@
+# Grafana Mimir — Single Binary mode (metrics storage)
+# Internal service only — no Ingress/ALB
+# Endpoint: http://mimir.monitoring.svc:9009
+
+mimir:
+  structuredConfig:
+    common:
+      storage:
+        backend: filesystem
+    blocks_storage:
+      backend: filesystem
+      filesystem:
+        dir: /data/mimir/blocks
+    ruler_storage:
+      backend: filesystem
+      filesystem:
+        dir: /data/mimir/ruler
+
+# Single binary mode — all components in one pod
+deploymentMode: SingleBinary
+
+singleBinary:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+  persistence:
+    enabled: true
+    storageClass: gp3
+    size: 10Gi
+  nodeSelector:
+    karpenter.sh/nodepool: common-nodepool
+
+# Disable distributed components
+ingester:
+  replicas: 0
+distributor:
+  replicas: 0
+querier:
+  replicas: 0
+query_frontend:
+  replicas: 0
+query_scheduler:
+  replicas: 0
+compactor:
+  replicas: 0
+store_gateway:
+  replicas: 0
+ruler:
+  replicas: 0
+
+# Disable sub-charts
+minio:
+  enabled: false
+nginx:
+  enabled: false
+
+# Disable gateway (no external access needed)
+gateway:
+  enabledNonEnterprise: false

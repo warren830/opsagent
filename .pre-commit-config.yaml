@@ -64,7 +64,9 @@ repos:
         .*lock\.json$|
         .*\.tfstate$|
         .*\.tfstate\.backup$|
-        .*\.terraform/.*$
+        .*\.terraform/.*$|
+        .*\.venv/.*$|
+        \.openops/.*$
       )$
 
 # --- AWS credential pattern check ---
@@ -76,7 +78,7 @@ repos:
     args:
       - -c
       - |
-        COMMON_EXCLUDES="--exclude-dir=.git --exclude-dir=.terraform --exclude-dir=node_modules --exclude-dir=target --exclude-dir=workspace --exclude=*.tfstate* --exclude=*.lock --binary-files=without-match"
+        COMMON_EXCLUDES="--exclude-dir=.git --exclude-dir=.terraform --exclude-dir=node_modules --exclude-dir=target --exclude-dir=workspace --exclude-dir=.venv --exclude-dir=.openops --exclude=*.tfstate* --exclude=*.lock --binary-files=without-match"
         if grep -r -E "AKIA[0-9A-Z]{16}" $COMMON_EXCLUDES .; then
           echo "❌ AWS Access Key ID detected!"
           exit 1

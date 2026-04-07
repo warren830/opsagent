@@ -275,6 +275,16 @@ export function useChat() {
     forceNewSession = true
   }
 
+  /** Resume an existing session by ID */
+  function resumeSession(sessionId: string) {
+    messages.value = []
+    currentAssistantText = ''
+    currentAssistantId = ''
+    error.value = null
+    currentSessionId.value = sessionId
+    forceNewSession = false
+  }
+
   return {
     messages: readonly(messages),
     isStreaming: readonly(isStreaming),
@@ -286,5 +296,6 @@ export function useChat() {
     abortStream,
     clearMessages,
     startNewChat,
+    resumeSession,
   }
 }

@@ -26,6 +26,7 @@ interface Issue {
   source: string
   severity: 'critical' | 'high' | 'medium' | 'low'
   status: 'open' | 'investigating' | 'rca_done' | 'resolved'
+  issue_type: 'incident' | 'prediction'
   rca_result: string | null
   timeline: { time: string; event: string }[] | null
   created_at: string
@@ -34,6 +35,7 @@ interface Issue {
 const issues = ref<Issue[]>([])
 const loading = ref(true)
 const activeFilter = ref<string>('')
+const activeTypeFilter = ref<string>('')
 const triggeringRca = ref(false)
 
 const showDetailDialog = ref(false)
@@ -47,13 +49,28 @@ const filters = [
   { value: 'resolved', label: () => t('issue.resolved') },
 ]
 
+const typeFilters = [
+  { value: '', label: () => t('issue.allTypes') },
+  { value: 'incident', label: () => t('issue.incident') },
+  { value: 'prediction', label: () => t('issue.prediction') },
+]
+
 const filteredIssues = computed(() => {
-  if (!activeFilter.value) return issues.value.filter((i) => i.status !== 'resolved')
-  return issues.value.filter((i) => i.status === activeFilter.value)
+  let result = issues.value
+  if (!activeFilter.value) {
+    result = result.filter((i) => i.status !== 'resolved')
+  } else {
+    result = result.filter((i) => i.status === activeFilter.value)
+  }
+  if (activeTypeFilter.value) {
+    result = result.filter((i) => i.issue_type === activeTypeFilter.value)
+  }
+  return result
 })
 
 const columns = computed(() => [
   { key: 'title', label: t('issue.title') },
+  { key: 'issue_type', label: t('issue.issueType') },
   { key: 'source', label: t('issue.source') },
   { key: 'severity', label: t('issue.severity') },
   { key: 'status', label: t('cluster.status') },
@@ -100,6 +117,7 @@ async function fetchIssues() {
   try {
     const params = new URLSearchParams()
     if (activeFilter.value) params.set('status', activeFilter.value)
+    if (activeTypeFilter.value) params.set('issue_type', activeTypeFilter.value)
     const qs = params.toString()
     issues.value = await api.get<Issue[]>(`/api/issues${qs ? '?' + qs : ''}`)
   } catch (err: unknown) {
@@ -143,17 +161,35 @@ onMounted(() => { fetchIssues() })
       <h1 class="text-base font-semibold text-foreground">{{ t('issue.title') }}</h1>
     </div>
 
-    <!-- Status filter tabs -->
-    <div class="flex items-center gap-1.5">
-      <Button
-        v-for="f in filters"
-        :key="f.value"
-        size="sm"
-        :variant="activeFilter === f.value ? 'default' : 'outline'"
-        @click="activeFilter = f.value; fetchIssues()"
-      >
-        {{ f.label() }}
-      </Button>
+    <!-- Filters -->
+    <div class="flex items-center gap-3">
+      <!-- Status filter -->
+      <div class="flex items-center gap-1.5">
+        <Button
+          v-for="f in filters"
+          :key="f.value"
+          size="sm"
+          :variant="activeFilter === f.value ? 'default' : 'outline'"
+          @click="activeFilter = f.value; fetchIssues()"
+        >
+          {{ f.label() }}
+        </Button>
+      </div>
+
+      <div class="w-px h-5 bg-border/60" />
+
+      <!-- Type filter -->
+      <div class="flex items-center gap-1.5">
+        <Button
+          v-for="tf in typeFilters"
+          :key="tf.value"
+          size="sm"
+          :variant="activeTypeFilter === tf.value ? 'default' : 'outline'"
+          @click="activeTypeFilter = tf.value; fetchIssues()"
+        >
+          {{ tf.label() }}
+        </Button>
+      </div>
     </div>
 
     <!-- Data Table -->
@@ -162,6 +198,15 @@ onMounted(() => { fetchIssues() })
         <button class="font-medium text-foreground hover:text-primary transition-colors text-left" @click="openDetail(row as Issue)">
           {{ (row as Issue).title }}
         </button>
+      </template>
+
+      <template #cell-issue_type="{ row }">
+        <Badge
+          :variant="(row as Issue).issue_type === 'prediction' ? 'info' : 'warning'"
+          class="text-[10px]"
+        >
+          {{ (row as Issue).issue_type === 'prediction' ? t('issue.prediction') : t('issue.incident') }}
+        </Badge>
       </template>
 
       <template #cell-source="{ row }">
@@ -202,6 +247,12 @@ onMounted(() => { fetchIssues() })
         <div v-if="selectedIssue" class="space-y-3">
           <!-- Meta -->
           <div class="flex items-center gap-1.5">
+            <Badge
+              :variant="selectedIssue.issue_type === 'prediction' ? 'info' : 'warning'"
+              class="text-[10px]"
+            >
+              {{ selectedIssue.issue_type === 'prediction' ? t('issue.prediction') : t('issue.incident') }}
+            </Badge>
             <Badge :variant="severityVariant(selectedIssue.severity)">{{ selectedIssue.severity }}</Badge>
             <Badge :variant="statusVariant(selectedIssue.status)">{{ statusLabel(selectedIssue.status) }}</Badge>
             <Badge variant="secondary">{{ selectedIssue.source }}</Badge>

@@ -11,6 +11,7 @@ pub struct Issue {
     pub source: String,
     pub severity: String,
     pub status: String,
+    pub issue_type: String,
     pub rca_result: Option<serde_json::Value>,
     pub rca_started_at: Option<DateTime<Utc>>,
     pub rca_completed_at: Option<DateTime<Utc>>,
@@ -25,6 +26,7 @@ pub struct Issue {
 pub struct IssueListQuery {
     pub status: Option<String>,
     pub severity: Option<String>,
+    pub issue_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

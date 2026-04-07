@@ -20,10 +20,12 @@ pub async fn list(
             r#"SELECT * FROM issues
                WHERE ($1::TEXT IS NULL OR status = $1)
                  AND ($2::TEXT IS NULL OR severity = $2)
+                 AND ($3::TEXT IS NULL OR issue_type = $3)
                ORDER BY created_at DESC"#,
         )
         .bind(&query.status)
         .bind(&query.severity)
+        .bind(&query.issue_type)
         .fetch_all(&state.pool)
         .await?
     } else {
@@ -32,15 +34,35 @@ pub async fn list(
                WHERE tenant_id = $1
                  AND ($2::TEXT IS NULL OR status = $2)
                  AND ($3::TEXT IS NULL OR severity = $3)
+                 AND ($4::TEXT IS NULL OR issue_type = $4)
                ORDER BY created_at DESC"#,
         )
         .bind(auth_user.tenant_id)
         .bind(&query.status)
         .bind(&query.severity)
+        .bind(&query.issue_type)
         .fetch_all(&state.pool)
         .await?
     };
     Ok(Json(rows))
+}
+
+/// GET /api/issues/count — count of unresolved issues (for sidebar badge)
+pub async fn count(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+) -> AppResult<Json<serde_json::Value>> {
+    let count: (i64,) = if auth_user.is_super_admin() {
+        sqlx::query_as("SELECT COUNT(*) FROM issues WHERE status != 'resolved'")
+            .fetch_one(&state.pool)
+            .await?
+    } else {
+        sqlx::query_as("SELECT COUNT(*) FROM issues WHERE tenant_id = $1 AND status != 'resolved'")
+            .bind(auth_user.tenant_id)
+            .fetch_one(&state.pool)
+            .await?
+    };
+    Ok(Json(serde_json::json!({ "count": count.0 })))
 }
 
 /// GET /api/issues/:id

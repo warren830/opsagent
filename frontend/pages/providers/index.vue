@@ -58,6 +58,7 @@ const form = ref({
   max_turns: 25,
   timeout: 120000,
   is_default: false,
+  permission_mode: 'readonly',
 })
 
 // Model presets per provider type
@@ -131,6 +132,7 @@ function openCreate() {
     max_turns: 25,
     timeout: 120000,
     is_default: providers.value.length === 0,
+    permission_mode: 'readonly',
   }
   showFormDialog.value = true
 }
@@ -147,6 +149,7 @@ function openEdit(p: Provider) {
     max_turns: (p.config.max_turns as number) ?? 25,
     timeout: (p.config.timeout as number) ?? 120000,
     is_default: p.is_default,
+    permission_mode: (p.config.permission_mode as string) || 'readonly',
   }
   showFormDialog.value = true
 }
@@ -173,6 +176,7 @@ async function saveProvider() {
       model: form.value.model || null,
       max_turns: form.value.max_turns,
       timeout: form.value.timeout,
+      permission_mode: form.value.permission_mode,
     }
     if (isBedrock.value) {
       config.region = form.value.region
@@ -282,6 +286,10 @@ async function deleteProvider() {
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3 text-[10px] text-muted-foreground/60">
             <span v-if="p.config.region">{{ p.config.region }}</span>
+            <Badge
+              :variant="p.config.permission_mode === 'bypassPermissions' ? 'destructive' : 'outline'"
+              class="text-[9px] px-1.5 py-0"
+            >{{ p.config.permission_mode === 'bypassPermissions' ? t('provider.permissionBypass') : t('provider.permissionDefault') }}</Badge>
             <span v-if="p.is_default" class="text-primary/80 font-medium">{{ t('provider.default') }}</span>
           </div>
           <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -387,6 +395,19 @@ async function deleteProvider() {
               <label class="text-xs font-medium">{{ t('provider.timeout') }}</label>
               <Input v-model.number="form.timeout" type="number" />
             </div>
+          </div>
+
+          <!-- Permission Mode -->
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">{{ t('provider.permissionMode') }}</label>
+            <Select v-model="form.permission_mode">
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="readonly">{{ t('provider.permissionDefault') }}</SelectItem>
+                <SelectItem value="bypassPermissions">{{ t('provider.permissionBypass') }}</SelectItem>
+              </SelectContent>
+            </Select>
+            <p class="text-[10px] text-muted-foreground/60">{{ t('provider.permissionHint') }}</p>
           </div>
 
           <!-- Set as Default -->

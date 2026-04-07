@@ -15,7 +15,27 @@ RUN rm -rf src
 COPY backend/ .
 RUN cargo build --release
 
-# Stage 2: Runtime image
+# Stage 2: Prepare screener
+FROM debian:bookworm-slim AS screener
+
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Copy project .openops/ if it exists (via .dockerignore allowlist)
+# If not present, git clone fresh
+COPY .openops/screener* /tmp/screener-check/
+RUN if [ -d /tmp/screener-check/global ] && [ -f /tmp/screener-check/global/main.py ]; then \
+        echo "Using existing .openops/screener from build context" && \
+        mkdir -p /opt/screener && \
+        cp -r /tmp/screener-check/* /opt/screener/; \
+    else \
+        echo "Cloning screener repos..." && \
+        mkdir -p /opt/screener && \
+        git clone --depth 1 https://github.com/aws-samples/service-screener-v2.git /opt/screener/global && \
+        git clone --depth 1 https://github.com/lijh-aws-tools/service-screener-cn.git /opt/screener/china; \
+    fi && \
+    rm -rf /tmp/screener-check
+
+# Stage 3: Runtime image
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
@@ -23,11 +43,27 @@ RUN apt-get update && apt-get install -y \
     curl \
     unzip \
     jq \
+    git \
+    python3 \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# AWS CLI v2 (for Secrets Manager access)
+# AWS CLI v2
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
     && unzip awscliv2.zip && ./aws/install && rm -rf aws awscliv2.zip
+
+# uv (Python package manager)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# Copy screener from stage 2
+COPY --from=screener /opt/screener /app/.openops/screener
+
+# Install Python deps via uv venv + uv pip install
+RUN cd /app/.openops/screener/global && uv venv \
+    && uv pip install --python .venv/bin/python -r requirements.txt || true
+RUN cd /app/.openops/screener/china && uv venv \
+    && uv pip install --python .venv/bin/python -r requirements.txt || true
 
 # Copy binary
 COPY --from=builder /app/target/release/openops /usr/local/bin/openops

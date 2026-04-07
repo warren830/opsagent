@@ -44,9 +44,9 @@ done
 log "Seeding development data..."
 docker compose exec -T postgres psql -U openops -d openops -f /dev/stdin < "$SCRIPT_DIR/seed-dev-data.sql" 2>/dev/null || warn "Seed skipped (tables may not exist yet, will retry after backend starts)"
 
-# Start backend
+# Start backend (prefixed output so logs don't get lost)
 log "Starting Rust backend on :3080..."
-(cd backend && cargo run) &
+(cd backend && cargo run 2>&1 | sed -u "s/^/[backend] /") &
 BACKEND_PID=$!
 
 # Wait for backend to be ready (runs migrations on startup)
@@ -61,10 +61,24 @@ done
 # Retry seed after migrations have run
 docker compose exec -T postgres psql -U openops -d openops -f /dev/stdin < "$SCRIPT_DIR/seed-dev-data.sql" >/dev/null 2>&1 && log "Development data seeded" || true
 
-# Start frontend
+# Start frontend (prefixed output)
 log "Starting Nuxt frontend on :3000..."
-(cd frontend && npm run dev) &
+(cd frontend && npm run dev 2>&1 | sed -u "s/^/[frontend] /") &
 FRONTEND_PID=$!
+
+TUNNEL_PID=""
+
+# Start cloudflare tunnel for Grafana webhook (optional)
+if command -v cloudflared >/dev/null; then
+  log "Starting cloudflare tunnel for Grafana webhook callbacks..."
+  cloudflared tunnel --url http://localhost:3080 2>&1 | sed -u "s/^/[tunnel] /" &
+  TUNNEL_PID=$!
+  sleep 3
+  log "💡 Copy the tunnel URL from [tunnel] output → Grafana Alerting → Contact Points → Webhook"
+else
+  warn "cloudflared not found — Grafana Cloud cannot reach localhost for webhook"
+  warn "Install: brew install cloudflared"
+fi
 
 log "🚀 OpenOps is running!"
 log "   Frontend: http://localhost:3000"
@@ -76,7 +90,7 @@ log "Press Ctrl+C to stop all services"
 # Cleanup on exit
 cleanup() {
   log "Shutting down..."
-  kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
+  kill $BACKEND_PID $FRONTEND_PID $TUNNEL_PID 2>/dev/null || true
   docker compose stop
 }
 trap cleanup EXIT

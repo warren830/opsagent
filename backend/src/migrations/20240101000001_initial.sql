@@ -108,6 +108,7 @@ CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_claude_sessions_user ON claude_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_claude_sessions_tenant ON claude_sessions(tenant_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_claude_sessions_session_id ON claude_sessions(claude_session_id);
 CREATE INDEX IF NOT EXISTS idx_skills_tenant ON skills(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_mcp_servers_tenant ON mcp_servers(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_cloud_accounts_tenant ON cloud_accounts(tenant_id);

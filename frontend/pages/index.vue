@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import {
   Activity,
   Building2,
@@ -7,8 +7,10 @@ import {
   Zap,
   Server,
   AlertTriangle,
+  RefreshCw,
 } from 'lucide-vue-next'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@/components/ui/button'
 
 definePageMeta({ middleware: 'auth' })
 
@@ -79,6 +81,9 @@ const statCards = [
   },
 ]
 
+const refreshing = ref(false)
+let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+
 async function fetchStats() {
   loading.value = true
   try {
@@ -97,21 +102,46 @@ async function fetchStats() {
   }
 }
 
+async function refresh() {
+  refreshing.value = true
+  try {
+    stats.value = await api.get<DashboardStats>('/api/dashboard/stats')
+  } catch { /* silent */ }
+  refreshing.value = false
+}
+
 onMounted(() => {
   fetchStats()
+  // Auto-refresh every 60s
+  autoRefreshTimer = setInterval(refresh, 60_000)
+})
+
+onUnmounted(() => {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer)
 })
 </script>
 
 <template>
   <div class="space-y-5">
     <!-- Page title -->
-    <div>
-      <h1 class="text-base font-semibold text-foreground">
-        {{ t('dashboard.welcome') }}, {{ authStore.user?.username }}
-      </h1>
-      <p class="text-xs text-muted-foreground mt-0.5">
-        {{ t('app.description') }}
-      </p>
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-base font-semibold text-foreground">
+          {{ t('dashboard.welcome') }}, {{ authStore.user?.username }}
+        </h1>
+        <p class="text-xs text-muted-foreground mt-0.5">
+          {{ t('app.description') }}
+        </p>
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        class="h-7 px-2 text-muted-foreground hover:text-foreground"
+        :disabled="refreshing"
+        @click="refresh"
+      >
+        <RefreshCw class="h-3.5 w-3.5" :class="refreshing ? 'animate-spin' : ''" />
+      </Button>
     </div>
 
     <!-- Stats Grid — Grafana panel style -->
