@@ -630,7 +630,11 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
     );
     lines.push("```".to_string());
     lines.push(String::new());
-    lines.push("Always call the API FIRST before answering. If the API returns empty results, tell the user no data is available.".to_string());
+    lines.push("## API Usage Rules".to_string());
+    lines.push(String::new());
+    lines.push("- Always call the relevant API FIRST before answering.".to_string());
+    lines.push("- **Empty result handling**: If an API returns `[]` or `null`, that is the definitive answer — the data does not exist. Report this to the user immediately. Do NOT retry the same endpoint with different parameters, do NOT try alternative query approaches, do NOT loop. An empty array means zero records, not an error.".to_string());
+    lines.push("- **Error handling**: Only retry on HTTP 5xx errors (max 1 retry). For 4xx errors, report the error to the user.".to_string());
     lines.push(String::new());
 
     // ─── Jira integration instructions (only if tenant has enabled Jira channel) ──

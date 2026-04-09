@@ -170,6 +170,12 @@ async fn main() {
         tokio::spawn(services::scheduler::run_scheduler(scheduler_pool));
     }
 
+    // Spawn rollout status watcher (polls Argo Rollout CRDs for phase/step changes)
+    {
+        let watcher_pool = state.pool.clone();
+        tokio::spawn(services::rollout_watcher::run_rollout_watcher(watcher_pool));
+    }
+
     // Build CORS layer
     let cors = middleware::cors::build_cors_layer(&config);
 
@@ -220,7 +226,9 @@ fn build_router(state: AppState) -> Router {
         // Alerting webhooks (no auth — external services cannot send JWT)
         .route("/api/alerts", post(handlers::alerts::receive))
         .route("/api/alerts/datadog", post(handlers::alerts::receive_datadog))
-        .route("/api/alerts/dynatrace", post(handlers::alerts::receive_dynatrace));
+        .route("/api/alerts/dynatrace", post(handlers::alerts::receive_dynatrace))
+        // ArgoCD notification webhook (no auth — cluster-internal)
+        .route("/api/webhooks/argocd", post(handlers::argocd_webhook::receive));
 
     // Protected routes (auth required)
     let protected_routes = Router::new()

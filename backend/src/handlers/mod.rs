@@ -1,6 +1,7 @@
 pub mod account_access;
 pub mod alerts;
 pub mod approval;
+pub mod argocd_webhook;
 pub mod auth;
 pub mod channel;
 pub mod chat;

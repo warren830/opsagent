@@ -2,30 +2,29 @@
 # Supports linux/amd64 and linux/arm64 (Graviton)
 # Requires: DOCKER_BUILDKIT=1
 
-# Stage 1: Build Rust binary
-FROM public.ecr.aws/docker/library/rust:1.94-slim-bookworm AS builder
-
-WORKDIR /app
+# Stage 1a: Install cargo-chef
+FROM public.ecr.aws/docker/library/rust:1.94-slim-bookworm AS chef
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN cargo install cargo-chef --locked
+WORKDIR /app
 
-# Copy manifests first for dependency caching
-COPY backend/Cargo.toml backend/Cargo.lock ./
+# Stage 1b: Analyze dependencies (produces recipe.json)
+FROM chef AS planner
+COPY backend/ .
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Build deps only (cache mount persists crates.io index + compiled deps across builds)
+# Stage 1c: Build dependencies (cached as Docker layer — only rebuilds when Cargo.toml/lock change)
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
-    mkdir src && echo "fn main() {}" > src/main.rs \
-    && cargo build --release \
-    && rm -rf src
+    cargo chef cook --release --recipe-path recipe.json
 
-# Build actual binary
+# Build actual binary (only recompiles app code, deps are cached above)
 COPY backend/ .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/app/target \
-    touch src/main.rs \
-    && cargo build --release \
+    cargo build --release \
     && cp target/release/openops /app/openops
 
 # Stage 2: Prepare screener

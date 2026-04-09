@@ -20,7 +20,7 @@ use crate::services::k8s::{build_k8s_client, load_and_authorize_cluster};
 
 // ─── Argo Rollouts CRD ApiResource ───────────────────────────────────────────
 
-fn rollout_api_resource() -> ApiResource {
+pub fn rollout_api_resource() -> ApiResource {
     ApiResource {
         group: "argoproj.io".to_string(),
         version: "v1alpha1".to_string(),
@@ -203,7 +203,8 @@ pub async fn promote(
         &name,
         action,
         serde_json::json!({"full": req.full}),
-        &auth_user,
+        Some(auth_user.user_id),
+        auth_user.tenant_id,
     )
     .await;
 
@@ -250,7 +251,8 @@ pub async fn rollback(
         &name,
         "rollback",
         serde_json::json!({}),
-        &auth_user,
+        Some(auth_user.user_id),
+        auth_user.tenant_id,
     )
     .await;
 
@@ -376,7 +378,8 @@ pub async fn change_strategy(
         &name,
         "change_strategy",
         serde_json::json!({"strategy": req.strategy}),
-        &auth_user,
+        Some(auth_user.user_id),
+        auth_user.tenant_id,
     )
     .await;
 
@@ -511,14 +514,17 @@ pub async fn list_events(
 }
 
 /// Fire-and-forget: record a deployment event to DB.
-async fn record_event(
+/// `user_id` / `tenant_id` are optional — automated events (ArgoCD sync, rollout watcher) have no user.
+#[allow(clippy::too_many_arguments)]
+pub async fn record_event(
     pool: &sqlx::PgPool,
     cluster_id: Uuid,
     namespace: &str,
     rollout_name: &str,
     action: &str,
     detail: serde_json::Value,
-    auth_user: &AuthUser,
+    user_id: Option<Uuid>,
+    tenant_id: Option<Uuid>,
 ) {
     if let Err(e) = sqlx::query(
         r#"INSERT INTO deployment_events (cluster_id, namespace, rollout_name, action, detail, user_id, tenant_id)
@@ -529,8 +535,8 @@ async fn record_event(
     .bind(rollout_name)
     .bind(action)
     .bind(&detail)
-    .bind(auth_user.user_id)
-    .bind(auth_user.tenant_id)
+    .bind(user_id)
+    .bind(tenant_id)
     .execute(pool)
     .await
     {
