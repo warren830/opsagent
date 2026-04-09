@@ -68,16 +68,13 @@ FRONTEND_PID=$!
 
 TUNNEL_PID=""
 
-# Start cloudflare tunnel for Grafana webhook (optional)
-if command -v cloudflared >/dev/null; then
+# Cloudflare tunnel for Grafana webhook — disabled by default, enable with ENABLE_TUNNEL=true
+if [ "${ENABLE_TUNNEL:-false}" = "true" ] && command -v cloudflared >/dev/null; then
   log "Starting cloudflare tunnel for Grafana webhook callbacks..."
   cloudflared tunnel --url http://localhost:3080 2>&1 | sed -u "s/^/[tunnel] /" &
   TUNNEL_PID=$!
   sleep 3
   log "💡 Copy the tunnel URL from [tunnel] output → Grafana Alerting → Contact Points → Webhook"
-else
-  warn "cloudflared not found — Grafana Cloud cannot reach localhost for webhook"
-  warn "Install: brew install cloudflared"
 fi
 
 log "🚀 OpenOps is running!"

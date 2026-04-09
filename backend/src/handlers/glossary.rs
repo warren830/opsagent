@@ -66,11 +66,6 @@ pub async fn create(
         return Err(AppError::BadRequest("Term is required".to_string()));
     }
 
-    let visibility = match req.visibility.as_str() {
-        "public" | "private" => req.visibility.clone(),
-        _ => "public".to_string(),
-    };
-
     // Validate write access to the account
     if let Some(account_id) = req.account_id
         && !can_write_account(&state.pool, &auth_user, account_id).await
@@ -78,11 +73,15 @@ pub async fn create(
         return Err(AppError::Forbidden("Read-only access to this account".to_string()));
     }
 
-    let user_id = if visibility == "private" {
-        Some(auth_user.user_id)
-    } else {
-        None
-    };
+    // Check if same term already exists
+    let existing = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM glossary WHERE LOWER(term) = LOWER($1)")
+        .bind(&req.term)
+        .fetch_one(&state.pool)
+        .await?;
+
+    if existing > 0 {
+        return Err(AppError::Conflict(format!("Term '{}' already exists", req.term)));
+    }
 
     // Derive tenant_id from account if provided
     let tenant_id = if let Some(aid) = req.account_id {
@@ -96,8 +95,8 @@ pub async fn create(
     };
 
     let entry = sqlx::query_as::<_, GlossaryEntry>(
-        r#"INSERT INTO glossary (term, full_name, description, aliases, aws_accounts, services, tenant_id, user_id, account_id, visibility)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        r#"INSERT INTO glossary (term, full_name, description, aliases, aws_accounts, services, tenant_id, account_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            RETURNING *"#,
     )
     .bind(&req.term)
@@ -107,16 +106,15 @@ pub async fn create(
     .bind(&req.aws_accounts)
     .bind(&req.services)
     .bind(tenant_id)
-    .bind(user_id)
     .bind(req.account_id)
-    .bind(&visibility)
     .fetch_one(&state.pool)
     .await
     .map_err(|e| {
         if let sqlx::Error::Database(ref db_err) = e
-            && db_err.constraint().is_some_and(|c| c.starts_with("idx_glossary_term")) {
-                return AppError::Conflict(format!("Term '{}' already exists", req.term));
-            }
+            && db_err.constraint().is_some_and(|c| c.starts_with("idx_glossary_term"))
+        {
+            return AppError::Conflict(format!("Term '{}' already exists", req.term));
+        }
         AppError::Database(e)
     })?;
 
@@ -141,7 +139,7 @@ pub async fn update(
         if !can_write_account(&state.pool, &auth_user, aid).await {
             return Err(AppError::Forbidden("Read-only access to this account".to_string()));
         }
-    } else if !auth_user.is_admin() && existing.user_id != Some(auth_user.user_id) {
+    } else if !auth_user.is_admin() {
         return Err(AppError::Forbidden("Access denied".to_string()));
     }
 
@@ -204,7 +202,7 @@ pub async fn delete(
         if !can_write_account(&state.pool, &auth_user, aid).await {
             return Err(AppError::Forbidden("Read-only access to this account".to_string()));
         }
-    } else if !auth_user.is_admin() && existing.user_id != Some(auth_user.user_id) {
+    } else if !auth_user.is_admin() {
         return Err(AppError::Forbidden("Access denied".to_string()));
     }
 

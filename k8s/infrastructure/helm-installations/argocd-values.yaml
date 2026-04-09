@@ -1,0 +1,34 @@
+# ArgoCD - GitOps continuous delivery for Kubernetes
+# Minimal config: single-replica, no HA, no Dex (use built-in auth)
+
+global:
+  nodeSelector:
+    karpenter.sh/nodepool: common-nodepool
+
+configs:
+  params:
+    # Run in insecure mode (TLS terminated at ALB/Ingress)
+    server.insecure: true
+
+server:
+  replicas: 1
+  service:
+    type: ClusterIP
+
+controller:
+  replicas: 1
+
+repoServer:
+  replicas: 1
+
+redis:
+  enabled: true
+
+dex:
+  enabled: false
+
+notifications:
+  enabled: false
+
+applicationSet:
+  replicas: 1

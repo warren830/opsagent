@@ -283,7 +283,7 @@ pub async fn scan(
     // Find the account to scan
     let account = if let Some(ref aid) = req.account_id {
         sqlx::query_as::<_, CloudAccount>(
-            "SELECT * FROM cloud_accounts WHERE account_id = $1 AND provider = 'aws' AND is_mock = false LIMIT 1",
+            "SELECT * FROM cloud_accounts WHERE account_id = $1 AND provider = 'aws' AND is_mock = false ORDER BY CASE WHEN source = 'manual' THEN 0 ELSE 1 END LIMIT 1",
         )
         .bind(aid)
         .fetch_optional(&state.pool)

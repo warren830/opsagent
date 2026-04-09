@@ -2,14 +2,17 @@
 import {
   LayoutDashboard, Users, Building2,
   Cloud, Server, Boxes, Radio, Brain, Network,
-  BookOpen, LibraryBig, Wrench, Plug, Clock,
+  BookOpen, LibraryBig, Wrench, Plug, Clock, Rocket,
   GitBranch, Activity, AlertTriangle, Settings,
   ChevronDown, MessageSquare, PanelLeftClose, PanelLeftOpen,
   ChevronsUpDown, ChevronsDownUp,
 } from 'lucide-vue-next'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { Separator } from '@/components/ui/separator'
+import { ScrollArea } from '@/components/ui/scroll-area'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -93,6 +96,7 @@ const navGroups = computed<NavGroup[]>(() => {
       label: t('nav.groups.ops'),
       defaultOpen: true,
       items: [
+        { label: t('nav.deployments'), to: '/deployments', icon: Rocket },
         { label: t('nav.issues'), to: '/issues', icon: AlertTriangle, badge: issueCount.value || undefined },
       ],
     },
@@ -133,7 +137,7 @@ function isActive(path: string) {
   return route.path.startsWith(path)
 }
 
-const chatOpen = useState('chatPanelOpen', () => false)
+const chatOpen = useState('chatPanelOpen', () => true)
 function toggleChat() {
   chatOpen.value = !chatOpen.value
 }
@@ -146,158 +150,166 @@ function toggleChat() {
   >
     <!-- Collapse toggle -->
     <div class="flex items-center px-2 py-1.5 shrink-0" :class="collapsed ? 'justify-center' : 'justify-end'">
-      <button
-        class="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent transition-colors"
+      <Button
+        variant="ghost" size="sm"
+        class="h-6 w-6 p-0 text-muted-foreground/50 hover:text-muted-foreground"
         @click="toggleSidebar"
       >
         <PanelLeftClose v-if="!collapsed" class="h-3.5 w-3.5" />
         <PanelLeftOpen v-else class="h-3.5 w-3.5" />
-      </button>
+      </Button>
     </div>
 
     <!-- Nav content -->
-    <div class="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2 space-y-0.5">
-      <!-- === Collapsed: icon-only mode === -->
-      <template v-if="collapsed">
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <NuxtLink
-              to="/"
-              class="flex items-center justify-center rounded h-8 w-8 mx-auto transition-colors"
-              :class="isActive('/') && route.path === '/' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
-            >
-              <LayoutDashboard class="h-4 w-4" />
-            </NuxtLink>
-          </TooltipTrigger>
-          <TooltipContent side="right" :side-offset="8">{{ t('nav.dashboard') }}</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <button
-              class="flex items-center justify-center rounded h-8 w-8 mx-auto transition-colors"
-              :class="chatOpen ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
-              @click="toggleChat"
-            >
-              <MessageSquare class="h-4 w-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" :side-offset="8">{{ t('nav.chat') }}</TooltipContent>
-        </Tooltip>
-
-        <div class="!my-1.5 h-px bg-border/50 mx-1" />
-
-        <template v-for="group in navGroups" :key="group.label">
-          <Tooltip v-for="item in group.items" :key="item.to">
+    <ScrollArea class="flex-1 px-2 pb-2">
+      <div class="space-y-0.5">
+        <!-- === Collapsed: icon-only mode === -->
+        <template v-if="collapsed">
+          <Tooltip>
             <TooltipTrigger as-child>
               <NuxtLink
-                :to="item.to"
+                to="/"
                 class="flex items-center justify-center rounded h-8 w-8 mx-auto transition-colors"
-                :class="isActive(item.to) ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+                :class="isActive('/') && route.path === '/' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
               >
-                <component :is="item.icon" class="h-4 w-4" />
+                <LayoutDashboard class="h-4 w-4" />
               </NuxtLink>
             </TooltipTrigger>
-            <TooltipContent side="right" :side-offset="8">{{ item.label }}</TooltipContent>
+            <TooltipContent side="right" :side-offset="8">{{ t('nav.dashboard') }}</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                variant="ghost" size="sm"
+                class="h-8 w-8 p-0 mx-auto"
+                :class="chatOpen ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+                @click="toggleChat"
+              >
+                <MessageSquare class="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right" :side-offset="8">{{ t('nav.chat') }}</TooltipContent>
+          </Tooltip>
+
+          <Separator class="!my-1.5 mx-1 bg-border/50" />
+
+          <template v-for="group in navGroups" :key="group.label">
+            <Tooltip v-for="item in group.items" :key="item.to">
+              <TooltipTrigger as-child>
+                <NuxtLink
+                  :to="item.to"
+                  class="flex items-center justify-center rounded h-8 w-8 mx-auto transition-colors"
+                  :class="isActive(item.to) ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+                >
+                  <component :is="item.icon" class="h-4 w-4" />
+                </NuxtLink>
+              </TooltipTrigger>
+              <TooltipContent side="right" :side-offset="8">{{ item.label }}</TooltipContent>
+            </Tooltip>
+          </template>
+
+          <Separator class="!my-1.5 mx-1 bg-border/50" />
+
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <NuxtLink
+                to="/settings"
+                class="flex items-center justify-center rounded h-8 w-8 mx-auto transition-colors"
+                :class="isActive('/settings') ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+              >
+                <Settings class="h-4 w-4" />
+              </NuxtLink>
+            </TooltipTrigger>
+            <TooltipContent side="right" :side-offset="8">{{ t('nav.settings') }}</TooltipContent>
           </Tooltip>
         </template>
 
-        <div class="!my-1.5 h-px bg-border/50 mx-1" />
-
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <NuxtLink
-              to="/settings"
-              class="flex items-center justify-center rounded h-8 w-8 mx-auto transition-colors"
-              :class="isActive('/settings') ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
-            >
-              <Settings class="h-4 w-4" />
-            </NuxtLink>
-          </TooltipTrigger>
-          <TooltipContent side="right" :side-offset="8">{{ t('nav.settings') }}</TooltipContent>
-        </Tooltip>
-      </template>
-
-      <!-- === Expanded: full nav === -->
-      <template v-else>
-        <NuxtLink
-          to="/"
-          class="flex items-center gap-2.5 rounded px-2.5 py-1.5 text-[13px] transition-all duration-150"
-          :class="isActive('/') && route.path === '/' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
-        >
-          <LayoutDashboard class="h-4 w-4 shrink-0" />
-          <span>{{ t('nav.dashboard') }}</span>
-        </NuxtLink>
-
-        <button
-          class="flex w-full items-center gap-2.5 rounded px-2.5 py-1.5 text-[13px] transition-all duration-150"
-          :class="chatOpen ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
-          @click="toggleChat"
-        >
-          <MessageSquare class="h-4 w-4 shrink-0" />
-          <span>{{ t('nav.chat') }}</span>
-        </button>
-
-        <div class="!my-2 h-px bg-border/50" />
-
-        <!-- Expand / Collapse all groups toggle -->
-        <div class="flex justify-end px-1 -mb-0.5">
-          <button
-            v-if="!allGroupsExpanded"
-            class="h-5 w-5 rounded flex items-center justify-center text-muted-foreground/30 hover:text-muted-foreground hover:bg-accent transition-colors"
-            :title="t('nav.expandAll')"
-            @click="expandAllGroups"
+        <!-- === Expanded: full nav === -->
+        <template v-else>
+          <NuxtLink
+            to="/"
+            class="flex items-center gap-2.5 rounded px-2.5 py-1.5 text-[13px] transition-all duration-150"
+            :class="isActive('/') && route.path === '/' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
           >
-            <ChevronsUpDown class="h-3 w-3" />
-          </button>
-          <button
-            v-else
-            class="h-5 w-5 rounded flex items-center justify-center text-muted-foreground/30 hover:text-muted-foreground hover:bg-accent transition-colors"
-            :title="t('nav.collapseAll')"
-            @click="collapseAllGroups"
+            <LayoutDashboard class="h-4 w-4 shrink-0" />
+            <span>{{ t('nav.dashboard') }}</span>
+          </NuxtLink>
+
+          <Button
+            variant="ghost" size="sm"
+            class="flex w-full items-center gap-2.5 justify-start rounded px-2.5 py-1.5 h-auto text-[13px] transition-all duration-150"
+            :class="chatOpen ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+            @click="toggleChat"
           >
-            <ChevronsDownUp class="h-3 w-3" />
-          </button>
-        </div>
+            <MessageSquare class="h-4 w-4 shrink-0" />
+            <span>{{ t('nav.chat') }}</span>
+            <kbd class="ml-auto inline-flex items-center gap-0.5 text-foreground font-mono bg-secondary/50 border border-border/50 rounded px-1.5 py-0.5"><span class="text-[13px] leading-none">⌘</span><span class="text-[10px] leading-none">K</span></kbd>
+          </Button>
 
-        <Collapsible
-          v-for="group in navGroups"
-          :key="group.label"
-          v-model:open="groupOpen[group.label]"
-          class="space-y-0.5"
-        >
-          <CollapsibleTrigger class="flex w-full items-center justify-between rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors group">
-            <span>{{ group.label }}</span>
-            <ChevronDown class="h-3 w-3 transition-transform duration-200 group-data-[state=closed]:-rotate-90" />
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <NuxtLink
-              v-for="item in group.items"
-              :key="item.to"
-              :to="item.to"
-              class="flex items-center gap-2 rounded-md ml-2 px-2.5 py-1.5 text-[12px] transition-all duration-150 border-l-2"
-              :class="isActive(item.to) ? 'bg-primary/15 text-primary font-medium border-primary' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground border-transparent'"
+          <Separator class="!my-2 bg-border/50" />
+
+          <!-- Expand / Collapse all groups toggle -->
+          <div class="flex justify-end px-1 -mb-0.5">
+            <Button
+              v-if="!allGroupsExpanded"
+              variant="ghost" size="sm"
+              class="h-5 w-5 p-0 text-muted-foreground/30 hover:text-muted-foreground"
+              :title="t('nav.expandAll')"
+              @click="expandAllGroups"
             >
-              <component :is="item.icon" class="h-4 w-4 shrink-0" />
-              <span class="flex-1">{{ item.label }}</span>
-              <Badge v-if="item.badge" variant="destructive" class="h-4 min-w-4 justify-center text-[9px] px-1 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]">
-                {{ item.badge }}
-              </Badge>
-            </NuxtLink>
-          </CollapsibleContent>
-        </Collapsible>
+              <ChevronsUpDown class="h-3 w-3" />
+            </Button>
+            <Button
+              v-else
+              variant="ghost" size="sm"
+              class="h-5 w-5 p-0 text-muted-foreground/30 hover:text-muted-foreground"
+              :title="t('nav.collapseAll')"
+              @click="collapseAllGroups"
+            >
+              <ChevronsDownUp class="h-3 w-3" />
+            </Button>
+          </div>
 
-        <div class="!my-2 h-px bg-border/50" />
+          <Collapsible
+            v-for="group in navGroups"
+            :key="group.label"
+            v-model:open="groupOpen[group.label]"
+            class="space-y-0.5"
+          >
+            <CollapsibleTrigger class="flex w-full items-center justify-between rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 hover:text-muted-foreground transition-colors group">
+              <span>{{ group.label }}</span>
+              <ChevronDown class="h-3 w-3 transition-transform duration-200 group-data-[state=closed]:-rotate-90" />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <NuxtLink
+                v-for="item in group.items"
+                :key="item.to"
+                :to="item.to"
+                class="flex items-center gap-2 rounded-md ml-2 px-2.5 py-1.5 text-[12px] transition-all duration-150 border-l-2"
+                :class="isActive(item.to) ? 'bg-primary/15 text-primary font-medium border-primary' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground border-transparent'"
+              >
+                <component :is="item.icon" class="h-4 w-4 shrink-0" />
+                <span class="flex-1">{{ item.label }}</span>
+                <Badge v-if="item.badge" variant="destructive" class="h-4 min-w-4 justify-center text-[9px] px-1 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]">
+                  {{ item.badge }}
+                </Badge>
+              </NuxtLink>
+            </CollapsibleContent>
+          </Collapsible>
 
-        <NuxtLink
-          to="/settings"
-          class="flex items-center gap-2.5 rounded px-2.5 py-1.5 text-[13px] transition-all duration-150"
-          :class="isActive('/settings') ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
-        >
-          <Settings class="h-4 w-4 shrink-0" />
-          <span>{{ t('nav.settings') }}</span>
-        </NuxtLink>
-      </template>
-    </div>
+          <Separator class="!my-2 bg-border/50" />
+
+          <NuxtLink
+            to="/settings"
+            class="flex items-center gap-2.5 rounded px-2.5 py-1.5 text-[13px] transition-all duration-150"
+            :class="isActive('/settings') ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+          >
+            <Settings class="h-4 w-4 shrink-0" />
+            <span>{{ t('nav.settings') }}</span>
+          </NuxtLink>
+        </template>
+      </div>
+    </ScrollArea>
   </aside>
 </template>

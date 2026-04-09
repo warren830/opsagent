@@ -128,6 +128,38 @@ output "rds_security_group_id" {
   value       = module.vpc.rds_security_group_id
 }
 
+# Cognito Outputs (conditional)
+output "cognito_enabled" {
+  description = "Whether Cognito is enabled"
+  value       = var.enable_cognito
+}
+
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID"
+  value       = var.enable_cognito ? module.cognito[0].user_pool_id : null
+}
+
+output "cognito_domain" {
+  description = "Cognito User Pool domain prefix"
+  value       = var.enable_cognito ? module.cognito[0].user_pool_domain : null
+}
+
+output "cognito_user_pool_domain_url" {
+  description = "Full URL of the Cognito User Pool domain"
+  value       = var.enable_cognito ? module.cognito[0].user_pool_domain_url : null
+}
+
+output "cognito_app_client_id" {
+  description = "Cognito App Client ID"
+  value       = var.enable_cognito ? module.cognito[0].app_client_id : null
+}
+
+output "cognito_app_client_secret" {
+  description = "Cognito App Client Secret"
+  value       = var.enable_cognito ? module.cognito[0].app_client_secret : null
+  sensitive   = true
+}
+
 # WAF Outputs (conditional)
 output "waf_enabled" {
   description = "Whether WAF is enabled"

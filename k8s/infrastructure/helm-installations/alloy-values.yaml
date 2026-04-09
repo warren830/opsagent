@@ -1,6 +1,6 @@
 # Grafana Alloy — metrics/logs/traces collector (DaemonSet)
 # Internal service only — no Ingress/ALB
-# Scrapes pod metrics → Mimir, collects logs → Loki, forwards traces → Tempo
+# Scrapes node/container/app metrics → Mimir, collects logs → Loki, forwards traces → Tempo
 
 alloy:
   configMap:
@@ -14,7 +14,69 @@ alloy:
         role = "node"
       }
 
-      // ─── Metrics: scrape pods with prometheus.io annotations ───
+      // ─── Node metrics (kubelet /metrics endpoint) ───────
+      discovery.relabel "kubelet" {
+        targets = discovery.kubernetes.nodes.targets
+
+        rule {
+          target_label  = "__address__"
+          replacement   = "kubernetes.default.svc:443"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_node_name"]
+          target_label  = "__metrics_path__"
+          replacement   = "/api/v1/nodes/${1}/proxy/metrics"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_node_name"]
+          target_label  = "node"
+        }
+      }
+
+      prometheus.scrape "kubelet" {
+        targets      = discovery.relabel.kubelet.output
+        scheme       = "https"
+        scrape_interval = "30s"
+        bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        tls_config {
+          ca_file              = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+          insecure_skip_verify = true
+        }
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ─── Container metrics (cadvisor) ───────────────────
+      discovery.relabel "cadvisor" {
+        targets = discovery.kubernetes.nodes.targets
+
+        rule {
+          target_label  = "__address__"
+          replacement   = "kubernetes.default.svc:443"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_node_name"]
+          target_label  = "__metrics_path__"
+          replacement   = "/api/v1/nodes/${1}/proxy/metrics/cadvisor"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_node_name"]
+          target_label  = "node"
+        }
+      }
+
+      prometheus.scrape "cadvisor" {
+        targets      = discovery.relabel.cadvisor.output
+        scheme       = "https"
+        scrape_interval = "30s"
+        bearer_token_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        tls_config {
+          ca_file              = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+          insecure_skip_verify = true
+        }
+        forward_to = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ─── Application metrics (pods with prometheus.io annotations) ───
       discovery.relabel "pod_metrics" {
         targets = discovery.kubernetes.pods.targets
 
@@ -24,11 +86,20 @@ alloy:
           action        = "keep"
         }
         rule {
-          source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_port"]
+          source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scheme"]
+          target_label  = "__scheme__"
+          regex         = "(https?)"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+          target_label  = "__metrics_path__"
+          regex         = "(.+)"
+        }
+        rule {
+          source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+          regex         = "([^:]+)(?::\\d+)?;(\\d+)"
           target_label  = "__address__"
-          regex         = "(\\d+)"
-          replacement   = "${1}"
-          action        = "replace"
+          replacement   = "${1}:${2}"
         }
         rule {
           source_labels = ["__meta_kubernetes_namespace"]
@@ -38,16 +109,35 @@ alloy:
           source_labels = ["__meta_kubernetes_pod_name"]
           target_label  = "pod"
         }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_node_name"]
+          target_label  = "node"
+        }
       }
 
       prometheus.scrape "pods" {
-        targets    = discovery.relabel.pod_metrics.output
+        targets      = discovery.relabel.pod_metrics.output
+        scrape_interval = "30s"
+        forward_to   = [prometheus.remote_write.mimir.receiver]
+      }
+
+      // ─── kube-state-metrics ──────────────────────────────
+      prometheus.scrape "kube_state_metrics" {
+        targets = [{
+          __address__ = "kube-state-metrics.monitoring.svc:8080",
+        }]
+        scrape_interval = "30s"
         forward_to = [prometheus.remote_write.mimir.receiver]
       }
 
+      // ─── Remote write to Mimir ─────────────────────────
       prometheus.remote_write "mimir" {
         endpoint {
-          url = "http://mimir.monitoring.svc:9009/api/v1/push"
+          url = "http://mimir-gateway.monitoring.svc:80/api/v1/push"
         }
       }
 
@@ -85,16 +175,36 @@ alloy:
         }
       }
 
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
 controller:
-  type: DaemonSet
+  type: daemonset
+  nodeSelector:
+    karpenter.sh/nodepool: common-nodepool
 
-resources:
-  requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: 500m
-    memory: 512Mi
+# RBAC for scraping kubelet/cadvisor via API server proxy
+alloy-controller:
+  serviceAccount:
+    create: true
 
-nodeSelector:
-  karpenter.sh/nodepool: common-nodepool
+# Add nodes/proxy for kubelet & cadvisor scraping via API server
+rbac:
+  create: true
+  clusterRules:
+    - apiGroups: [""]
+      resources: ["nodes"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["nodes/pods"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["nodes/metrics", "nodes/proxy"]
+      verbs: ["get", "list", "watch"]
+    - nonResourceURLs: ["/metrics"]
+      verbs: ["get"]

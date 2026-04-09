@@ -13,9 +13,7 @@ pub struct GlossaryEntry {
     pub aws_accounts: Vec<String>,
     pub services: Vec<String>,
     pub tenant_id: Option<Uuid>,
-    pub user_id: Option<Uuid>,
     pub account_id: Option<Uuid>,
-    pub visibility: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -31,8 +29,6 @@ pub struct CreateGlossaryRequest {
     pub aws_accounts: Vec<String>,
     #[serde(default)]
     pub services: Vec<String>,
-    #[serde(default = "default_public")]
-    pub visibility: String,
     pub account_id: Option<uuid::Uuid>,
 }
 
@@ -45,8 +41,4 @@ pub struct UpdateGlossaryRequest {
     pub aws_accounts: Option<Vec<String>>,
     pub services: Option<Vec<String>>,
     pub account_id: Option<uuid::Uuid>,
-}
-
-fn default_public() -> String {
-    "public".to_string()
 }

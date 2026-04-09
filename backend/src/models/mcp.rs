@@ -19,6 +19,7 @@ pub struct McpServer {
     pub url: Option<String>,
     pub headers: serde_json::Value,
     pub description: Option<String>,
+    pub tools: serde_json::Value,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -57,6 +58,26 @@ pub struct UpdateMcpServerRequest {
     pub url: Option<String>,
     pub headers: Option<serde_json::Value>,
     pub description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TestMcpServerRequest {
+    pub name: String,
+    #[serde(default = "default_stdio")]
+    pub transport_type: String,
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub args: serde_json::Value,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub headers: serde_json::Value,
+    #[serde(default)]
+    pub env: serde_json::Value,
+    /// If provided, discovered tools will be saved to this server's DB record
+    #[serde(default)]
+    pub server_id: Option<String>,
 }
 
 fn default_true() -> bool {

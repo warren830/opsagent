@@ -20,6 +20,7 @@ pub async fn upsert_issue(
     meta: &serde_json::Value,
     is_resolved: bool,
     issue_type: &str,
+    state: Option<&AppState>,
 ) -> (u64, u64) {
     let mut created = 0u64;
     let mut resolved = 0u64;
@@ -79,6 +80,42 @@ pub async fn upsert_issue(
                 title,
                 severity
             );
+
+            // Auto-pause progressing rollouts on critical/high alerts
+            if severity == "critical" || severity == "high" {
+                if let Some(namespace) = crate::services::rollout_guard::extract_namespace_from_alert(meta) {
+                    let pool_clone = pool.clone();
+                    let ns = namespace.clone();
+                    tokio::spawn(async move {
+                        let paused = crate::services::rollout_guard::check_and_pause_rollouts(&pool_clone, &ns).await;
+                        if !paused.is_empty() {
+                            tracing::warn!("Alert guard auto-paused rollouts: {:?}", paused);
+                        }
+                    });
+                }
+
+                // Auto-trigger RCA on critical/high alerts
+                if let Some(app_state) = state {
+                    let pool_clone = pool.clone();
+                    let registry = app_state.rca_registry.clone();
+                    let config = std::sync::Arc::new(app_state.config.clone());
+                    let title_str = title.to_string();
+                    tokio::spawn(async move {
+                        // Fetch the just-created issue
+                        let issue = sqlx::query_as::<_, crate::models::issue::Issue>(
+                            "SELECT * FROM issues WHERE title = $1 AND status = 'open' ORDER BY created_at DESC LIMIT 1",
+                        )
+                        .bind(&title_str)
+                        .fetch_optional(&pool_clone)
+                        .await;
+
+                        if let Ok(Some(issue)) = issue {
+                            tracing::info!("Auto-triggering RCA for critical/high issue: {}", issue.id);
+                            crate::services::rca::run_rca(pool_clone, config, registry, issue).await;
+                        }
+                    });
+                }
+            }
         }
         Err(e) => {
             tracing::error!("Failed to create issue from {} alert: {}", source, e);
@@ -183,6 +220,7 @@ pub async fn receive(
             &meta,
             alert_status == "resolved",
             "incident",
+            Some(&state),
         )
         .await;
         created += c;
@@ -264,6 +302,7 @@ pub async fn receive_datadog(
         &meta,
         is_resolved,
         "incident",
+        Some(&state),
     )
     .await;
 
@@ -346,6 +385,7 @@ pub async fn receive_dynatrace(
         &meta,
         is_resolved,
         "incident",
+        Some(&state),
     )
     .await;
 

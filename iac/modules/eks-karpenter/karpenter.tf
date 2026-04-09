@@ -14,7 +14,7 @@ module "karpenter" {
     AmazonEBSCSIDriverPolicy           = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
   }
 
-  iam_role_name            = "karpenter-controller-${var.workspace}-${var.account}-${var.region}"
+  iam_role_name            = "${var.project_name_alias}-kp-controller-${var.workspace}-${var.account}-${var.region}"
   iam_role_use_name_prefix = false
 
   queue_name = "${var.project_name_alias}-${var.workspace}-karpenter"

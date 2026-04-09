@@ -55,3 +55,20 @@ workspace/
 
 # Service Screener (cloned locally)
 .openops/
+
+# Temporary analysis/reference docs (not part of the project)
+FRONTEND_ANALYSIS.md
+FRONTEND_CODE_REFERENCE.md
+FRONTEND_INDEX.md
+FRONTEND_QUICK_REF.txt
+FRONTEND_SUMMARY.txt
+JIRA_INTEGRATION_PLAN.md
+README_JIRA_ANALYSIS.md
+code_locations_index.md
+jira_integration_analysis.md
+jira_quick_ref.md
+
+# Large assets / archives
+openops-sre-zerotrust/
+openops-sre-zerotrust.zip
+*.zip

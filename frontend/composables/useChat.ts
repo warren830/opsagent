@@ -40,6 +40,8 @@ export function useChat() {
   const currentSessionId = ref<string | null>(null)
   const error = ref<string | null>(null)
   const selectedProviderId = ref<string | null>(null)
+  const selectedMcpServerIds = ref<string[]>([])
+  const disabledMcpTools = ref<string[]>([])  // "serverId:toolName" format
 
   let currentAssistantText = ''
   let currentAssistantId = ''
@@ -133,6 +135,8 @@ export function useChat() {
         session_id: currentSessionId.value,
         new_session: forceNewSession || undefined,
         provider_id: selectedProviderId.value || undefined,
+        mcp_server_ids: selectedMcpServerIds.value.length ? selectedMcpServerIds.value : undefined,
+        disabled_mcp_tools: disabledMcpTools.value.length ? disabledMcpTools.value : undefined,
       }
       // Reset the flag after first send
       forceNewSession = false
@@ -291,6 +295,8 @@ export function useChat() {
     currentSessionId: readonly(currentSessionId),
     error: readonly(error),
     selectedProviderId,
+    selectedMcpServerIds,
+    disabledMcpTools,
     sendMessage,
     editAndResend,
     abortStream,

@@ -288,7 +288,7 @@ async function deleteFile() {
       <DialogContent class="max-w-lg">
         <DialogHeader>
           <DialogTitle>{{ formTitle }}</DialogTitle>
-          <DialogDescription>{{ formTitle }}</DialogDescription>
+          <DialogDescription class="sr-only">{{ formTitle }}</DialogDescription>
         </DialogHeader>
 
         <form class="space-y-3" @submit.prevent="saveFile">

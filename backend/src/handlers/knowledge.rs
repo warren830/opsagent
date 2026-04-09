@@ -40,23 +40,12 @@ pub async fn create(
         return Err(AppError::BadRequest("Filename is required".to_string()));
     }
 
-    let visibility = match req.visibility.as_str() {
-        "public" | "private" => req.visibility.clone(),
-        _ => "public".to_string(),
-    };
-
     // Validate write access to the account
     if let Some(account_id) = req.account_id
         && !can_write_account(&state.pool, &auth_user, account_id).await
     {
         return Err(AppError::Forbidden("Read-only access to this account".to_string()));
     }
-
-    let user_id = if visibility == "private" {
-        Some(auth_user.user_id)
-    } else {
-        None
-    };
 
     // Derive tenant_id from account if provided
     let tenant_id = if let Some(aid) = req.account_id {
@@ -72,8 +61,8 @@ pub async fn create(
     let size_bytes = req.content.len() as i64;
 
     let row = sqlx::query_as::<_, KnowledgeFile>(
-        r#"INSERT INTO knowledge_files (filename, content, size_bytes, mime_type, tenant_id, user_id, account_id, created_by, visibility)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        r#"INSERT INTO knowledge_files (filename, content, size_bytes, mime_type, tenant_id, account_id, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            RETURNING *"#,
     )
     .bind(&req.filename)
@@ -81,10 +70,8 @@ pub async fn create(
     .bind(size_bytes)
     .bind(&req.mime_type)
     .bind(tenant_id)
-    .bind(user_id)
     .bind(req.account_id)
     .bind(auth_user.user_id)
-    .bind(&visibility)
     .fetch_one(&state.pool)
     .await?;
 
@@ -109,7 +96,7 @@ pub async fn update(
         if !can_write_account(&state.pool, &auth_user, aid).await {
             return Err(AppError::Forbidden("Read-only access to this account".to_string()));
         }
-    } else if !auth_user.is_admin() && existing.user_id != Some(auth_user.user_id) {
+    } else if !auth_user.is_admin() {
         return Err(AppError::Forbidden("Access denied".to_string()));
     }
 
@@ -162,7 +149,7 @@ pub async fn delete(
         if !can_write_account(&state.pool, &auth_user, aid).await {
             return Err(AppError::Forbidden("Read-only access to this account".to_string()));
         }
-    } else if !auth_user.is_admin() && existing.user_id != Some(auth_user.user_id) {
+    } else if !auth_user.is_admin() {
         return Err(AppError::Forbidden("Access denied".to_string()));
     }
 

@@ -45,6 +45,12 @@ pub struct ChatRequest {
     /// Optional provider_id to select a specific model configuration
     #[serde(default)]
     pub provider_id: Option<uuid::Uuid>,
+    /// Optional MCP server IDs to include (None = all enabled)
+    #[serde(default)]
+    pub mcp_server_ids: Option<Vec<uuid::Uuid>>,
+    /// Disabled MCP tools in "serverId:toolName" format → mapped to mcp__serverName__toolName
+    #[serde(default)]
+    pub disabled_mcp_tools: Option<Vec<String>>,
 }
 
 type SseEventStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
@@ -146,8 +152,44 @@ pub async fn stream(
         ));
     }
 
-    // Build MCP config from user's enabled MCP servers
-    let mcp_config = build_mcp_config(&state, &auth_user).await;
+    // Build MCP config from user's enabled MCP servers (writes to file in user_work_dir)
+    let api_token_for_mcp = all_env_vars
+        .iter()
+        .find(|(k, _)| k == "OPENOPS_API_TOKEN")
+        .map(|(_, v)| v.clone());
+    let (mcp_config, mcp_server_names) = build_mcp_config(
+        &state,
+        &auth_user,
+        &user_work_dir,
+        req.mcp_server_ids.as_deref(),
+        api_token_for_mcp.as_deref(),
+    )
+    .await;
+
+    // Auto-allow all MCP tools so Claude CLI doesn't prompt for permission
+    let mut allowed_tools = provider.allowed_tools.clone();
+    for name in &mcp_server_names {
+        allowed_tools.push(format!("mcp__{}__*", name));
+    }
+
+    // Build final disallowed tools list: provider defaults + disabled MCP tools
+    let mut disallowed_tools = provider.disallowed_tools.clone();
+    if let Some(disabled) = &req.disabled_mcp_tools {
+        // Map "serverId:toolName" → "mcp__serverName__toolName" (Claude CLI format)
+        for entry in disabled {
+            if let Some((server_id_str, tool_name)) = entry.split_once(':') {
+                // Look up server name from MCP servers loaded earlier
+                if let Ok(sid) = uuid::Uuid::parse_str(server_id_str)
+                    && let Ok(name) = sqlx::query_scalar::<_, String>("SELECT name FROM mcp_servers WHERE id = $1")
+                        .bind(sid)
+                        .fetch_one(&state.pool)
+                        .await
+                {
+                    disallowed_tools.push(format!("mcp__{}__{}", name, tool_name));
+                }
+            }
+        }
+    }
 
     // Spawn Claude CLI process — skills are discovered via .claude/skills/ in user_work_dir
     let event_stream: SseEventStream = match service.run(
@@ -157,8 +199,8 @@ pub async fn stream(
         images,
         all_env_vars,
         &provider.permission_mode,
-        &provider.disallowed_tools,
-        &provider.allowed_tools,
+        &disallowed_tools,
+        &allowed_tools,
         mcp_config.as_deref(),
     ) {
         Ok(claude_stream) => {
@@ -243,6 +285,7 @@ fn generate_agent_token(auth_user: &AuthUser, jwt_secret: &str) -> Option<String
         role: auth_user.role.clone(),
         tenant_id: auth_user.tenant_id,
         username: auth_user.username.clone(),
+        token_type: "access".to_string(),
         iat: now,
         exp: now + 7200, // 2 hours — covers long-running agent sessions
     };
@@ -304,10 +347,18 @@ async fn build_aws_env_vars(state: &AppState, auth_user: &AuthUser) -> Vec<(Stri
     env_vars
 }
 
-/// Build MCP config JSON string for Claude CLI --mcp-config flag.
-/// Queries enabled MCP servers accessible to the user and formats them as Claude CLI expects.
-async fn build_mcp_config(state: &AppState, auth_user: &AuthUser) -> Option<String> {
-    let servers = sqlx::query_as::<_, crate::models::mcp::McpServer>(
+/// Build MCP config file for Claude CLI --mcp-config flag.
+/// Queries enabled MCP servers, writes JSON to a temp file in user_work_dir,
+/// and returns (file_path, server_names). Claude CLI expects a file path, not a JSON string.
+/// When `server_ids` is Some, only include those specific servers.
+async fn build_mcp_config(
+    state: &AppState,
+    auth_user: &AuthUser,
+    user_work_dir: &std::path::Path,
+    server_ids: Option<&[uuid::Uuid]>,
+    api_token: Option<&str>,
+) -> (Option<String>, Vec<String>) {
+    let all_servers = sqlx::query_as::<_, crate::models::mcp::McpServer>(
         r#"SELECT * FROM mcp_servers
            WHERE enabled = true
            AND ((user_id = $1) OR (user_id IS NULL AND tenant_id IS NOT DISTINCT FROM $2))
@@ -319,10 +370,17 @@ async fn build_mcp_config(state: &AppState, auth_user: &AuthUser) -> Option<Stri
     .await
     .unwrap_or_default();
 
+    // Filter by requested IDs if provided
+    let servers: Vec<_> = match server_ids {
+        Some(ids) if !ids.is_empty() => all_servers.into_iter().filter(|s| ids.contains(&s.id)).collect(),
+        _ => all_servers,
+    };
+
     if servers.is_empty() {
-        return None;
+        return (None, Vec::new());
     }
 
+    let server_names: Vec<String> = servers.iter().map(|s| s.name.clone()).collect();
     let mut mcp_servers = serde_json::Map::new();
 
     for srv in &servers {
@@ -333,8 +391,23 @@ async fn build_mcp_config(state: &AppState, auth_user: &AuthUser) -> Option<Stri
                 if let Some(url) = &srv.url {
                     obj.insert("url".to_string(), serde_json::json!(url));
                 }
-                if srv.headers != serde_json::json!({}) {
-                    obj.insert("headers".to_string(), srv.headers.clone());
+                // For openops-* built-in servers, auto-inject Authorization header
+                let mut merged_headers = if srv.headers != serde_json::json!({}) {
+                    srv.headers.clone()
+                } else {
+                    serde_json::json!({})
+                };
+                if srv.name.starts_with("openops-")
+                    && let Some(token) = api_token
+                    && let Some(obj_map) = merged_headers.as_object_mut()
+                {
+                    obj_map.insert(
+                        "Authorization".to_string(),
+                        serde_json::json!(format!("Bearer {}", token)),
+                    );
+                }
+                if merged_headers != serde_json::json!({}) {
+                    obj.insert("headers".to_string(), merged_headers);
                 }
                 if srv.env != serde_json::json!({}) {
                     obj.insert("env".to_string(), srv.env.clone());
@@ -358,7 +431,6 @@ async fn build_mcp_config(state: &AppState, auth_user: &AuthUser) -> Option<Stri
     }
 
     let config = serde_json::json!({ "mcpServers": mcp_servers });
-    let json_str = serde_json::to_string(&config).ok()?;
 
     tracing::info!(
         "MCP config: {} server(s): {:?}",
@@ -366,7 +438,23 @@ async fn build_mcp_config(state: &AppState, auth_user: &AuthUser) -> Option<Stri
         servers.iter().map(|s| &s.name).collect::<Vec<_>>()
     );
 
-    Some(json_str)
+    // Write config to a file inside user_work_dir (works in local dev + cloud EKS pods)
+    let config_path = user_work_dir.join(".mcp.json");
+    if let Err(e) = tokio::fs::create_dir_all(user_work_dir).await {
+        tracing::error!("Failed to create user work dir for MCP config: {}", e);
+        return (None, server_names);
+    }
+    match tokio::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_default()).await {
+        Ok(_) => {
+            tracing::info!("MCP config written to {}", config_path.display());
+            // Return just the filename — Claude CLI runs with current_dir=user_work_dir
+            (Some(".mcp.json".to_string()), server_names)
+        }
+        Err(e) => {
+            tracing::error!("Failed to write MCP config file: {}", e);
+            (None, server_names)
+        }
+    }
 }
 
 /// Build system prompt — lightweight since CLAUDE.md handles the heavy lifting.
@@ -420,6 +508,18 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
     );
     lines.push(String::new());
 
+    // MCP / RAG image handling
+    lines.push("## MCP & RAG Image Handling".to_string());
+    lines.push(String::new());
+    lines.push("When RAG tools (e.g. rag_tool) return content containing images in markdown format like `![IMAGE: description](https://...)`, you MUST:".to_string());
+    lines.push(
+        "1. **Include the original image URL** as-is in your response using markdown: `![description](url)`"
+            .to_string(),
+    );
+    lines.push("2. **NEVER recreate diagrams** as mermaid/ASCII/text when the original image is available".to_string());
+    lines.push("3. The frontend renders markdown images natively — just pass the URL through".to_string());
+    lines.push(String::new());
+
     // Knowledge API — the critical part
     lines.push("## How to Answer Knowledge Questions".to_string());
     lines.push(String::new());
@@ -429,34 +529,154 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
     lines.push(String::new());
     lines.push("Use these commands (env vars are pre-set):".to_string());
     lines.push(String::new());
+    lines.push("All APIs use the same auth header: `Authorization: Bearer $OPENOPS_API_TOKEN`".to_string());
+    lines.push("Base URL is `$OPENOPS_API_BASE`. Both env vars are pre-set.".to_string());
+    lines.push(String::new());
+    lines.push("### Discovery & Assets".to_string());
+    lines.push("```bash".to_string());
+    lines.push("# Cloud accounts (provider, account_id, regions, role_arn)".to_string());
+    lines
+        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/accounts\"".to_string());
+    lines.push("# Kubernetes clusters (name, cloud, region, status, endpoint)".to_string());
+    lines
+        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters\"".to_string());
+    lines.push("# Service topology (real-time Ingress→Service→Deployment/Rollout graph)".to_string());
+    lines
+        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/topology\"".to_string());
+    lines.push("# Security resources & findings".to_string());
+    lines.push(
+        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/resources\"".to_string(),
+    );
+    lines.push(
+        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/resources/dashboard\""
+            .to_string(),
+    );
+    lines.push("```".to_string());
+    lines.push(String::new());
+    lines.push("### Deployments (Argo Rollouts)".to_string());
+    lines.push("```bash".to_string());
+    lines.push("# List rollouts on a cluster".to_string());
+    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts\"".to_string());
+    lines.push("# Get rollout detail (canary steps, containers)".to_string());
+    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}\"".to_string());
+    lines.push("# Promote rollout (step or full)".to_string());
+    lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" -H 'Content-Type: application/json' -d '{\"full\":false}' \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/promote\"".to_string());
+    lines.push("# Rollback rollout".to_string());
+    lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/rollback\"".to_string());
+    lines.push("# Change strategy (canary/blueGreen/rollingUpdate)".to_string());
+    lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" -H 'Content-Type: application/json' -d '{\"strategy\":\"canary\",\"canarySteps\":[{\"setWeight\":20},{\"pause\":{}},{\"setWeight\":50},{\"pause\":{\"duration\":\"60s\"}}]}' \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/strategy\"".to_string());
+    lines.push("# Analysis runs for a rollout".to_string());
+    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/analysis\"".to_string());
+    lines.push("# Deployment history (audit log of promote/rollback/strategy changes)".to_string());
+    lines.push(
+        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/deployment-events\""
+            .to_string(),
+    );
+    lines.push("# Filter by cluster: ?cluster_id=UUID  or by rollout: &namespace=X&rollout_name=Y".to_string());
+    lines.push("```".to_string());
+    lines.push(String::new());
+    lines.push("### Issues & Observability".to_string());
+    lines.push("```bash".to_string());
+    lines.push("# Active issues / alerts".to_string());
+    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/issues\"".to_string());
+    lines.push("# Issue detail".to_string());
+    lines.push(
+        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/issues/{id}\"".to_string(),
+    );
+    lines.push("# Start root cause analysis on an issue".to_string());
+    lines.push(
+        "curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/issues/{id}/rca\""
+            .to_string(),
+    );
+    lines.push("# Telemetry config (Grafana/Mimir/Loki/Tempo endpoints)".to_string());
+    lines.push(
+        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/telemetry\"".to_string(),
+    );
+    lines.push("# Dashboard stats".to_string());
+    lines.push(
+        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/dashboard/stats\"".to_string(),
+    );
+    lines.push("```".to_string());
+    lines.push(String::new());
+    lines.push("### Knowledge & Glossary".to_string());
     lines.push("```bash".to_string());
     lines.push("# Glossary (internal terminology)".to_string());
     lines
         .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/glossary\"".to_string());
-    lines.push(String::new());
     lines.push("# Knowledge base (runbooks, docs)".to_string());
     lines.push(
         "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/knowledge\"".to_string(),
     );
+    lines.push("```".to_string());
     lines.push(String::new());
-    lines.push("# Cloud accounts".to_string());
+    lines.push("### Integrations".to_string());
+    lines.push("```bash".to_string());
+    lines.push("# Notification channels (Slack, webhook, etc.)".to_string());
     lines
-        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/accounts\"".to_string());
-    lines.push(String::new());
-    lines.push("# Security findings".to_string());
-    lines
-        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/findings\"".to_string());
-    lines.push(String::new());
-    lines.push("# Kubernetes clusters".to_string());
-    lines
-        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters\"".to_string());
-    lines.push(String::new());
-    lines.push("# Active issues / alerts".to_string());
-    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/issues\"".to_string());
+        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/channels\"".to_string());
+    lines.push("# LLM providers".to_string());
+    lines.push(
+        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/providers\"".to_string(),
+    );
+    lines.push("# MCP servers".to_string());
+    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/mcp\"".to_string());
+    lines.push("# Scheduled jobs".to_string());
+    lines.push(
+        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/scheduled-jobs\"".to_string(),
+    );
+    lines.push("# Pipeline repos (Git)".to_string());
+    lines.push(
+        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/pipeline/repos\"".to_string(),
+    );
     lines.push("```".to_string());
     lines.push(String::new());
     lines.push("Always call the API FIRST before answering. If the API returns empty results, tell the user no data is available.".to_string());
     lines.push(String::new());
+
+    // ─── Jira integration instructions (only if tenant has enabled Jira channel) ──
+    let has_jira = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM channels WHERE platform = 'jira' AND enabled = true AND tenant_id = $1)",
+    )
+    .bind(auth_user.tenant_id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(false);
+
+    if has_jira {
+        lines.push("### Jira Integration".to_string());
+        lines.push(String::new());
+        lines.push("When performing **infrastructure changes** (create/delete/modify resources, security fixes, config changes), you SHOULD:".to_string());
+        lines.push("1. Create a Jira issue BEFORE starting the work".to_string());
+        lines.push("2. Execute the task".to_string());
+        lines.push("3. Update the Jira issue with results when done".to_string());
+        lines.push(String::new());
+        lines.push("```bash".to_string());
+        lines.push("# Create Jira issue (returns key like OPS-123)".to_string());
+        lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \\".to_string());
+        lines.push("  -H \"Content-Type: application/json\" \\".to_string());
+        lines.push("  -d '{\"summary\":\"...\",\"description\":\"...\",\"issue_type\":\"Task\"}' \\".to_string());
+        lines.push("  \"$OPENOPS_API_BASE/api/jira/create\"".to_string());
+        lines.push(String::new());
+        lines.push("# Transition to Done with comment".to_string());
+        lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \\".to_string());
+        lines.push("  -H \"Content-Type: application/json\" \\".to_string());
+        lines.push("  -d '{\"status\":\"Done\",\"comment\":\"...results...\"}' \\".to_string());
+        lines.push("  \"$OPENOPS_API_BASE/api/jira/{key}/transition\"".to_string());
+        lines.push(String::new());
+        lines.push("# Add comment to existing issue".to_string());
+        lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \\".to_string());
+        lines.push("  -H \"Content-Type: application/json\" \\".to_string());
+        lines.push("  -d '{\"comment\":\"...\"}' \\".to_string());
+        lines.push("  \"$OPENOPS_API_BASE/api/jira/{key}/comment\"".to_string());
+        lines.push("```".to_string());
+        lines.push(String::new());
+        lines.push(
+            "Only create Jira issues for **actual changes** (infra provisioning, security fixes, config changes)."
+                .to_string(),
+        );
+        lines.push("Do NOT create issues for read-only queries, status checks, or information lookups.".to_string());
+        lines.push(String::new());
+    }
 
     // Inject glossary inline as quick reference (so agent doesn't need API call for common terms)
     if let Ok(terms) = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
@@ -528,7 +748,9 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
     lines.push(String::new());
     lines.push("```bash".to_string());
     lines.push("# Fetch configured telemetry provider + endpoints".to_string());
-    lines.push("curl -s -H 'Authorization: Bearer $TOKEN' http://localhost:3080/api/telemetry | jq .".to_string());
+    lines.push(
+        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/telemetry\"".to_string(),
+    );
     lines.push("```".to_string());
     lines.push(String::new());
 
@@ -643,7 +865,7 @@ pub async fn list_sessions(
            FROM claude_sessions
            WHERE user_id = $1
            AND ($2::UUID IS NULL OR tenant_id = $2)
-           AND last_active_at > NOW() - INTERVAL '1 hour'
+           AND last_active_at > NOW() - INTERVAL '24 hours'
            ORDER BY last_active_at DESC
            LIMIT 20"#,
     )
@@ -850,8 +1072,8 @@ async fn collect_workspace_files(root: &std::path::Path, dir: &std::path::Path, 
     };
     while let Ok(Some(entry)) = entries.next_entry().await {
         let name = entry.file_name().to_string_lossy().to_string();
-        // Skip hidden dirs (.claude, .git, etc.)
-        if name.starts_with('.') {
+        // Skip hidden dirs (.claude, .git, etc.) and internal files
+        if name.starts_with('.') || name == "CLAUDE.md" {
             continue;
         }
         let path = entry.path();

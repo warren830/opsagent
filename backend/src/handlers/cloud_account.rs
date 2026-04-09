@@ -124,7 +124,7 @@ pub async fn create(
                     let _ = sqlx::query(
                         r#"INSERT INTO cloud_accounts (provider, name, account_id, role_arn, regions, tenant_id, source, config)
                            VALUES ('aws', $1, $2, $3, '{}'::text[], $4, 'organization', '{}')
-                           ON CONFLICT (tenant_id, account_id) WHERE source = 'organization'
+                           ON CONFLICT (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), account_id) WHERE source = 'organization'
                            DO UPDATE SET name = EXCLUDED.name, role_arn = EXCLUDED.role_arn, updated_at = NOW()"#,
                     )
                     .bind(&org_account.name)
@@ -297,7 +297,7 @@ pub async fn discover(
         let account = sqlx::query_as::<_, CloudAccount>(
             r#"INSERT INTO cloud_accounts (provider, name, account_id, role_arn, regions, tenant_id, source, config)
                VALUES ('aws', $1, $2, $3, '{}'::text[], $4, 'organization', '{}')
-               ON CONFLICT (tenant_id, account_id) WHERE source = 'organization'
+               ON CONFLICT (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), account_id) WHERE source = 'organization'
                DO UPDATE SET name = EXCLUDED.name, role_arn = EXCLUDED.role_arn, updated_at = NOW()
                RETURNING *"#,
         )
@@ -396,7 +396,7 @@ pub async fn discover_org(
         let row = sqlx::query_as::<_, CloudAccount>(
             r#"INSERT INTO cloud_accounts (provider, name, account_id, role_arn, regions, tenant_id, source, config)
                VALUES ('aws', $1, $2, $3, '{}'::text[], $4, 'organization', '{}')
-               ON CONFLICT (tenant_id, account_id) WHERE source = 'organization'
+               ON CONFLICT (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), account_id) WHERE source = 'organization'
                DO UPDATE SET name = EXCLUDED.name, role_arn = EXCLUDED.role_arn, updated_at = NOW()
                RETURNING *"#,
         )
@@ -417,6 +417,205 @@ pub async fn discover_org(
     }
 
     Ok(Json(results))
+}
+
+// ─── Organization Sync ─────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct OrgSyncResult {
+    pub added: usize,
+    pub removed: usize,
+    pub updated: usize,
+}
+
+/// POST /api/accounts/sync
+/// Manually trigger an Organization account sync for the caller's tenant.
+pub async fn sync(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+) -> AppResult<Json<OrgSyncResult>> {
+    let result = sync_org_accounts(&state.pool, auth_user.tenant_id)
+        .await
+        .map_err(|e| AppError::Internal(format!("Org sync failed: {e}")))?;
+    Ok(Json(result))
+}
+
+/// Core sync logic — callable from both the handler and the background scheduler.
+/// For a given tenant (or all tenants when `tenant_id` is None), query AWS Organizations
+/// and reconcile the DB: add new accounts, update changed names, remove accounts
+/// that are no longer in the organization (source = 'organization' only).
+pub async fn sync_org_accounts(pool: &sqlx::PgPool, tenant_id: Option<Uuid>) -> Result<OrgSyncResult, String> {
+    // Collect (tenant_id, profile) pairs to try
+    let rows: Vec<(Option<Uuid>, Option<String>)> = if let Some(tid) = tenant_id {
+        sqlx::query_as(
+            "SELECT DISTINCT tenant_id, profile FROM cloud_accounts \
+             WHERE provider = 'aws' AND is_mock = false AND profile IS NOT NULL AND tenant_id = $1",
+        )
+        .bind(tid)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?
+    } else {
+        // All tenants
+        sqlx::query_as(
+            "SELECT DISTINCT tenant_id, profile FROM cloud_accounts \
+             WHERE provider = 'aws' AND is_mock = false AND profile IS NOT NULL",
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?
+    };
+
+    // Deduplicate by tenant_id — one profile per tenant is enough
+    let mut seen_tenants = std::collections::HashSet::new();
+    let mut tenant_profiles: Vec<(Option<Uuid>, String)> = Vec::new();
+    for (tid, profile) in rows {
+        if let Some(ref p) = profile
+            && seen_tenants.insert(tid)
+        {
+            tenant_profiles.push((tid, p.clone()));
+        }
+    }
+
+    // Also try default credentials for the requested tenant (or all)
+    if let Some(tid) = tenant_id
+        && !seen_tenants.contains(&Some(tid))
+    {
+        tenant_profiles.push((Some(tid), String::new()));
+    }
+
+    if tenant_profiles.is_empty() {
+        return Ok(OrgSyncResult {
+            added: 0,
+            removed: 0,
+            updated: 0,
+        });
+    }
+
+    let mut total_added = 0usize;
+    let mut total_removed = 0usize;
+    let mut total_updated = 0usize;
+
+    for (tid, profile) in &tenant_profiles {
+        let env_vars: Vec<(String, String)> = if profile.is_empty() {
+            vec![]
+        } else {
+            vec![("AWS_PROFILE".to_string(), profile.clone())]
+        };
+
+        let org_output = match try_list_org_accounts(&env_vars).await {
+            Ok(o) => o,
+            Err(e) => {
+                tracing::warn!("Org sync failed for tenant {:?} profile {:?}: {}", tid, profile, e);
+                continue;
+            }
+        };
+
+        // Build set of active org account IDs
+        let active_ids: std::collections::HashSet<String> = org_output
+            .accounts
+            .iter()
+            .filter(|a| a.status.as_deref() != Some("SUSPENDED"))
+            .map(|a| a.id.clone())
+            .collect();
+
+        // Determine the management account ID (the one running the org list)
+        // so we can skip creating an org-sync entry for it (it already has a manual entry with profile)
+        let mgmt_account_id: Option<String> = {
+            let mut cmd = tokio::process::Command::new("aws");
+            cmd.args(["sts", "get-caller-identity", "--query", "Account", "--output", "text"]);
+            for (k, v) in &env_vars {
+                cmd.env(k, v);
+            }
+            cmd.output().await.ok().and_then(|o| {
+                if o.status.success() {
+                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            })
+        };
+
+        // Upsert active accounts (skip the management account — it has a manual entry with profile)
+        for org_account in &org_output.accounts {
+            if org_account.status.as_deref() == Some("SUSPENDED") {
+                continue;
+            }
+
+            // Skip management account — it already has a manual entry with SSO profile
+            if mgmt_account_id.as_deref() == Some(&org_account.id) {
+                continue;
+            }
+
+            let role_arn = format!("arn:aws:iam::{}:role/OrganizationAccountAccessRole", org_account.id);
+
+            let result = sqlx::query(
+                r#"INSERT INTO cloud_accounts (provider, name, account_id, role_arn, regions, tenant_id, source, config)
+                   VALUES ('aws', $1, $2, $3, '{}'::text[], $4, 'organization', '{}')
+                   ON CONFLICT (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), account_id) WHERE source = 'organization'
+                   DO UPDATE SET name = EXCLUDED.name, role_arn = EXCLUDED.role_arn, updated_at = NOW()
+                   RETURNING (xmax = 0) AS is_insert"#,
+            )
+            .bind(&org_account.name)
+            .bind(&org_account.id)
+            .bind(&role_arn)
+            .bind(*tid)
+            .fetch_optional(pool)
+            .await;
+
+            match result {
+                Ok(Some(row)) => {
+                    use sqlx::Row;
+                    let is_insert: bool = row.try_get("is_insert").unwrap_or(true);
+                    if is_insert {
+                        total_added += 1;
+                    } else {
+                        total_updated += 1;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Org sync upsert failed for {}: {}", org_account.id, e);
+                }
+                _ => {}
+            }
+        }
+
+        // Remove organization-sourced accounts that are no longer in the org
+        let stale = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM cloud_accounts \
+             WHERE source = 'organization' AND provider = 'aws' \
+             AND tenant_id IS NOT DISTINCT FROM $1 \
+             AND account_id != ALL($2)",
+        )
+        .bind(*tid)
+        .bind(active_ids.iter().cloned().collect::<Vec<String>>())
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        if !stale.is_empty() {
+            let deleted = sqlx::query("DELETE FROM cloud_accounts WHERE id = ANY($1) AND source = 'organization'")
+                .bind(&stale)
+                .execute(pool)
+                .await
+                .map(|r| r.rows_affected())
+                .unwrap_or(0);
+            total_removed += deleted as usize;
+        }
+    }
+
+    tracing::info!(
+        "Org sync complete: added={}, updated={}, removed={}",
+        total_added,
+        total_updated,
+        total_removed
+    );
+
+    Ok(OrgSyncResult {
+        added: total_added,
+        removed: total_removed,
+        updated: total_updated,
+    })
 }
 
 // ─── Test Connection ────────────────────────────────────────────────────────

@@ -1,0 +1,45 @@
+# Environment files (secrets must not be baked into images)
+.env
+.env.*
+backend/.env
+backend/.env.*
+frontend/.env
+frontend/.env.*
+!*.env.example
+!*/.env.example
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Build artifacts
+backend/target
+frontend/node_modules
+frontend/.nuxt
+frontend/.output
+
+# Infrastructure (not needed in app images)
+iac/
+k8s/
+.github/
+docs/
+
+# Development / tooling
+.claude/
+scripts/
+*.md
+LICENSE
+docker-compose.yml
+deploy-all.sh
+deploy-to-existing.sh
+destroy.sh
+build-and-push.sh
+
+# Allow .openops/screener (needed by backend build)
+!.openops/

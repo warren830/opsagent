@@ -1,15 +1,19 @@
 use axum::response::{IntoResponse, Response};
 use axum::{Json, extract::State, http::header::SET_COOKIE};
-use chrono::Utc;
-use jsonwebtoken::{EncodingKey, Header, encode};
 
 use crate::AppState;
 use crate::error::{AppError, AppResult};
-use crate::middleware::auth::{AuthUser, Claims};
+use crate::middleware::auth::AuthUser;
 use crate::models::user::{ChangePasswordRequest, LoginRequest, LoginResponse, UserInfo};
+use crate::services::{auth_common, refresh_token};
 
 /// POST /api/auth/login
-pub async fn login(State(state): State<AppState>, Json(req): Json<LoginRequest>) -> AppResult<Response> {
+pub async fn login(
+    State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<LoginRequest>,
+) -> AppResult<Response> {
     // Find user by username
     let user =
         sqlx::query_as::<_, crate::models::user::User>("SELECT * FROM users WHERE username = $1 AND is_active = true")
@@ -20,7 +24,10 @@ pub async fn login(State(state): State<AppState>, Json(req): Json<LoginRequest>)
 
     // Verify password (use spawn_blocking for bcrypt)
     let password = req.password.clone();
-    let hash = user.password_hash.clone();
+    let hash = user
+        .password_hash
+        .clone()
+        .ok_or_else(|| AppError::Unauthorized("This account uses OAuth login".to_string()))?;
     let valid = tokio::task::spawn_blocking(move || bcrypt::verify(password, &hash))
         .await
         .map_err(|_| AppError::Internal("Password verification failed".to_string()))?
@@ -36,34 +43,36 @@ pub async fn login(State(state): State<AppState>, Json(req): Json<LoginRequest>)
         .execute(&state.pool)
         .await?;
 
-    // Generate JWT
-    let now = Utc::now().timestamp() as usize;
-    let claims = Claims {
-        sub: user.id,
-        role: user.role.clone(),
-        tenant_id: user.tenant_id,
-        username: user.username.clone(),
-        iat: now,
-        exp: now + 86400, // 24 hours
-    };
+    // Generate access token (configurable expiry)
+    let token = auth_common::create_access_token(&state.config, &user)?;
 
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
-    )?;
+    // Generate refresh token
+    let ip = addr.ip().to_string();
+    let ua = headers
+        .get(http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let (refresh_jwt, _) =
+        refresh_token::create_refresh_token(&state.pool, &state.config, user.id, None, None, Some(&ip), Some(ua))
+            .await?;
 
     let user_info: UserInfo = user.into();
 
-    // Set HttpOnly cookie
-    let cookie_value = if state.config.env.is_prod() {
+    // Set HttpOnly cookies (access + refresh)
+    let access_max_age = state.config.jwt_access_token_expire_minutes * 60;
+    let access_cookie = if state.config.env.is_prod() {
         format!(
-            "token={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400",
-            token
+            "token={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={}",
+            token, access_max_age
         )
     } else {
-        format!("token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400", token)
+        format!(
+            "token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}",
+            token, access_max_age
+        )
     };
+    let refresh_cookie = auth_common::refresh_token_cookie(&state.config, &refresh_jwt);
 
     let body = Json(LoginResponse {
         user: user_info,
@@ -71,16 +80,35 @@ pub async fn login(State(state): State<AppState>, Json(req): Json<LoginRequest>)
     });
 
     let mut response = body.into_response();
-    response.headers_mut().insert(SET_COOKIE, cookie_value.parse().unwrap());
+    response
+        .headers_mut()
+        .append(SET_COOKIE, access_cookie.parse().unwrap());
+    response
+        .headers_mut()
+        .append(SET_COOKIE, refresh_cookie.parse().unwrap());
 
     Ok(response)
 }
 
 /// POST /api/auth/logout
-pub async fn logout() -> Response {
-    let cookie = "token=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0";
+pub async fn logout(State(state): State<AppState>, headers: axum::http::HeaderMap) -> Response {
+    // Revoke refresh token if present
+    let cookie_str = headers.get(http::header::COOKIE).and_then(|v| v.to_str().ok());
+
+    if let Some(refresh_jwt) = auth_common::extract_refresh_token_from_cookie(cookie_str) {
+        let token_hash = refresh_token::hash_refresh_token(&refresh_jwt, &state.config.jwt_secret);
+        let _ = refresh_token::revoke_by_hash(&state.pool, &token_hash, "logout").await;
+    }
+
+    // Clear both cookies
+    let clear_access = "token=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0";
+    let clear_refresh = auth_common::clear_refresh_token_cookie(&state.config);
+
     let mut response = Json(serde_json::json!({"message": "Logged out"})).into_response();
-    response.headers_mut().insert(SET_COOKIE, cookie.parse().unwrap());
+    response.headers_mut().append(SET_COOKIE, clear_access.parse().unwrap());
+    response
+        .headers_mut()
+        .append(SET_COOKIE, clear_refresh.parse().unwrap());
     response
 }
 
@@ -113,7 +141,10 @@ pub async fn change_password(
         .await?;
 
     let current_pw = req.current_password.clone();
-    let hash = user.password_hash.clone();
+    let hash = user
+        .password_hash
+        .clone()
+        .ok_or_else(|| AppError::BadRequest("This account uses OAuth — no password to change".to_string()))?;
     let valid = tokio::task::spawn_blocking(move || bcrypt::verify(current_pw, &hash))
         .await
         .map_err(|_| AppError::Internal("Password verification failed".to_string()))?

@@ -38,6 +38,18 @@ pub enum AppError {
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("OAuth error: {0}")]
+    OAuth(String),
+
+    #[error("Token theft detected")]
+    TokenTheft,
+
+    #[error("HTTP client error: {0}")]
+    HttpClient(String),
+
+    #[error("Kubernetes API error: {0}")]
+    Kubernetes(String),
 }
 
 impl IntoResponse for AppError {
@@ -67,6 +79,22 @@ impl IntoResponse for AppError {
             AppError::Json(err) => {
                 tracing::warn!("JSON parse error: {}", err);
                 (StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", err))
+            }
+            AppError::OAuth(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::TokenTheft => {
+                tracing::warn!("Token theft detected — revoking family");
+                (
+                    StatusCode::UNAUTHORIZED,
+                    "Token theft detected. Please re-login.".to_string(),
+                )
+            }
+            AppError::HttpClient(msg) => {
+                tracing::error!("HTTP client error: {}", msg);
+                (StatusCode::BAD_GATEWAY, "External service error".to_string())
+            }
+            AppError::Kubernetes(msg) => {
+                tracing::error!("Kubernetes API error: {}", msg);
+                (StatusCode::BAD_GATEWAY, "Kubernetes API error".to_string())
             }
         };
 

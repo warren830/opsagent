@@ -1,64 +1,120 @@
-# Grafana Mimir — Single Binary mode (metrics storage)
+# Grafana Mimir — Minimal single-replica mode (metrics storage)
 # Internal service only — no Ingress/ALB
-# Endpoint: http://mimir.monitoring.svc:9009
+# Endpoint: http://mimir-gateway.monitoring.svc:80/prometheus
 
+# Use microservices mode with 1 replica each for minimal footprint
 mimir:
   structuredConfig:
     common:
       storage:
         backend: filesystem
+    ingest_storage:
+      enabled: false
+    ingester:
+      ring:
+        replication_factor: 1
+      push_grpc_method_enabled: true
     blocks_storage:
       backend: filesystem
       filesystem:
-        dir: /data/mimir/blocks
+        dir: /data/mimir/tsdb
+    compactor:
+      data_dir: /data/mimir/compactor
     ruler_storage:
       backend: filesystem
       filesystem:
         dir: /data/mimir/ruler
 
-# Single binary mode — all components in one pod
-deploymentMode: SingleBinary
-
-singleBinary:
+# Single replica for each required component
+ingester:
   replicas: 1
-  resources:
-    requests:
-      cpu: 200m
-      memory: 512Mi
-    limits:
-      cpu: 1
-      memory: 1Gi
-  persistence:
+  zoneAwareReplication:
+    enabled: false
+  persistentVolume:
     enabled: true
     storageClass: gp3
     size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
   nodeSelector:
     karpenter.sh/nodepool: common-nodepool
 
-# Disable distributed components
-ingester:
-  replicas: 0
 distributor:
-  replicas: 0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector:
+    karpenter.sh/nodepool: common-nodepool
+
 querier:
-  replicas: 0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector:
+    karpenter.sh/nodepool: common-nodepool
+
 query_frontend:
-  replicas: 0
-query_scheduler:
-  replicas: 0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  nodeSelector:
+    karpenter.sh/nodepool: common-nodepool
+
 compactor:
-  replicas: 0
+  replicas: 1
+  persistentVolume:
+    enabled: true
+    storageClass: gp3
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector:
+    karpenter.sh/nodepool: common-nodepool
+
 store_gateway:
+  replicas: 0
+
+# Disable components not needed
+query_scheduler:
   replicas: 0
 ruler:
   replicas: 0
+alertmanager:
+  replicas: 0
+overrides_exporter:
+  replicas: 0
+rollout_operator:
+  enabled: false
 
 # Disable sub-charts
-minio:
-  enabled: false
 nginx:
   enabled: false
-
-# Disable gateway (no external access needed)
-gateway:
-  enabledNonEnterprise: false
+minio:
+  enabled: false
+kafka:
+  enabled: false

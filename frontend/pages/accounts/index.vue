@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Pencil, Trash2, Zap, BookOpen, X, Shield, Building2 } from 'lucide-vue-next'
+import { Pencil, Trash2, Zap, BookOpen, X, Shield, Building2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -398,10 +398,7 @@ async function revokeAccess(userId: string) {
     <!-- Page Header -->
     <div class="flex items-center justify-between">
       <h1 class="text-base font-semibold text-foreground">{{ t('account.title') }}</h1>
-      <Button size="sm" @click="openCreate">
-        <Plus class="h-3.5 w-3.5" />
-        {{ t('account.addAccount') }}
-      </Button>
+      <AccountsAccountActions @create="openCreate" @synced="fetchAccounts" />
     </div>
 
     <!-- Data Table -->
@@ -472,7 +469,7 @@ async function revokeAccess(userId: string) {
         >
           <Building2 class="h-3 w-3" :class="{ 'animate-spin text-primary': discoveringOrgId === (row as Account).id }" />
         </Button>
-        <Button variant="ghost" size="icon-sm" @click="openAccessDialog(row as Account)" :title="t('account.manageAccess')">
+        <Button variant="ghost" size="icon-sm" :title="t('account.manageAccess')" @click="openAccessDialog(row as Account)">
           <Shield class="h-3 w-3" />
         </Button>
         <Button variant="ghost" size="icon-sm" @click="openEdit(row as Account)">

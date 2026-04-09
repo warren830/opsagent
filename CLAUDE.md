@@ -141,145 +141,53 @@ Every API endpoint and UI action must enforce the 3-tier access model:
 - Skills integration uses real `npx skills` CLI, not fake database CRUD
 - Chat integration uses real Claude CLI subprocess, not placeholder responses
 
-## Observability & Intelligent Operations
+## OpenOps Internal APIs
 
-The platform manages workloads across **multiple runtimes**: EKS (Kubernetes), ECS (Fargate/EC2), standalone EC2, and AWS managed services (RDS, ElastiCache, OpenSearch, etc.). Each runtime has its own telemetry stack. The agent MUST discover where a service runs before querying observability data.
+The AI agent discovers infrastructure context dynamically via internal APIs. **Never hardcode account IDs, cluster names, regions, or endpoints** — always query at runtime.
 
-### Step 0 — Discover Infrastructure Topology
+### Authentication
 
-Before any prediction or RCA, determine where the target service lives:
-
+All protected APIs require `Authorization: Bearer $TOKEN`. Obtain a token via:
 ```bash
-# 1. Check the OpenOps telemetry config (Grafana/Mimir/Loki/Tempo endpoints + auth)
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3080/api/telemetry | jq .
-
-# 2. Check clusters registered in OpenOps
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3080/api/clusters | jq '.[] | {name, cloud, type, region}'
-
-# 3. For a given service, figure out the runtime:
-#    - EKS: kubectl get deploy,sts -A | grep <service>
-#    - ECS: aws ecs list-services --cluster <cluster> | grep <service>
-#    - EC2: aws ec2 describe-instances --filters "Name=tag:Name,Values=*<service>*"
-#    - RDS: aws rds describe-db-clusters / describe-db-instances
+curl -s http://localhost:3080/api/auth/login -H "Content-Type: application/json" \
+  -d '{"username":"...","password":"..."}' | jq -r .token
 ```
 
-### Decision Matrix — Where to Find Data
+### Discovery APIs
+
+| API | Purpose |
+|-----|---------|
+| `GET /api/accounts` | List all cloud accounts (provider, account_id, regions, role_arn) |
+| `POST /api/accounts/sync` | Refresh org accounts from AWS Organizations |
+| `GET /api/clusters` | List all clusters (name, cloud, region, status, config with endpoint/CA) |
+| `POST /api/clusters/discover` | Refresh EKS clusters across all accounts & regions |
+| `GET /api/telemetry` | Get observability endpoints (Grafana/Mimir/Loki/Tempo URLs + auth) |
+| `GET /api/issues` | List alerts/issues (severity, labels, timestamps) |
+| `GET /api/issues/{id}` | Get single issue with full metadata |
+| `GET /api/resources/dashboard` | Security findings summary |
+
+### Rollout Management (Argo Rollouts)
+
+| API | Purpose |
+|-----|---------|
+| `GET /api/clusters/{id}/rollouts` | List rollouts on a cluster |
+| `GET /api/clusters/{id}/rollouts/{ns}/{name}` | Get rollout detail (strategy, steps, status) |
+| `POST /api/clusters/{id}/rollouts/{ns}/{name}/promote` | Promote a canary/bluegreen rollout |
+| `POST /api/clusters/{id}/rollouts/{ns}/{name}/rollback` | Rollback a rollout |
+| `POST /api/mcp/rollouts` | MCP JSON-RPC endpoint for AI agent rollout tools |
+
+### Workflow: Investigating an Issue
+
+1. **Get context**: Call `/api/telemetry` for observability endpoints, `/api/clusters` for cluster info, `/api/accounts` for cloud credentials context
+2. **Identify runtime**: Use cluster info + service name to determine if it runs on EKS, ECS, EC2, or a managed service
+3. **Query telemetry**: Based on runtime — EKS uses Mimir/Loki/Tempo (endpoints from `/api/telemetry`), everything else uses CloudWatch/X-Ray
+4. **Correlate & report**: Combine metrics, logs, traces into a concise RCA
+
+### Runtime → Telemetry Mapping
 
 | Runtime | Metrics | Logs | Traces |
 |---------|---------|------|--------|
-| **EKS pods** | Mimir (PromQL) via Alloy scrape | Loki (LogQL) via Alloy | Tempo (via OTLP/Alloy) |
-| **ECS tasks** | CloudWatch `ECS/ContainerInsights` | CloudWatch Logs (`/ecs/<service>`) | AWS X-Ray |
-| **EC2 instances** | CloudWatch `AWS/EC2` + CW Agent `CWAgent` | CloudWatch Logs (via CW Agent) | X-Ray (if instrumented) |
-| **RDS/Aurora** | CloudWatch `AWS/RDS` | RDS Performance Insights (if enabled) | N/A |
-| **ALB/NLB** | CloudWatch `AWS/ApplicationELB` or `AWS/NetworkELB` | ALB access logs (S3) | N/A |
-| **Lambda** | CloudWatch `AWS/Lambda` | CloudWatch Logs (`/aws/lambda/<fn>`) | X-Ray (built-in) |
-| **OpenSearch** | CloudWatch `AWS/ES` | CloudWatch Logs (slow logs) | N/A |
-| **SQS/SNS** | CloudWatch `AWS/SQS`, `AWS/SNS` | N/A | N/A |
+| **EKS** | Mimir (PromQL) | Loki (LogQL) | Tempo |
+| **ECS/EC2/RDS/Lambda** | CloudWatch | CloudWatch Logs | X-Ray |
 
-### Leg 1 — Predictive Risk Detection
-
-Two independent prediction engines. Use both — they cover different scopes.
-
-**1A. CloudWatch Anomaly Detection** — AWS managed services + ECS + EC2
-
-Covers everything with CloudWatch metrics. ML-based seasonal baseline.
-
-```bash
-# List active anomaly detectors
-aws cloudwatch describe-anomaly-detectors --output json | jq '.AnomalyDetectors[] | {Namespace, MetricName, Stat}'
-
-# Query metric with anomaly band (2σ deviation)
-aws cloudwatch get-metric-data --metric-data-queries '[
-  {"Id":"m1","MetricStat":{"Metric":{"Namespace":"AWS/RDS","MetricName":"CPUUtilization","Dimensions":[{"Name":"DBClusterIdentifier","Value":"CLUSTER"}]},"Period":300,"Stat":"Average"}},
-  {"Id":"ad1","Expression":"ANOMALY_DETECTION_BAND(m1,2)"}
-]' --start-time $(date -u -v-6H +%Y-%m-%dT%H:%M:%S) --end-time $(date -u +%Y-%m-%dT%H:%M:%S)
-
-# Current alarms in ALARM state
-aws cloudwatch describe-alarms --state-value ALARM --output table
-```
-
-**1B. Mimir predict_linear()** — EKS pod/container/node metrics
-
-Only works if Mimir is configured. Get the endpoint from `/api/telemetry`.
-
-```bash
-# Disk full within 4h?
-curl -s '<MIMIR_URL>/api/v1/query' --data-urlencode \
-  'query=predict_linear(node_filesystem_avail_bytes[1h], 14400) < 0' | jq .data.result
-
-# Pod OOM within 2h?
-curl -s '<MIMIR_URL>/api/v1/query' --data-urlencode \
-  'query=predict_linear(container_memory_working_set_bytes[30m], 7200) > container_spec_memory_limit_bytes' | jq .data.result
-
-# CPU saturation within 1h?
-curl -s '<MIMIR_URL>/api/v1/query' --data-urlencode \
-  'query=predict_linear(rate(container_cpu_usage_seconds_total[5m])[30m:1m], 3600) > 0.9' | jq .data.result
-```
-
-For Grafana Cloud mode (user_id auth): `curl -s -u '<USER_ID>:$GRAFANA_API_TOKEN' <URL>`.
-
-### Leg 2 — Automatic RCA (Root Cause Analysis)
-
-When an alert fires (Grafana/Datadog/Dynatrace → webhook → Issue created), perform RCA automatically. **Stream findings live** — the user watches your output in real-time.
-
-**Step 1 — Parse alert**: Read Issue title, severity, labels, annotations, fingerprint, startsAt. Determine affected service, namespace/cluster, time window (±15 min).
-
-**Step 2 — Identify runtime**: Use the discovery commands above. This determines which telemetry stack to query.
-
-**Step 3 — Metrics**: Query the appropriate source based on runtime:
-
-```bash
-# For EKS pods → Mimir
-curl -s '<MIMIR_URL>/api/v1/query_range' \
-  --data-urlencode 'query=rate(container_cpu_usage_seconds_total{namespace="<NS>",pod=~"<SERVICE>.*"}[5m])' \
-  --data-urlencode 'start=<ALERT-15m>' --data-urlencode 'end=<ALERT+15m>' --data-urlencode 'step=60'
-
-# For ECS/EC2/RDS → CloudWatch
-aws cloudwatch get-metric-statistics --namespace <NS> --metric-name <METRIC> \
-  --dimensions Name=<DIM>,Value=<VAL> \
-  --start-time <ALERT-15m> --end-time <ALERT+15m> --period 60 --statistics Average Maximum
-```
-
-**Step 4 — Logs**: Query the appropriate source:
-
-```bash
-# For EKS pods → Loki
-curl -s -G '<LOKI_URL>/loki/api/v1/query_range' \
-  --data-urlencode 'query={namespace="<NS>"} |= "error" or |= "fatal" or |= "panic"' \
-  --data-urlencode 'start=<ALERT-15m>' --data-urlencode 'end=<ALERT+15m>' --data-urlencode 'limit=100'
-
-# For ECS/Lambda/EC2 → CloudWatch Logs
-aws logs filter-log-events --log-group-name <LOG_GROUP> \
-  --start-time <EPOCH_MS> --end-time <EPOCH_MS> \
-  --filter-pattern "?ERROR ?error ?Exception ?FATAL"
-```
-
-**Step 5 — Traces** (if available):
-
-```bash
-# For EKS → Tempo
-curl -s '<TEMPO_URL>/api/search?tags=service.name%3D<SERVICE>&minDuration=1s&limit=10&start=<EPOCH-15m>&end=<EPOCH+15m>'
-# Then: curl -s '<TEMPO_URL>/api/traces/<TRACE_ID>'
-
-# For ECS/Lambda → X-Ray
-aws xray get-trace-summaries --start-time <ALERT-15m> --end-time <ALERT+15m> \
-  --filter-expression 'service("<SERVICE>") AND responsetime > 1'
-```
-
-**Step 6 — Correlate & Report**:
-
-```
-## RCA Report
-**Alert**: <title>
-**Time**: <startsAt>
-**Runtime**: EKS / ECS / EC2 / RDS (auto-detected)
-**Root Cause**: <1-2 sentence explanation>
-**Evidence**:
-  - Metrics: <what was abnormal, actual vs expected>
-  - Logs: <relevant error messages with timestamps>
-  - Traces: <trace IDs showing failure path, if available>
-**Impact**: <what was affected, blast radius>
-**Recommendation**: <immediate action + longer-term fix>
-```
-
-CRITICAL: Stream each step's output as you execute it. The user is watching a live window — show progress, not silence. If a data source is unavailable or returns nothing, say so immediately and move to the next source.
+The agent should determine which stack to query based on where the service runs — never assume. Stream findings live as you work.

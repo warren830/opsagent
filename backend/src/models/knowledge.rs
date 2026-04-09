@@ -11,10 +11,8 @@ pub struct KnowledgeFile {
     pub size_bytes: i64,
     pub mime_type: Option<String>,
     pub tenant_id: Option<Uuid>,
-    pub user_id: Option<Uuid>,
     pub account_id: Option<Uuid>,
     pub created_by: Option<Uuid>,
-    pub visibility: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -25,13 +23,7 @@ pub struct CreateKnowledgeRequest {
     #[serde(default)]
     pub content: String,
     pub mime_type: Option<String>,
-    #[serde(default = "default_public")]
-    pub visibility: String,
     pub account_id: Option<uuid::Uuid>,
-}
-
-fn default_public() -> String {
-    "public".to_string()
 }
 
 #[derive(Debug, Deserialize)]

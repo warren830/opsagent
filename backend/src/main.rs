@@ -21,6 +21,7 @@ use crate::config::AppConfig;
 pub struct AppState {
     pub pool: sqlx::PgPool,
     pub config: AppConfig,
+    pub rca_registry: std::sync::Arc<services::rca::RcaRegistry>,
 }
 
 #[tokio::main]
@@ -55,7 +56,27 @@ async fn main() {
     let state = AppState {
         pool,
         config: config.clone(),
+        rca_registry: std::sync::Arc::new(services::rca::RcaRegistry::new()),
     };
+
+    // Spawn token cleanup task (every 6 hours)
+    {
+        let cleanup_pool = state.pool.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                if let Err(e) = services::refresh_token::cleanup_expired(&cleanup_pool).await {
+                    tracing::error!("Refresh token cleanup failed: {}", e);
+                }
+                if let Err(e) = services::oauth_state::cleanup_expired_states(&cleanup_pool).await {
+                    tracing::error!("OAuth state cleanup failed: {}", e);
+                }
+                tracing::debug!("Token/state cleanup completed");
+            }
+        });
+    }
 
     // Spawn prediction scheduler (background task)
     if std::env::var("SKIP_PREDICTION").unwrap_or_default() != "true" {
@@ -80,6 +101,75 @@ async fn main() {
         tracing::info!("Prediction scheduler disabled (SKIP_PREDICTION=true)");
     }
 
+    // Spawn Organization account sync task
+    {
+        let sync_pool = state.pool.clone();
+        let interval_secs: u64 = std::env::var("ORG_SYNC_INTERVAL_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(6 * 3600); // default 6 hours
+        tracing::info!("Organization sync scheduler enabled (interval={}s)", interval_secs);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                match handlers::cloud_account::sync_org_accounts(&sync_pool, None).await {
+                    Ok(r) => {
+                        tracing::info!(
+                            "Org sync completed: added={}, updated={}, removed={}",
+                            r.added,
+                            r.updated,
+                            r.removed
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("Org sync failed: {}", e);
+                    }
+                }
+            }
+        });
+    }
+
+    // Spawn cluster discovery scheduler (background task)
+    {
+        let discover_pool = state.pool.clone();
+        let interval_secs: u64 = std::env::var("CLUSTER_DISCOVER_INTERVAL_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(6 * 3600); // default 6 hours
+        tracing::info!("Cluster discovery scheduler enabled (interval={}s)", interval_secs);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                match handlers::cluster::discover_all_clusters(&discover_pool, None).await {
+                    Ok(r) => {
+                        tracing::info!(
+                            "Cluster discovery completed: discovered={}, errors={}",
+                            r.discovered,
+                            r.errors.len()
+                        );
+                        for err in &r.errors {
+                            tracing::warn!("Cluster discovery error: {}", err);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Cluster discovery failed: {}", e);
+                    }
+                }
+            }
+        });
+    }
+
+    // Spawn cron-based job scheduler (evaluates every 60s)
+    {
+        let scheduler_pool = state.pool.clone();
+        tracing::info!("Job scheduler started (evaluating every 60s)");
+        tokio::spawn(services::scheduler::run_scheduler(scheduler_pool));
+    }
+
     // Build CORS layer
     let cors = middleware::cors::build_cors_layer(&config);
 
@@ -98,10 +188,13 @@ async fn main() {
         .await
         .expect("Failed to bind address");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .expect("Server error");
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .expect("Server error");
 
     tracing::info!("Server shut down gracefully");
 }
@@ -113,6 +206,17 @@ fn build_router(state: AppState) -> Router {
     let public_routes = Router::new()
         .route("/health", get(handlers::health::health_check))
         .route("/api/auth/login", post(handlers::auth::login))
+        // OAuth routes (public)
+        .route("/api/auth/providers", get(handlers::oauth::providers))
+        .route("/api/auth/microsoft/login", get(handlers::oauth::microsoft_login))
+        .route(
+            "/api/auth/microsoft/callback",
+            post(handlers::oauth::microsoft_callback),
+        )
+        .route("/api/auth/cognito/login", get(handlers::oauth::cognito_login))
+        .route("/api/auth/cognito/callback", post(handlers::oauth::cognito_callback))
+        .route("/api/auth/refresh", post(handlers::oauth::refresh))
+        .route("/api/auth/revoke", post(handlers::oauth::revoke))
         // Alerting webhooks (no auth — external services cannot send JWT)
         .route("/api/alerts", post(handlers::alerts::receive))
         .route("/api/alerts/datadog", post(handlers::alerts::receive_datadog))
@@ -123,6 +227,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/auth/logout", post(handlers::auth::logout))
         .route("/api/auth/me", get(handlers::auth::me))
         .route("/api/auth/change-password", put(handlers::auth::change_password))
+        .route("/api/auth/revoke-all", post(handlers::oauth::revoke_all))
         // Tenants
         .route("/api/tenants", get(handlers::tenant::list_tenants))
         .route("/api/tenants", post(handlers::tenant::create_tenant))
@@ -174,6 +279,7 @@ fn build_router(state: AppState) -> Router {
             get(handlers::account_access::my_accessible_accounts),
         )
         .route("/api/accounts/discover", post(handlers::cloud_account::discover))
+        .route("/api/accounts/sync", post(handlers::cloud_account::sync))
         .route(
             "/api/accounts/{id}/test",
             post(handlers::cloud_account::test_connection),
@@ -196,6 +302,11 @@ fn build_router(state: AppState) -> Router {
             "/api/channels/{id}",
             put(handlers::channel::update).delete(handlers::channel::delete),
         )
+        // Jira (proxy to Jira Cloud API — used by AI agent)
+        .route("/api/jira/create", post(handlers::jira::create_issue))
+        .route("/api/jira/{key}/transition", post(handlers::jira::transition_issue))
+        .route("/api/jira/{key}/comment", post(handlers::jira::add_comment))
+        .route("/api/jira/{key}", get(handlers::jira::get_issue))
         // Clusters
         .route(
             "/api/clusters",
@@ -206,6 +317,34 @@ fn build_router(state: AppState) -> Router {
             "/api/clusters/{id}",
             put(handlers::cluster::update).delete(handlers::cluster::delete),
         )
+        // Service Topology (real-time K8s graph)
+        .route("/api/topology", get(handlers::topology::get_topology))
+        // Rollouts (Argo Rollouts integration)
+        .route("/api/clusters/{id}/rollouts", get(handlers::rollout::list_rollouts))
+        .route(
+            "/api/clusters/{id}/rollouts/{ns}/{name}",
+            get(handlers::rollout::get_rollout),
+        )
+        .route(
+            "/api/clusters/{id}/rollouts/{ns}/{name}/analysis",
+            get(handlers::rollout::list_analysis_runs),
+        )
+        .route(
+            "/api/clusters/{id}/rollouts/{ns}/{name}/promote",
+            post(handlers::rollout::promote),
+        )
+        .route(
+            "/api/clusters/{id}/rollouts/{ns}/{name}/rollback",
+            post(handlers::rollout::rollback),
+        )
+        .route(
+            "/api/clusters/{id}/rollouts/{ns}/{name}/strategy",
+            post(handlers::rollout::change_strategy),
+        )
+        // Deployment events (audit log)
+        .route("/api/deployment-events", get(handlers::rollout::list_events))
+        // MCP Rollout endpoint (JSON-RPC from Claude CLI)
+        .route("/api/mcp/rollouts", post(handlers::mcp_rollout::handle))
         // Resources / Security Insights
         .route("/api/resources", get(handlers::resource::list))
         .route("/api/resources/scan", post(handlers::resource::scan))
@@ -229,6 +368,7 @@ fn build_router(state: AppState) -> Router {
             get(handlers::issue::get).put(handlers::issue::update),
         )
         .route("/api/issues/{id}/rca", post(handlers::issue::start_rca))
+        .route("/api/issues/{id}/rca/status", get(handlers::issue::rca_status))
         // Knowledge
         .route(
             "/api/knowledge",
@@ -247,6 +387,12 @@ fn build_router(state: AppState) -> Router {
             "/api/scheduled-jobs/{id}",
             put(handlers::scheduled_job::update).delete(handlers::scheduled_job::delete),
         )
+        .route("/api/scheduled-jobs/{id}/runs", get(handlers::scheduled_job::list_runs))
+        .route(
+            "/api/scheduled-jobs/{id}/run",
+            post(handlers::scheduled_job::trigger_run),
+        )
+        .route("/api/job-runs/{id}", get(handlers::scheduled_job::get_run))
         // Pipeline Repos
         .route(
             "/api/pipeline/repos",
@@ -267,7 +413,11 @@ fn build_router(state: AppState) -> Router {
         // Telemetry
         .route(
             "/api/telemetry",
-            get(handlers::telemetry::get).put(handlers::telemetry::upsert),
+            get(handlers::telemetry::list).post(handlers::telemetry::create),
+        )
+        .route(
+            "/api/telemetry/{id}",
+            put(handlers::telemetry::update).delete(handlers::telemetry::delete),
         )
         .route("/api/telemetry/test", post(handlers::telemetry::test_connection))
         // Providers (LLM model config)
@@ -282,6 +432,15 @@ fn build_router(state: AppState) -> Router {
         )
         // MCP Servers
         .route("/api/mcp", get(handlers::mcp::list).post(handlers::mcp::create))
+        .route("/api/mcp/test", post(handlers::mcp::test))
+        .route("/api/mcp/{id}/tools", get(handlers::mcp::list_tools))
+        // GraphRAG proxy (bbox lookup + PDF presigned URL)
+        .route("/api/graphrag/bbox", post(handlers::mcp::graphrag_bbox))
+        .route("/api/graphrag/pdf-url", post(handlers::mcp::graphrag_pdf_url))
+        .route(
+            "/api/graphrag/documents/{context_id}",
+            get(handlers::mcp::graphrag_documents),
+        )
         .route(
             "/api/mcp/{id}",
             put(handlers::mcp::update).delete(handlers::mcp::delete),

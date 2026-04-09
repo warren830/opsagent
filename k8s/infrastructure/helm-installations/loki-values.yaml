@@ -58,3 +58,9 @@ resultsCache:
   enabled: false
 minio:
   enabled: false
+
+# Canary is a health-check DaemonSet — not needed, causes scheduling issues on non-Karpenter nodes
+lokiCanary:
+  enabled: false
+test:
+  enabled: false

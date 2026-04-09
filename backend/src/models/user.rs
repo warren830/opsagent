@@ -8,7 +8,7 @@ pub struct User {
     pub id: Uuid,
     pub username: String,
     #[serde(skip_serializing)]
-    pub password_hash: String,
+    pub password_hash: Option<String>,
     pub role: String,
     pub tenant_id: Option<Uuid>,
     pub email: Option<String>,
@@ -16,6 +16,9 @@ pub struct User {
     pub last_login_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub microsoft_id: Option<String>,
+    pub cognito_sub: Option<String>,
+    pub auth_method: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +60,7 @@ pub struct UserInfo {
     pub tenant_id: Option<Uuid>,
     pub email: Option<String>,
     pub is_active: bool,
+    pub auth_method: String,
 }
 
 impl From<User> for UserInfo {
@@ -68,6 +72,7 @@ impl From<User> for UserInfo {
             tenant_id: user.tenant_id,
             email: user.email,
             is_active: user.is_active,
+            auth_method: user.auth_method,
         }
     }
 }

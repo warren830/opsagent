@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Pencil, Trash2, X } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, X, FlaskConical } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -30,6 +30,8 @@ interface McpServer {
   env: Record<string, string> | null
   enabled: boolean
   visibility: string
+  user_id: string | null
+  created_by: string | null
   transport_type: string
   url: string | null
   headers: Record<string, string> | null
@@ -39,6 +41,7 @@ interface McpServer {
 const servers = ref<McpServer[]>([])
 const loading = ref(true)
 const saving = ref(false)
+const testing = ref(false)
 
 const showFormDialog = ref(false)
 const editingServer = ref<McpServer | null>(null)
@@ -98,7 +101,7 @@ function openEdit(server: McpServer) {
   editingServer.value = server
   form.value = {
     name: server.name,
-    transport_type: (server.transport_type as 'stdio' | 'sse' | 'http') || 'stdio',
+    transport_type: (server.transport_type === 'sse' ? 'http' : server.transport_type as 'stdio' | 'http') || 'stdio',
     command: server.command || '',
     args: (server.args || []).join('\n'),
     url: server.url || '',
@@ -198,6 +201,36 @@ async function deleteServer() {
   }
 }
 
+async function testServer() {
+  testing.value = true
+  try {
+    const payload = {
+      name: form.value.name,
+      transport_type: form.value.transport_type,
+      command: form.value.command || '',
+      args: form.value.args.split('\n').map(s => s.trim()).filter(Boolean),
+      url: form.value.url || null,
+      headers: Object.fromEntries(form.value.headers.filter(h => h.key.trim()).map(h => [h.key.trim(), h.value])),
+      env: Object.fromEntries(form.value.envVars.filter(e => e.key.trim()).map(e => [e.key.trim(), e.value])),
+      server_id: editingServer.value?.id || null,
+    }
+    const res = await api.post<{ success: boolean; tools: { name: string; description: string }[]; error?: string; message?: string }>('/api/mcp/test', payload)
+    if (res.success) {
+      const toolCount = res.tools?.length || 0
+      toast.success(res.message || `${t('mcp.testSuccess')} — ${toolCount} tools`)
+      // Refresh server list to show updated tools
+      if (editingServer.value?.id) await fetchServers()
+    } else {
+      toast.error(res.error || t('mcp.testFailed'))
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : t('mcp.testFailed')
+    toast.error(msg)
+  } finally {
+    testing.value = false
+  }
+}
+
 function getTransportColor(type: string) {
   switch (type) {
     case 'sse': return 'default'
@@ -250,7 +283,12 @@ function getTransportColor(type: string) {
         <div class="flex items-center gap-2 mb-1.5">
           <span class="text-sm font-medium text-foreground truncate">{{ s.name }}</span>
           <Badge :variant="getTransportColor(s.transport_type)" class="text-[10px] shrink-0 uppercase">{{ s.transport_type }}</Badge>
-          <Badge v-if="s.visibility === 'private'" variant="outline" class="text-[10px] shrink-0">{{ t('mcp.private') }}</Badge>
+          <Badge
+            :variant="s.visibility === 'public' ? 'default' : 'secondary'"
+            class="text-[10px] shrink-0"
+          >
+            {{ s.visibility === 'public' ? t('mcp.shared') : t('mcp.private') }}
+          </Badge>
         </div>
 
         <!-- Command or URL -->
@@ -297,7 +335,7 @@ function getTransportColor(type: string) {
             <label class="text-xs font-medium">{{ t('mcp.transportType') }}</label>
             <div class="flex rounded-md border border-border/60 overflow-hidden">
               <button
-                v-for="tp in ['stdio', 'sse', 'http'] as const"
+                v-for="tp in ['stdio', 'http'] as const"
                 :key="tp"
                 type="button"
                 class="flex-1 py-1.5 text-xs font-medium transition-colors"
@@ -389,7 +427,10 @@ function getTransportColor(type: string) {
           </div>
 
           <DialogFooter class="gap-1.5 pt-1">
-            <Button type="button" variant="outline" size="sm" @click="showFormDialog = false">{{ t('common.cancel') }}</Button>
+            <Button type="button" variant="outline" size="sm" :disabled="testing" @click="testServer">
+              <FlaskConical class="h-3.5 w-3.5 mr-1" />
+              {{ testing ? t('mcp.testing') : t('mcp.test') }}
+            </Button>
             <Button type="submit" size="sm" :disabled="saving">
               {{ saving ? t('common.loading') : (isEditing ? t('common.save') : t('mcp.addServer')) }}
             </Button>

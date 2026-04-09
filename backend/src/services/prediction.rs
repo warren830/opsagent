@@ -225,6 +225,7 @@ async fn check_cloudwatch_anomalies(pool: &PgPool) -> Result<()> {
             &meta,
             false,
             "prediction",
+            None,
         )
         .await;
 
@@ -268,17 +269,18 @@ const MIMIR_PREDICTION_QUERIES: &[(&str, &str, &str, &str)] = &[
 ];
 
 async fn check_mimir_predictions(pool: &PgPool) -> Result<()> {
-    // Read Mimir endpoint from telemetry_config
+    // Read Mimir endpoint from telemetry_config (pick the first enabled config that routes metrics)
     let config = sqlx::query_as::<_, (String, serde_json::Value, bool)>(
         r#"SELECT provider, config, enabled FROM telemetry_config
            WHERE enabled = true
+             AND routing->'signals' ? 'metrics'
            ORDER BY created_at DESC LIMIT 1"#,
     )
     .fetch_optional(pool)
     .await?;
 
     let Some((provider, config, true)) = config else {
-        tracing::debug!("No enabled telemetry config, skipping Mimir predictions");
+        tracing::debug!("No enabled telemetry config with metrics routing, skipping Mimir predictions");
         return Ok(());
     };
 
@@ -376,6 +378,7 @@ async fn check_mimir_predictions(pool: &PgPool) -> Result<()> {
                 &meta,
                 false,
                 "prediction",
+                None,
             )
             .await;
 

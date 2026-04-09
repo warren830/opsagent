@@ -1,13 +1,22 @@
 use axum::{
     Json,
     extract::{Path, Query, State},
+    response::sse::{Event, Sse},
 };
+use std::convert::Infallible;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio_stream::Stream;
 use uuid::Uuid;
 
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::issue::{Issue, IssueListQuery, UpdateIssueRequest};
+use crate::services::claude::StreamChunk;
+
+type SseEventStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
 
 /// GET /api/issues
 pub async fn list(
@@ -124,35 +133,137 @@ pub async fn update(
     Ok(Json(row))
 }
 
-/// POST /api/issues/:id/rca (mock - sets rca_started_at)
+/// POST /api/issues/:id/rca — SSE streaming RCA analysis
 pub async fn start_rca(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-) -> AppResult<Json<Issue>> {
-    if !auth_user.is_super_admin() {
-        let existing = sqlx::query_as::<_, Issue>("SELECT * FROM issues WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Issue not found".to_string()))?;
-        if existing.tenant_id != auth_user.tenant_id {
-            return Err(AppError::Forbidden("Access denied".to_string()));
+) -> Sse<axum::response::sse::KeepAliveStream<SseEventStream>> {
+    // Auth check
+    let issue = match fetch_and_check_issue(&state, &auth_user, id).await {
+        Ok(issue) => issue,
+        Err(e) => {
+            let error_stream = futures::stream::once(async move {
+                let chunk = StreamChunk::Error { message: e.to_string() };
+                let data = serde_json::to_string(&chunk).unwrap_or_default();
+                Ok::<_, Infallible>(Event::default().data(data))
+            });
+            return Sse::new(Box::pin(error_stream) as SseEventStream).keep_alive(
+                axum::response::sse::KeepAlive::new()
+                    .interval(Duration::from_secs(15))
+                    .text("ping"),
+            );
         }
+    };
+
+    // Check if RCA is already running — subscribe to existing stream
+    if let Some(rx) = state.rca_registry.subscribe(id).await {
+        let sse_stream = tokio_stream::wrappers::BroadcastStream::new(rx);
+        let event_stream = tokio_stream::StreamExt::map(sse_stream, |result| {
+            let data = match result {
+                Ok(chunk) => serde_json::to_string(&chunk).unwrap_or_default(),
+                Err(_) => serde_json::to_string(&StreamChunk::Error {
+                    message: "Stream lagged".to_string(),
+                })
+                .unwrap_or_default(),
+            };
+            Ok::<_, Infallible>(Event::default().data(data))
+        });
+        return Sse::new(Box::pin(event_stream) as SseEventStream).keep_alive(
+            axum::response::sse::KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("ping"),
+        );
     }
 
-    let row = sqlx::query_as::<_, Issue>(
-        r#"UPDATE issues SET
-           rca_started_at = NOW(),
-           status = 'investigating',
-           updated_at = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Issue not found".to_string()))?;
+    // Start new RCA — get a receiver before spawning
+    let rx = {
+        // Subscribe first, then spawn so we don't miss early chunks
+        let rx_opt = state.rca_registry.subscribe(id).await;
+        if let Some(rx) = rx_opt {
+            rx
+        } else {
+            // Not yet registered — we need to trigger run_rca
+            let pool = state.pool.clone();
+            let config = Arc::new(state.config.clone());
+            let registry = state.rca_registry.clone();
 
-    Ok(Json(row))
+            // Pre-register so we can subscribe immediately
+            // run_rca will use the existing channel
+            let issue_clone = issue.clone();
+            let registry_clone = registry.clone();
+            let pool_clone = pool.clone();
+            let config_clone = config.clone();
+
+            // We'll subscribe after run_rca registers
+            tokio::spawn(async move {
+                crate::services::rca::run_rca(pool_clone, config_clone, registry_clone, issue_clone).await;
+            });
+
+            // Give a tiny moment for registration, then subscribe
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            match state.rca_registry.subscribe(id).await {
+                Some(rx) => rx,
+                None => {
+                    // Fallback: RCA finished instantly or failed to start
+                    let error_stream = futures::stream::once(async {
+                        let chunk = StreamChunk::Error {
+                            message: "RCA failed to start".to_string(),
+                        };
+                        let data = serde_json::to_string(&chunk).unwrap_or_default();
+                        Ok::<_, Infallible>(Event::default().data(data))
+                    });
+                    return Sse::new(Box::pin(error_stream) as SseEventStream).keep_alive(
+                        axum::response::sse::KeepAlive::new()
+                            .interval(Duration::from_secs(15))
+                            .text("ping"),
+                    );
+                }
+            }
+        }
+    };
+
+    let sse_stream = tokio_stream::wrappers::BroadcastStream::new(rx);
+    let event_stream = tokio_stream::StreamExt::map(sse_stream, |result| {
+        let data = match result {
+            Ok(chunk) => serde_json::to_string(&chunk).unwrap_or_default(),
+            Err(_) => serde_json::to_string(&StreamChunk::Error {
+                message: "Stream lagged".to_string(),
+            })
+            .unwrap_or_default(),
+        };
+        Ok::<_, Infallible>(Event::default().data(data))
+    });
+
+    Sse::new(Box::pin(event_stream) as SseEventStream).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("ping"),
+    )
+}
+
+/// GET /api/issues/:id/rca/status — check if RCA is currently running
+pub async fn rca_status(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<serde_json::Value>> {
+    // Verify access
+    let _ = fetch_and_check_issue(&state, &auth_user, id).await?;
+    let running = state.rca_registry.is_running(id).await;
+    Ok(Json(serde_json::json!({ "running": running })))
+}
+
+/// Shared helper: fetch issue and verify tenant access
+async fn fetch_and_check_issue(state: &AppState, auth_user: &AuthUser, id: Uuid) -> Result<Issue, AppError> {
+    let row = sqlx::query_as::<_, Issue>("SELECT * FROM issues WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::NotFound("Issue not found".to_string()))?;
+    if !auth_user.is_super_admin() && row.tenant_id != auth_user.tenant_id {
+        return Err(AppError::Forbidden("Access denied".to_string()));
+    }
+    Ok(row)
 }

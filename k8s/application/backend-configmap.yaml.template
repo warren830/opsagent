@@ -22,5 +22,10 @@ data:
   CLAUDE_MODEL: "opus"
   CLAUDE_WORK_DIR: "/app/workspace"
 
+  # ── Cognito ──────────────────────────────────
+  COGNITO_DOMAIN: "${COGNITO_DOMAIN}"
+  COGNITO_REDIRECT_URIS: "https://${FRONTEND_DOMAIN}/auth/cognito/callback"
+  MICROSOFT_REDIRECT_URIS: "https://${FRONTEND_DOMAIN}/auth/microsoft/callback"
+
   # ── AWS ──────────────────────────────────────
   AWS_REGION: "${AWS_REGION}"

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { Search } from 'lucide-vue-next'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { Search, Play, Square, Loader2 } from 'lucide-vue-next'
+import { marked } from 'marked'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -18,6 +19,7 @@ definePageMeta({ middleware: 'auth' })
 
 const { t } = useI18n()
 const api = useApi()
+const { rcaText, thinkingText, isStreaming, isComplete, error: rcaError, elapsedMs, startRca, abort, reset } = useRcaStream()
 
 interface Issue {
   id: string
@@ -27,7 +29,9 @@ interface Issue {
   severity: 'critical' | 'high' | 'medium' | 'low'
   status: 'open' | 'investigating' | 'rca_done' | 'resolved'
   issue_type: 'incident' | 'prediction'
-  rca_result: string | null
+  rca_result: { analysis?: string; error?: string } | string | null
+  rca_started_at: string | null
+  rca_completed_at: string | null
   timeline: { time: string; event: string }[] | null
   created_at: string
 }
@@ -36,10 +40,10 @@ const issues = ref<Issue[]>([])
 const loading = ref(true)
 const activeFilter = ref<string>('')
 const activeTypeFilter = ref<string>('')
-const triggeringRca = ref(false)
 
 const showDetailDialog = ref(false)
 const selectedIssue = ref<Issue | null>(null)
+const rcaOutputRef = ref<HTMLElement | null>(null)
 
 const filters = [
   { value: '', label: () => t('issue.all') },
@@ -77,6 +81,8 @@ const columns = computed(() => [
   { key: 'created_at', label: t('tenant.createdAt') },
 ])
 
+// --- Helpers ---
+
 function severityVariant(severity: string): 'destructive' | 'warning' | 'info' | 'secondary' {
   switch (severity) {
     case 'critical': return 'destructive'
@@ -112,6 +118,41 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+function formatElapsed(ms: number): string {
+  const secs = Math.floor(ms / 1000)
+  if (secs < 60) return `${secs}s`
+  return `${Math.floor(secs / 60)}m${secs % 60}s`
+}
+
+function renderMarkdown(md: string): string {
+  if (!md) return ''
+  return marked.parse(md, { async: false }) as string
+}
+
+/** Extract RCA analysis text from the stored rca_result field */
+function getStoredRcaText(issue: Issue): string {
+  if (!issue.rca_result) return ''
+  if (typeof issue.rca_result === 'string') return issue.rca_result
+  return issue.rca_result.analysis || issue.rca_result.error || ''
+}
+
+/** Whether the issue has a running RCA (started but not completed) */
+function isRcaRunning(issue: Issue): boolean {
+  return !!issue.rca_started_at && !issue.rca_completed_at
+}
+
+/** Whether the issue has completed RCA */
+function hasRcaResult(issue: Issue): boolean {
+  return !!issue.rca_completed_at && !!issue.rca_result
+}
+
+/** Whether the issue can start RCA */
+function canStartRca(issue: Issue): boolean {
+  return issue.status !== 'resolved' && !isRcaRunning(issue)
+}
+
+// --- API ---
+
 async function fetchIssues() {
   loading.value = true
   try {
@@ -128,28 +169,60 @@ async function fetchIssues() {
   }
 }
 
-function openDetail(issue: Issue) {
-  selectedIssue.value = issue
-  showDetailDialog.value = true
-}
-
-async function triggerRca() {
-  if (!selectedIssue.value) return
-  triggeringRca.value = true
+async function openDetail(issue: Issue) {
+  // Refresh issue to get latest state
   try {
-    await api.post(`/api/issues/${selectedIssue.value.id}/rca`)
-    toast.success(t('common.success'))
-    // Refresh the issue detail
-    const updated = await api.get<Issue>(`/api/issues/${selectedIssue.value.id}`)
-    selectedIssue.value = updated
-    await fetchIssues()
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : t('common.error')
-    toast.error(msg)
-  } finally {
-    triggeringRca.value = false
+    const fresh = await api.get<Issue>(`/api/issues/${issue.id}`)
+    selectedIssue.value = fresh
+  } catch {
+    selectedIssue.value = issue
+  }
+
+  reset()
+  showDetailDialog.value = true
+
+  // If RCA is running on the backend, auto-connect to the stream
+  await nextTick()
+  if (selectedIssue.value && isRcaRunning(selectedIssue.value)) {
+    try {
+      const status = await api.get<{ running: boolean }>(`/api/issues/${selectedIssue.value.id}/rca/status`)
+      if (status.running) {
+        startRca(selectedIssue.value.id)
+      }
+    } catch {
+      // Not running — show stored result if any
+    }
   }
 }
+
+async function handleStartRca() {
+  if (!selectedIssue.value) return
+  reset()
+  startRca(selectedIssue.value.id)
+}
+
+// Auto-scroll during streaming
+watch(rcaText, async () => {
+  if (isStreaming.value && rcaOutputRef.value) {
+    await nextTick()
+    rcaOutputRef.value.scrollTop = rcaOutputRef.value.scrollHeight
+  }
+})
+
+// Refresh issue list when RCA completes
+watch(isComplete, (done) => {
+  if (done) {
+    fetchIssues()
+  }
+})
+
+// Close cleanup
+watch(showDetailDialog, (open) => {
+  if (!open) {
+    if (isStreaming.value) abort()
+    reset()
+  }
+})
 
 onMounted(() => { fetchIssues() })
 </script>
@@ -163,7 +236,6 @@ onMounted(() => { fetchIssues() })
 
     <!-- Filters -->
     <div class="flex items-center gap-3">
-      <!-- Status filter -->
       <div class="flex items-center gap-1.5">
         <Button
           v-for="f in filters"
@@ -178,7 +250,6 @@ onMounted(() => { fetchIssues() })
 
       <div class="w-px h-5 bg-border/60" />
 
-      <!-- Type filter -->
       <div class="flex items-center gap-1.5">
         <Button
           v-for="tf in typeFilters"
@@ -238,15 +309,15 @@ onMounted(() => { fetchIssues() })
 
     <!-- Detail Dialog -->
     <Dialog :open="showDetailDialog" @update:open="(val) => { showDetailDialog = val }">
-      <DialogContent class="max-w-lg">
+      <DialogContent class="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>{{ t('issue.detail') }}</DialogTitle>
-          <DialogDescription>{{ selectedIssue?.title }}</DialogDescription>
+          <DialogDescription class="truncate">{{ selectedIssue?.title }}</DialogDescription>
         </DialogHeader>
 
-        <div v-if="selectedIssue" class="space-y-3">
-          <!-- Meta -->
-          <div class="flex items-center gap-1.5">
+        <div v-if="selectedIssue" class="flex-1 overflow-y-auto space-y-3 min-h-0">
+          <!-- Meta badges -->
+          <div class="flex items-center gap-1.5 flex-wrap">
             <Badge
               :variant="selectedIssue.issue_type === 'prediction' ? 'info' : 'warning'"
               class="text-[10px]"
@@ -264,10 +335,67 @@ onMounted(() => { fetchIssues() })
             <p class="text-xs text-foreground whitespace-pre-wrap rounded border border-border/60 bg-secondary/30 p-2">{{ selectedIssue.description }}</p>
           </div>
 
-          <!-- RCA Result -->
-          <div v-if="selectedIssue.rca_result" class="space-y-1">
-            <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{{ t('issue.rcaProgress') }}</label>
-            <pre class="text-xs text-foreground whitespace-pre-wrap rounded border border-border/60 bg-secondary/30 p-2 max-h-[200px] overflow-y-auto">{{ selectedIssue.rca_result }}</pre>
+          <!-- RCA Section -->
+          <div class="space-y-2">
+            <!-- Streaming RCA output -->
+            <template v-if="isStreaming || rcaText">
+              <div class="flex items-center justify-between">
+                <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Loader2 v-if="isStreaming" class="h-3 w-3 animate-spin text-orange-400" />
+                  {{ isStreaming ? t('issue.rcaStreaming') : t('issue.rcaComplete') }}
+                </label>
+                <div class="flex items-center gap-2">
+                  <span v-if="elapsedMs > 0" class="text-[10px] text-muted-foreground/60">
+                    {{ t('issue.rcaElapsed') }} {{ formatElapsed(elapsedMs) }}
+                  </span>
+                  <Button v-if="isStreaming" variant="ghost" size="icon-sm" class="text-destructive" @click="abort">
+                    <Square class="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+
+              <!-- Thinking indicator -->
+              <div v-if="thinkingText && isStreaming" class="text-[10px] text-muted-foreground/50 italic px-2 truncate">
+                {{ thinkingText }}
+              </div>
+
+              <!-- Markdown output with typewriter -->
+              <div
+                ref="rcaOutputRef"
+                class="rca-markdown rounded border border-border/60 bg-secondary/20 p-3 max-h-[360px] overflow-y-auto text-xs text-foreground/90 will-change-transform"
+                v-html="renderMarkdown(rcaText)"
+              />
+            </template>
+
+            <!-- Stored RCA result (not streaming) -->
+            <template v-else-if="hasRcaResult(selectedIssue)">
+              <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{{ t('issue.rcaComplete') }}</label>
+              <div
+                class="rca-markdown rounded border border-border/60 bg-secondary/20 p-3 max-h-[360px] overflow-y-auto text-xs text-foreground/90"
+                v-html="renderMarkdown(getStoredRcaText(selectedIssue))"
+              />
+            </template>
+
+            <!-- RCA error -->
+            <div v-if="rcaError" class="rounded border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
+              {{ rcaError }}
+            </div>
+
+            <!-- Start RCA button -->
+            <div v-if="canStartRca(selectedIssue) && !isStreaming && !rcaText">
+              <Button size="sm" @click="handleStartRca">
+                <Play class="h-3 w-3" />
+                {{ t('issue.rcaStart') }}
+              </Button>
+            </div>
+
+            <!-- Re-run RCA (after completion) -->
+            <div v-if="hasRcaResult(selectedIssue) && !isStreaming && selectedIssue.status !== 'resolved'" class="pt-1">
+              <Button variant="outline" size="sm" @click="handleStartRca">
+                <Play class="h-3 w-3" />
+                {{ t('issue.rcaStart') }}
+              </Button>
+            </div>
           </div>
 
           <!-- Timeline -->
@@ -284,19 +412,33 @@ onMounted(() => { fetchIssues() })
               </div>
             </div>
           </div>
-
-          <!-- Trigger RCA -->
-          <div v-if="selectedIssue.status !== 'resolved' && selectedIssue.status !== 'rca_done'">
-            <Button size="sm" :disabled="triggeringRca" @click="triggerRca">
-              {{ triggeringRca ? t('common.loading') : t('issue.rcaProgress') }}
-            </Button>
-          </div>
         </div>
 
-        <DialogFooter class="gap-1.5 pt-1">
+        <DialogFooter class="gap-1.5 pt-1 shrink-0">
           <Button variant="outline" size="sm" @click="showDetailDialog = false">{{ t('common.close') }}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   </div>
 </template>
+
+<style scoped>
+/* RCA markdown styling — matches ChatPanel prose */
+.rca-markdown :deep(h1) { font-size: 0.875rem; font-weight: 700; margin-top: 1rem; margin-bottom: 0.375rem; color: var(--foreground); border-bottom: 1px solid hsl(var(--border) / 0.3); padding-bottom: 0.25rem; }
+.rca-markdown :deep(h2) { font-size: 0.8125rem; font-weight: 600; margin-top: 0.75rem; margin-bottom: 0.25rem; color: var(--foreground); }
+.rca-markdown :deep(h3) { font-size: 0.75rem; font-weight: 600; margin-top: 0.625rem; margin-bottom: 0.25rem; color: var(--foreground); }
+.rca-markdown :deep(h4) { font-size: 0.6875rem; font-weight: 600; margin-top: 0.5rem; margin-bottom: 0.125rem; color: var(--foreground); }
+.rca-markdown :deep(p) { margin: 0.25rem 0; line-height: 1.6; }
+.rca-markdown :deep(ul),
+.rca-markdown :deep(ol) { padding-left: 1.25rem; margin: 0.25rem 0; }
+.rca-markdown :deep(li) { margin: 0.125rem 0; line-height: 1.5; }
+.rca-markdown :deep(code) { font-size: 0.6875rem; padding: 0.125rem 0.25rem; border-radius: 0.25rem; background: hsl(var(--secondary)); font-family: ui-monospace, monospace; }
+.rca-markdown :deep(pre) { margin: 0.375rem 0; padding: 0.5rem; border-radius: 0.375rem; background: hsl(var(--secondary) / 0.8); overflow-x: auto; }
+.rca-markdown :deep(pre code) { padding: 0; background: none; font-size: 0.6875rem; line-height: 1.5; }
+.rca-markdown :deep(strong) { font-weight: 600; }
+.rca-markdown :deep(hr) { border: none; border-top: 1px solid hsl(var(--border) / 0.4); margin: 0.5rem 0; }
+.rca-markdown :deep(blockquote) { border-left: 3px solid hsl(var(--border)); padding-left: 0.5rem; margin: 0.375rem 0; color: hsl(var(--muted-foreground)); }
+.rca-markdown :deep(table) { width: 100%; border-collapse: collapse; margin: 0.375rem 0; font-size: 0.6875rem; }
+.rca-markdown :deep(th) { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid hsl(var(--border) / 0.6); font-weight: 600; }
+.rca-markdown :deep(td) { padding: 0.25rem 0.5rem; border-bottom: 1px solid hsl(var(--border) / 0.3); }
+</style>

@@ -6,6 +6,13 @@ interface User {
   role: 'super_admin' | 'tenant_admin'
   tenant_id: string | null
   email: string | null
+  auth_method: string
+}
+
+interface AuthProviders {
+  local: boolean
+  microsoft: boolean
+  cognito: boolean
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -13,6 +20,8 @@ export const useAuthStore = defineStore('auth', {
     user: null as User | null,
     isAuthenticated: false,
     isLoading: true,
+    providers: null as AuthProviders | null,
+    isRefreshing: false,
   }),
 
   getters: {
@@ -21,6 +30,16 @@ export const useAuthStore = defineStore('auth', {
   },
 
   actions: {
+    async fetchProviders() {
+      try {
+        const api = useApi()
+        this.providers = await api.get<AuthProviders>('/api/auth/providers')
+      } catch {
+        // Default to local-only if providers endpoint fails
+        this.providers = { local: true, microsoft: false, cognito: false }
+      }
+    },
+
     async fetchMe() {
       this.isLoading = true
       try {
@@ -45,9 +64,45 @@ export const useAuthStore = defineStore('auth', {
       this.isAuthenticated = true
     },
 
+    /** Called after OAuth callback completes — tokens are already in cookies */
+    setOAuthUser(user: User) {
+      this.user = user
+      this.isAuthenticated = true
+    },
+
+    /** Refresh access token using refresh token cookie */
+    async refreshAccessToken(): Promise<boolean> {
+      if (this.isRefreshing) return false
+      this.isRefreshing = true
+      try {
+        const api = useApi()
+        const response = await api.post<{ user: User; token: string }>('/api/auth/refresh')
+        this.user = response.user
+        this.isAuthenticated = true
+        return true
+      } catch {
+        this.user = null
+        this.isAuthenticated = false
+        return false
+      } finally {
+        this.isRefreshing = false
+      }
+    },
+
     async logout() {
       try {
         const api = useApi()
+        await api.post('/api/auth/logout')
+      } finally {
+        this.user = null
+        this.isAuthenticated = false
+      }
+    },
+
+    async logoutAll() {
+      try {
+        const api = useApi()
+        await api.post('/api/auth/revoke-all')
         await api.post('/api/auth/logout')
       } finally {
         this.user = null

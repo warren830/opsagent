@@ -400,7 +400,8 @@ function truncateDesc(desc: string | null, len: number): string {
               :class="selectedSkills.has(ds.path) ? 'bg-primary/5 border-primary/30' : 'hover:bg-secondary/50'"
               @click="toggleSkill(ds.path)"
             >
-              <div class="mt-0.5 h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors"
+              <div
+class="mt-0.5 h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors"
                 :class="selectedSkills.has(ds.path) ? 'bg-primary border-primary text-primary-foreground' : 'border-border'"
               >
                 <Check v-if="selectedSkills.has(ds.path)" class="h-3 w-3" />

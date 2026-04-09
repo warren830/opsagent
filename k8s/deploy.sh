@@ -74,11 +74,18 @@ cmd_init() {
         export AWS_ACCOUNT_ID
     fi
 
+    # ACM certificate ARN (single cert covers both domains via SAN)
+    local acm_arn="${FRONTEND_ACM_CERT:-$(cd "$IAC_DIR" && _tf_output acm_cert_arn 2>/dev/null || echo "")}"
+    export FRONTEND_ACM_CERT="$acm_arn"
+    export API_ACM_CERT="$acm_arn"
+
     log "AWS Account: $AWS_ACCOUNT_ID"
     log "AWS Region:  $AWS_REGION"
     log "Environment: $DEPLOY_ENV"
     log "Frontend:    $FRONTEND_DOMAIN"
     log "API:         $API_DOMAIN"
+    log "Frontend ACM: ${FRONTEND_ACM_CERT:-<not set>}"
+    log "API ACM:      ${API_ACM_CERT:-<not set>}"
 
     # Environment-specific resource settings
     if [[ "$DEPLOY_ENV" == "prod" ]]; then

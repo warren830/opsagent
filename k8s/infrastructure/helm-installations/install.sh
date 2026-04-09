@@ -31,8 +31,9 @@ step "Adding Helm repositories"
 helm repo add eks https://aws.github.io/eks-charts 2>/dev/null || true
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ 2>/dev/null || true
 helm repo add external-secrets https://charts.external-secrets.io 2>/dev/null || true
-helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
 helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
 helm repo update
 
 # Create gp3 StorageClass (default)
@@ -105,20 +106,21 @@ helm upgrade --install external-secrets external-secrets/external-secrets \
     --wait
 log "External Secrets Operator installed"
 
-# Redis
-step "Installing Redis"
-helm upgrade --install redis bitnami/redis \
-    -n openops --create-namespace \
-    -f "$SCRIPT_DIR/redis-values.yaml" \
-    --timeout 600s \
-    --wait
-log "Redis installed"
+# Monitoring namespace (needed by both self-hosted observability and Alloy)
+step "Creating monitoring namespace"
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
 
-# Observability Stack (Mimir + Loki + Tempo + Alloy)
+# Apply observability ExternalSecret (Grafana Cloud credentials for Alloy)
+INFRA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ -f "$INFRA_DIR/observability-external-secret.yaml" ]]; then
+    step "Applying observability ExternalSecret (monitoring namespace)"
+    kubectl apply -f "$INFRA_DIR/observability-external-secret.yaml"
+    log "Observability ExternalSecret applied"
+fi
+
+# Self-hosted observability backends (Mimir + Loki + Tempo)
+# Skip with SKIP_OBSERVABILITY=true when using Grafana Cloud
 if [[ "$SKIP_OBSERVABILITY" != "true" ]]; then
-    step "Creating monitoring namespace"
-    kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
-
     step "Installing Mimir (metrics)"
     helm upgrade --install mimir grafana/mimir-distributed \
         -n monitoring \
@@ -142,16 +144,60 @@ if [[ "$SKIP_OBSERVABILITY" != "true" ]]; then
         --timeout 600s \
         --wait
     log "Tempo installed"
+else
+    warn "Skipping self-hosted observability backends (SKIP_OBSERVABILITY=true)"
+fi
 
-    step "Installing Alloy (collector)"
-    helm upgrade --install alloy grafana/alloy \
-        -n monitoring \
-        -f "$SCRIPT_DIR/alloy-values.yaml" \
+# Alloy collector + kube-state-metrics — always installed (works with both self-hosted and Grafana Cloud)
+step "Installing kube-state-metrics"
+helm upgrade --install kube-state-metrics prometheus-community/kube-state-metrics \
+    -n monitoring \
+    --set nodeSelector."karpenter\.sh/nodepool"=common-nodepool \
+    --timeout 300s \
+    --wait
+log "kube-state-metrics installed"
+
+step "Installing Alloy (collector)"
+helm upgrade --install alloy grafana/alloy \
+    -n monitoring \
+    -f "$SCRIPT_DIR/alloy-values.yaml" \
+    --timeout 600s \
+    --wait
+log "Alloy installed"
+
+# ArgoCD
+if [[ "$SKIP_ARGOCD" != "true" ]]; then
+    step "Installing ArgoCD"
+    kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+    helm upgrade --install argocd argo/argo-cd \
+        -n argocd \
+        -f "$SCRIPT_DIR/argocd-values.yaml" \
         --timeout 600s \
         --wait
-    log "Alloy installed"
+    log "ArgoCD installed"
+
+    # Print initial admin password
+    ARGOCD_PASS=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d 2>/dev/null || echo "")
+    if [[ -n "$ARGOCD_PASS" ]]; then
+        log "ArgoCD admin password: $ARGOCD_PASS"
+        log "Access: kubectl port-forward svc/argocd-server -n argocd 8080:443"
+    fi
 else
-    warn "Skipping Observability Stack (SKIP_OBSERVABILITY=true)"
+    warn "Skipping ArgoCD (SKIP_ARGOCD=true)"
+fi
+
+# Argo Rollouts
+if [[ "$SKIP_ARGO_ROLLOUTS" != "true" ]]; then
+    step "Installing Argo Rollouts"
+    kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f -
+    helm upgrade --install argo-rollouts argo/argo-rollouts \
+        -n argo-rollouts \
+        -f "$SCRIPT_DIR/argo-rollouts-values.yaml" \
+        --timeout 600s \
+        --wait
+    log "Argo Rollouts installed"
+else
+    warn "Skipping Argo Rollouts (SKIP_ARGO_ROLLOUTS=true)"
 fi
 
 echo ""

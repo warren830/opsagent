@@ -83,6 +83,12 @@ struct ClaudeContentBlock {
     name: Option<String>,
     #[serde(default)]
     input: Option<serde_json::Value>,
+    /// MCP tool_result blocks use "content" instead of "text" for the result string
+    #[serde(default)]
+    content: Option<serde_json::Value>,
+    /// tool_name from tool_reference blocks
+    #[serde(default)]
+    tool_name: Option<String>,
 }
 
 /// Image data to send to Claude via stream-json input
@@ -377,6 +383,17 @@ impl ClaudeService {
                         if line.trim().is_empty() {
                             continue;
                         }
+                        // Log raw event types for debugging MCP tool_result visibility
+                        if let Ok(raw) = serde_json::from_str::<serde_json::Value>(&line) {
+                            let etype = raw.get("type").and_then(|v| v.as_str()).unwrap_or("?");
+                            let subtype = raw.get("subtype").and_then(|v| v.as_str());
+                            tracing::info!("Claude CLI raw event: type={} subtype={:?} len={}", etype, subtype, line.len());
+                            // Log user events (MCP tool results) — they contain chunk_id/BBOX data
+                            if etype == "user" {
+                                let preview = if line.len() > 500 { &line[..500] } else { &line };
+                                tracing::info!("Claude CLI user event preview: {}", preview);
+                            }
+                        }
                         let chunks = Self::parse_stream_line(&line);
                         let mut is_done = false;
                         for chunk in chunks {
@@ -427,10 +444,17 @@ impl ClaudeService {
     pub fn parse_stream_line(line: &str) -> Vec<StreamChunk> {
         let mut chunks = Vec::new();
 
+        // First try structured parsing
         let event: ClaudeEvent = match serde_json::from_str(line) {
             Ok(e) => e,
             Err(_) => return chunks,
         };
+
+        tracing::debug!(
+            "Claude CLI event: type={} subtype={:?}",
+            event.event_type,
+            event.subtype
+        );
 
         match event.event_type.as_str() {
             "system" if event.subtype.as_deref() == Some("init") => {
@@ -494,7 +518,37 @@ impl ClaudeService {
                     duration_ms: event.duration_ms.unwrap_or(0),
                 });
             }
-            _ => {}
+            // Claude CLI emits MCP tool results as "user" events containing tool_result content blocks
+            // Structure: {"type":"user","message":{"role":"user","content":[
+            //   {"type":"tool_result","tool_use_id":"...","content":"...result string..."}
+            //   OR {"type":"tool_result","content":[{"type":"tool_reference","tool_name":"mcp__xxx"}]}
+            // ]}}
+            "user" => {
+                if let Some(msg) = event.message {
+                    for block in msg.content {
+                        if block.block_type == "tool_result" {
+                            // content can be a string (actual result) or array (tool_reference, skip)
+                            let result_str = match &block.content {
+                                Some(serde_json::Value::String(s)) => Some(s.clone()),
+                                _ => block.text.clone(),
+                            };
+                            // Extract tool name from nested tool_reference or use default
+                            let name = block.tool_name.or(block.name).unwrap_or_else(|| "mcp_tool".to_string());
+                            if let Some(content) = result_str
+                                && !content.is_empty()
+                            {
+                                chunks.push(StreamChunk::ToolResult {
+                                    tool_name: name,
+                                    content,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            other => {
+                tracing::debug!("Unhandled Claude CLI event type: {}", other);
+            }
         }
 
         chunks

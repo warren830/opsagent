@@ -2,7 +2,7 @@
 import {
   Send, PanelRightClose, RotateCcw, ChevronDown, ChevronRight, Sparkles,
   AlertCircle, Terminal, Maximize2, Minimize2, Square, Pencil, Check, Paperclip,
-  FolderOpen, Trash2, Download, FileText, History,
+  FolderOpen, Trash2, Download, FileText, History, Wrench,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -12,8 +12,10 @@ import {
 import { toast } from 'vue-sonner'
 import { marked } from 'marked'
 import type { ChatMessage, ChatImage } from '@/composables/useChat'
+import PdfViewer from '@/components/ui/PdfViewer.vue'
 
 // Custom renderer: mermaid code blocks → <pre class="mermaid">
+// + GraphRAG images → clickable with "view source" overlay
 const renderer = new marked.Renderer()
 const originalCode = renderer.code.bind(renderer)
 renderer.code = function (token: { text: string; lang?: string | null }) {
@@ -22,12 +24,30 @@ renderer.code = function (token: { text: string; lang?: string | null }) {
   }
   return originalCode(token)
 }
+
+// Custom image renderer: detect GraphRAG S3 images and make them clickable
+const originalImage = renderer.image.bind(renderer)
+renderer.image = function (token: { href: string; title: string | null; text: string }) {
+  const { href, text } = token
+  // Detect GraphRAG S3 presigned image URLs
+  if (href && href.includes('graphrag-databucket')) {
+    // Extract image filename for data attribute (e.g. image_000002.png)
+    const imgMatch = href.match(/(image_\d+\.png)/)
+    const imgFile = imgMatch ? imgMatch[1] : ''
+    return `<span class="graphrag-img-wrap" data-img-file="${imgFile}" data-img-url="${encodeURIComponent(href)}">
+      <img src="${href}" alt="${text}" class="graphrag-img" loading="lazy" />
+      <span class="graphrag-img-badge">📄 View in PDF</span>
+    </span>`
+  }
+  return originalImage(token)
+}
+
 marked.setOptions({ breaks: true, gfm: true, renderer })
 
 const { t } = useI18n()
-const chatOpen = useState('chatPanelOpen', () => false)
+const chatOpen = useState('chatPanelOpen', () => true)
 const chatFullscreen = useState('chatFullscreen', () => false)
-const { messages, isStreaming, sendMessage, editAndResend, abortStream, startNewChat, clearMessages, selectedProviderId, currentSessionId, resumeSession } = useChat()
+const { messages, isStreaming, sendMessage, editAndResend, abortStream, startNewChat, clearMessages, selectedProviderId, selectedMcpServerIds, disabledMcpTools, currentSessionId, resumeSession } = useChat()
 
 // Model selector
 interface ProviderOption {
@@ -61,12 +81,450 @@ async function loadProviders() {
   } catch { /* ignore */ }
 }
 
-onMounted(() => { loadProviders(); loadSessions() })
-watch(chatOpen, (open) => { if (open) { loadProviders(); loadSessions() } })
+// MCP tools selector (tools stored per server from test/discovery)
+interface McpToolInfo {
+  name: string
+  description: string
+}
+interface McpServerOption {
+  id: string
+  name: string
+  enabled: boolean
+  transport_type: string
+  tools: McpToolInfo[]
+}
+const mcpServers = ref<McpServerOption[]>([])
+const showMcpPicker = ref(false)
+const hasMcpTools = computed(() => mcpServers.value.length > 0)
+const mcpSelectedCount = computed(() => selectedMcpServerIds.value.length)
+const mcpTotalServers = computed(() => mcpServers.value.length)
+
+function toggleMcpServer(id: string) {
+  const idx = selectedMcpServerIds.value.indexOf(id)
+  if (idx >= 0) {
+    selectedMcpServerIds.value.splice(idx, 1)
+    // Also remove disabled tools entries for this server
+    const srv = mcpServers.value.find(s => s.id === id)
+    if (srv) {
+      disabledMcpTools.value = disabledMcpTools.value.filter(t => !t.startsWith(`${id}:`))
+    }
+  } else {
+    selectedMcpServerIds.value.push(id)
+  }
+}
+
+function isToolEnabled(serverId: string, toolName: string) {
+  return !disabledMcpTools.value.includes(`${serverId}:${toolName}`)
+}
+
+function toggleMcpTool(serverId: string, toolName: string) {
+  const key = `${serverId}:${toolName}`
+  const idx = disabledMcpTools.value.indexOf(key)
+  if (idx >= 0) {
+    disabledMcpTools.value.splice(idx, 1)
+  } else {
+    disabledMcpTools.value.push(key)
+  }
+}
+
+async function loadMcpServers() {
+  try {
+    const data = await api.get<McpServerOption[]>('/api/mcp')
+    mcpServers.value = data.filter(s => s.enabled)
+    // Default: select all enabled servers
+    if (selectedMcpServerIds.value.length === 0 && mcpServers.value.length > 0) {
+      selectedMcpServerIds.value = mcpServers.value.map(s => s.id)
+    }
+  } catch { /* ignore */ }
+}
+
+onMounted(() => { loadProviders(); loadSessions(); loadMcpServers() })
+watch(chatOpen, (open) => { if (open) { loadProviders(); loadSessions(); loadMcpServers() } })
+
+// Reload providers when navigating back from config pages (e.g. /providers)
+const route = useRoute()
+watch(() => route.path, () => { if (chatOpen.value) loadProviders() })
 
 const inputText = ref('')
 const messagesEnd = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
+
+// PDF Viewer state (for GraphRAG source document viewing)
+const pdfViewerOpen = ref(false)
+const pdfViewerUrl = ref('')
+const pdfViewerPage = ref(1)
+const pdfViewerBbox = ref<{ x0: number; y0: number; x1: number; y1: number } | undefined>()
+const pdfViewerFileName = ref('')
+
+// ── Citation registry ──────────────────────────────────────
+interface CitationMeta {
+  chunkId: string
+  bboxId: string
+  filePath?: string
+  page?: number
+  bbox?: { x0: number; y0: number; x1: number; y1: number }
+}
+
+const citationRegistry = ref<Map<number, CitationMeta>>(new Map())
+
+function buildCitationRegistry() {
+  const registry = new Map<number, CitationMeta>()
+  let citationNum = 1
+
+  for (const msg of messages.value) {
+    // Search all message types — chunk metadata can appear in tool_result, tool_use, or text
+    const content = msg.content || ''
+
+    const chunkMatch = content.match(/"chunk_id"\s*:\s*"([^"]+)"/)
+      || content.match(/chunk_id[=:]\s*"?([a-f0-9-]+)"?/i)
+      || content.match(/(chunk-[a-f0-9]+)/)
+    const chunkId = chunkMatch?.[1] || ''
+
+    const bboxPattern = /<BBOX:(bbox_\d+)>/g
+    let match: RegExpExecArray | null
+    let hasBbox = false
+
+    while ((match = bboxPattern.exec(content)) !== null) {
+      hasBbox = true
+      const bboxId = match[1]
+      const alreadyExists = Array.from(registry.values())
+        .some(c => c.chunkId === chunkId && c.bboxId === bboxId)
+      if (!alreadyExists && chunkId) {
+        registry.set(citationNum++, { chunkId, bboxId })
+      }
+    }
+
+    // Text-only citation (chunk without BBOX)
+    if (chunkId && !hasBbox) {
+      registry.set(citationNum++, { chunkId, bboxId: '' })
+    }
+  }
+
+  citationRegistry.value = registry
+}
+
+watch(() => messages.value.length, buildCitationRegistry)
+watch(() => messages.value.map(m => m.content).join('').length, buildCitationRegistry)
+
+async function openPdfFromCitation(n: number) {
+  const cite = citationRegistry.value.get(n)
+  if (!cite) {
+    toast.error(`Citation [${n}] not found`)
+    return
+  }
+
+  // Reuse cached data
+  if (cite.page && cite.filePath) {
+    try {
+      const contextId = 'openops'
+      const pdfResp = await api.post<{ url: string }>('/api/graphrag/pdf-url', {
+        context_id: contextId,
+        file_path: cite.filePath,
+      })
+      if (!pdfResp.url) { toast.error('Could not get PDF URL'); return }
+      pdfViewerUrl.value = pdfResp.url
+      pdfViewerPage.value = cite.page
+      pdfViewerBbox.value = cite.bbox
+      pdfViewerFileName.value = cite.filePath
+      pdfViewerOpen.value = true
+    } catch (e: any) {
+      toast.error(`Failed to open PDF: ${e.message || e}`)
+    }
+    return
+  }
+
+  if (!cite.bboxId) {
+    toast.info(`Citation [${n}] — no page location available`)
+    return
+  }
+
+  try {
+    const contextId = 'openops'
+    const bboxResp = await api.post<{
+      bboxes: Array<{ page: number; bbox: { x0: number; y0: number; x1: number; y1: number }; file_path: string }>
+    }>('/api/graphrag/bbox', {
+      context_id: contextId,
+      requests: [{ chunk_id: cite.chunkId, bbox_id: cite.bboxId }],
+    })
+
+    if (!bboxResp.bboxes?.length) {
+      toast.error('Could not locate source in PDF')
+      return
+    }
+
+    const info = bboxResp.bboxes[0]
+    cite.page = info.page
+    cite.filePath = info.file_path
+    cite.bbox = info.bbox
+
+    const pdfResp = await api.post<{ url: string }>('/api/graphrag/pdf-url', {
+      context_id: contextId,
+      file_path: info.file_path,
+    })
+
+    if (!pdfResp.url) { toast.error('Could not get PDF URL'); return }
+    pdfViewerUrl.value = pdfResp.url
+    pdfViewerPage.value = info.page
+    pdfViewerBbox.value = info.bbox
+    pdfViewerFileName.value = info.file_path
+    pdfViewerOpen.value = true
+  } catch (e: any) {
+    toast.error(`Failed to open citation [${n}]: ${e.message || e}`)
+  }
+}
+
+async function openPdfFromGraphRag(imgFile: string, imgUrl?: string) {
+  // imgFile = e.g. "image_000002.png"
+  // imgUrl = full S3 presigned URL of the image (artifacts/<hash>/image_N.png)
+  //
+  // Strategy:
+  // 1. Find chunk_id+bbox_id from message content → bbox API → pdf-url API
+  // 2. If no chunk found, extract artifact hash from S3 URL → search for any
+  //    chunk_id in messages → use bbox API to get the real file_path
+  // 3. Final fallback: use GraphRAG proxy to list documents
+
+  try {
+    const contextId = 'openops' // TODO: make configurable per MCP server
+
+    // Helper: given bbox response, open PDF viewer
+    const openFromBbox = async (bboxInfo: { page: number; bbox: { x0: number; y0: number; x1: number; y1: number }; file_path: string }) => {
+      const pdfResp = await api.post<{ url: string }>('/api/graphrag/pdf-url', {
+        context_id: contextId,
+        file_path: bboxInfo.file_path,
+      })
+      if (pdfResp.url) {
+        pdfViewerUrl.value = pdfResp.url
+        pdfViewerPage.value = bboxInfo.page
+        pdfViewerBbox.value = bboxInfo.bbox
+        pdfViewerFileName.value = bboxInfo.file_path
+        pdfViewerOpen.value = true
+        return true
+      }
+      return false
+    }
+
+    // Strategy 1: Find chunk_id + bbox_id for this specific image
+    const imageChunks = findImageChunkInfo(imgFile)
+    if (imageChunks) {
+      console.log(`[GraphRAG] Found chunk info: chunk=${imageChunks.chunkId}, bbox=${imageChunks.bboxId}`)
+      try {
+        const bboxResp = await api.post<{ bboxes: Array<{ page: number; bbox: { x0: number; y0: number; x1: number; y1: number }; file_path: string }> }>(
+          '/api/graphrag/bbox',
+          { context_id: contextId, requests: [{ chunk_id: imageChunks.chunkId, bbox_id: imageChunks.bboxId }] }
+        )
+        if (bboxResp.bboxes?.length) {
+          if (await openFromBbox(bboxResp.bboxes[0])) return
+        }
+      } catch (e) {
+        console.warn('[GraphRAG] Strategy 1 bbox call failed:', e)
+      }
+    }
+
+    // Strategy 2: Use ANY chunk_id from citation registry or messages to get file_path via bbox API
+    // Then use that file_path for pdf-url (image won't have bbox highlight, but PDF opens correctly)
+    console.log('[GraphRAG] Strategy 2: finding any chunk_id from messages...')
+    const anyChunk = findAnyChunkId()
+    if (anyChunk) {
+      console.log(`[GraphRAG] Using chunk_id=${anyChunk.chunkId}, bbox_id=${anyChunk.bboxId} to discover file_path`)
+      try {
+        const bboxResp = await api.post<{ bboxes: Array<{ page: number; bbox: any; file_path: string }> }>(
+          '/api/graphrag/bbox',
+          { context_id: contextId, requests: [{ chunk_id: anyChunk.chunkId, bbox_id: anyChunk.bboxId }] }
+        )
+        if (bboxResp.bboxes?.length) {
+          const filePath = bboxResp.bboxes[0].file_path
+          console.log(`[GraphRAG] Discovered file_path="${filePath}" via bbox API`)
+          const pdfResp = await api.post<{ url: string }>('/api/graphrag/pdf-url', {
+            context_id: contextId,
+            file_path: filePath,
+          })
+          if (pdfResp.url) {
+            pdfViewerUrl.value = pdfResp.url
+            pdfViewerPage.value = 1
+            pdfViewerBbox.value = undefined
+            pdfViewerFileName.value = filePath
+            pdfViewerOpen.value = true
+            return
+          }
+        }
+      } catch (e) {
+        console.warn('[GraphRAG] Strategy 2 failed:', e)
+      }
+    }
+
+    // Strategy 3: List documents from GraphRAG, match artifact hash from S3 URL to find the exact PDF
+    // S3 URL: artifacts/<hash>/image_N.png → document s3_key: uploads/<ctx>/<date>/<hash>/<filename>
+    console.log('[GraphRAG] Strategy 3: listing documents from GraphRAG...')
+    try {
+      const docs = await api.get<Array<{ file_name: string; s3_key: string; status: string }>>(`/api/graphrag/documents/${contextId}`)
+      const pdfDocs = (docs || []).filter(d => d.file_name?.endsWith('.pdf') && (d.status === 'SUCCEEDED' || d.status === 'COMPLETED'))
+      console.log(`[GraphRAG] Found ${pdfDocs.length} PDF documents`)
+
+      // Extract artifact hash from image S3 URL to match against document s3_key
+      let matchedDoc: { file_name: string; s3_key: string } | undefined
+      if (imgUrl) {
+        const artifactMatch = new URL(imgUrl).pathname.match(/\/artifacts\/([a-f0-9]+)\//)
+        if (artifactMatch) {
+          const artifactHash = artifactMatch[1]
+          console.log(`[GraphRAG] Matching artifact hash "${artifactHash}" against ${pdfDocs.length} documents`)
+          matchedDoc = pdfDocs.find(d => d.s3_key?.includes(artifactHash))
+          if (matchedDoc) {
+            console.log(`[GraphRAG] Matched: "${matchedDoc.file_name}" (s3_key contains ${artifactHash})`)
+          }
+        }
+      }
+
+      // If no match by hash, fallback to first/only PDF
+      if (!matchedDoc && pdfDocs.length > 0) {
+        matchedDoc = pdfDocs[0]
+        console.log(`[GraphRAG] No hash match, using first PDF: "${matchedDoc.file_name}"`)
+      }
+
+      if (matchedDoc) {
+        // Try s3_key first (direct path), then file_name (DynamoDB lookup + fallback)
+        for (const filePath of [matchedDoc.s3_key, matchedDoc.file_name]) {
+          if (!filePath) continue
+          try {
+            const pdfResp = await api.post<{ url: string }>('/api/graphrag/pdf-url', {
+              context_id: contextId,
+              file_path: filePath,
+            })
+            if (pdfResp.url) {
+              console.log(`[GraphRAG] Strategy 3 success: file_path="${filePath}"`)
+              pdfViewerUrl.value = pdfResp.url
+              pdfViewerPage.value = 1
+              pdfViewerBbox.value = undefined
+              pdfViewerFileName.value = matchedDoc.file_name
+              pdfViewerOpen.value = true
+              return
+            }
+          } catch {
+            // try next path variant
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[GraphRAG] Strategy 3 documents API failed:', e)
+    }
+
+    console.warn('[GraphRAG] All strategies exhausted for image:', imgFile, 'url:', imgUrl)
+    toast.error('Could not locate source document')
+  } catch (e: any) {
+    toast.error(`Failed to open PDF: ${e.message || e}`)
+  }
+}
+
+// Find ANY chunk_id + bbox_id from messages or citation registry (not image-specific)
+// Used as fallback to discover file_path via bbox API
+function findAnyChunkId(): { chunkId: string; bboxId: string } | null {
+  // First try citation registry — it's already parsed
+  if (citationRegistry.value.size > 0) {
+    const first = citationRegistry.value.values().next().value
+    if (first?.chunkId) {
+      return { chunkId: first.chunkId, bboxId: first.bboxId || '' }
+    }
+  }
+
+  // Search all messages for chunk_id patterns
+  for (const msg of messages.value) {
+    const content = msg.content || ''
+
+    // Pattern 1: JSON "chunk_id": "value"
+    const jsonMatch = content.match(/"chunk_id"\s*:\s*"([^"]+)"/)
+    if (jsonMatch) {
+      const bboxMatch = content.match(/<BBOX:(bbox_\w+)>/)
+      return { chunkId: jsonMatch[1], bboxId: bboxMatch?.[1] || '' }
+    }
+
+    // Pattern 2: [[CITE:chunk_id:bbox_id]] citation format in Claude's text output
+    const citeMatch = content.match(/\[\[CITE:([^:\]]+):(bbox_\w+)\]\]/)
+    if (citeMatch) {
+      return { chunkId: citeMatch[1], bboxId: citeMatch[2] }
+    }
+
+    // Pattern 3: chunk-<hex> anywhere
+    const chunkHexMatch = content.match(/\b(chunk-[a-f0-9]{8,})\b/)
+    if (chunkHexMatch) {
+      const bboxMatch = content.match(/<BBOX:(bbox_\w+)>/)
+      return { chunkId: chunkHexMatch[1], bboxId: bboxMatch?.[1] || '' }
+    }
+  }
+
+  return null
+}
+
+// Parse assistant messages to find chunk_id + bbox_id for a given image filename
+function findImageChunkInfo(imgFile: string): { chunkId: string; bboxId: string } | null {
+  const escapedFile = imgFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+  // Search ALL message types — Claude CLI may send chunk metadata in tool_use, tool_result, or text blocks
+  // Strategy 1: Find BBOX + chunk_id in the same message that contains the image filename
+  for (const msg of messages.value) {
+    const content = msg.content || ''
+    if (!content.includes(imgFile)) continue
+
+    // Flexible BBOX pattern: <BBOX:bbox_N> anywhere before the image filename
+    const bboxPattern = new RegExp(`<BBOX:(bbox_\\w+)>[\\s\\S]{0,500}${escapedFile}`, 'i')
+    const bboxMatch = content.match(bboxPattern)
+
+    // Flexible chunk_id pattern: accepts any chunk ID format
+    const chunkMatch = content.match(/"chunk_id"\s*:\s*"([^"]+)"/)
+      || content.match(/chunk_id[=:]\s*"?([a-f0-9-]+)"?/i)
+      || content.match(/(chunk-[a-f0-9]+)/)
+
+    if (bboxMatch && chunkMatch) {
+      return { chunkId: chunkMatch[1], bboxId: bboxMatch[1] }
+    }
+
+    // Even without BBOX, if we have chunk_id and the image is in this message
+    if (chunkMatch) {
+      const anyBbox = content.match(/<BBOX:(bbox_\w+)>/)
+      return { chunkId: chunkMatch[1], bboxId: anyBbox?.[1] || '' }
+    }
+  }
+
+  // Strategy 2: Image is in one message, chunk metadata in a nearby previous message
+  let lastChunkId = ''
+  let lastBboxId = ''
+  for (const msg of messages.value) {
+    const content = msg.content || ''
+
+    // Collect chunk_id from ANY message type (tool_result, tool_use, text, etc.)
+    const chunkMatch = content.match(/"chunk_id"\s*:\s*"([^"]+)"/)
+      || content.match(/chunk_id[=:]\s*"?([a-f0-9-]+)"?/i)
+      || content.match(/(chunk-[a-f0-9]+)/)
+    if (chunkMatch) {
+      lastChunkId = chunkMatch[1]
+      const bboxMatch = content.match(/<BBOX:(bbox_\w+)>/)
+      lastBboxId = bboxMatch?.[1] || ''
+    }
+
+    if (content.includes(imgFile) && lastChunkId) {
+      return { chunkId: lastChunkId, bboxId: lastBboxId }
+    }
+  }
+
+  // Strategy 3: Broadest — image in ANY message, chunk_id in ANY other message
+  for (const msg of messages.value) {
+    const content = msg.content || ''
+    if (!content.includes(imgFile)) continue
+
+    for (const other of messages.value) {
+      const otherContent = other.content || ''
+      const chunkMatch = otherContent.match(/"chunk_id"\s*:\s*"([^"]+)"/)
+        || otherContent.match(/chunk_id[=:]\s*"?([a-f0-9-]+)"?/i)
+        || otherContent.match(/(chunk-[a-f0-9]+)/)
+      if (chunkMatch) {
+        const bboxMatch = otherContent.match(/<BBOX:(bbox_\w+)>/)
+        console.warn(`[GraphRAG] Fallback match for ${imgFile}: chunk=${chunkMatch[1]}, bbox=${bboxMatch?.[1] || 'none'}, msg_type=${other.type}`)
+        return { chunkId: chunkMatch[1], bboxId: bboxMatch?.[1] || '' }
+      }
+    }
+  }
+
+  console.warn(`[GraphRAG] Could not find chunk info for image: ${imgFile}. Messages:`, messages.value.map(m => m.type))
+  return null
+}
 
 // Accept pre-filled prompts from other pages (e.g., Security Insights → Chat with Agent)
 const chatPrefill = useState<string>('chatPrefill', () => '')
@@ -285,14 +743,58 @@ function close() {
   showSessionPicker.value = false
 }
 
-// Close session picker on click outside
+// Close dropdowns on click outside
+const mcpPickerRef = ref<HTMLElement>()
+const sessionPickerRef = ref<HTMLElement>()
+
 function onDocClick(e: MouseEvent) {
-  if (showSessionPicker.value && !(e.target as HTMLElement)?.closest('.relative')) {
+  const target = e.target as HTMLElement
+
+  // Handle citation badge clicks → open PDF viewer at cited location
+  const citeBadge = target.closest('.citation-badge') as HTMLElement
+  if (citeBadge) {
+    e.preventDefault()
+    e.stopPropagation()
+    const citeN = Number.parseInt(citeBadge.dataset.citeN || '', 10)
+    if (citeN) openPdfFromCitation(citeN)
+    return
+  }
+
+  // Handle GraphRAG image clicks → open PDF viewer
+  const imgWrap = target.closest('.graphrag-img-wrap') as HTMLElement
+  if (imgWrap) {
+    e.preventDefault()
+    e.stopPropagation()
+    const imgFile = imgWrap.dataset.imgFile
+    const imgUrl = imgWrap.dataset.imgUrl ? decodeURIComponent(imgWrap.dataset.imgUrl) : ''
+    if (imgFile) openPdfFromGraphRag(imgFile, imgUrl)
+    return
+  }
+
+  if (showSessionPicker.value && sessionPickerRef.value && !sessionPickerRef.value.contains(target)) {
     showSessionPicker.value = false
   }
+  if (showMcpPicker.value && mcpPickerRef.value && !mcpPickerRef.value.contains(target)) {
+    showMcpPicker.value = false
+  }
+  if (showSlashMenu.value) {
+    // Close slash menu if click is outside the input area
+    const textarea = inputRef.value
+    if (textarea && !textarea.contains(target) && !target.closest('.slash-menu')) {
+      showSlashMenu.value = false
+    }
+  }
 }
-onMounted(() => document.addEventListener('click', onDocClick))
-onUnmounted(() => document.removeEventListener('click', onDocClick))
+// Cmd+K / Ctrl+K to toggle chat panel
+function onGlobalKeydown(e: KeyboardEvent) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault()
+    chatOpen.value = !chatOpen.value
+  }
+}
+
+onMounted(() => { document.addEventListener('click', onDocClick); document.addEventListener('keydown', onGlobalKeydown) })
+onUnmounted(() => { document.removeEventListener('click', onDocClick); document.removeEventListener('keydown', onGlobalKeydown) })
 
 function toggleFullscreen() {
   chatFullscreen.value = !chatFullscreen.value
@@ -392,6 +894,7 @@ function handleKeydown(e: KeyboardEvent) {
     }
     if (e.key === 'Escape') {
       showSlashMenu.value = false
+      inputText.value = ''
       return
     }
   }
@@ -495,9 +998,41 @@ function toggleTool(id: string) {
   if (expandedTools.value.has(id)) { expandedTools.value.delete(id) } else { expandedTools.value.add(id) }
 }
 
+// Find the tool_result message that follows a given tool_use message
+function getToolResult(toolUseMsg: ChatMessage): string | null {
+  const idx = messages.value.indexOf(toolUseMsg)
+  if (idx < 0) return null
+  // Look at the next few messages for a matching tool_result
+  for (let i = idx + 1; i < Math.min(idx + 3, messages.value.length); i++) {
+    if (messages.value[i].type === 'tool_result') {
+      return messages.value[i].content || null
+    }
+    // Stop if we hit another tool_use or text (result should be right after)
+    if (messages.value[i].type === 'tool_use' || messages.value[i].type === 'text') break
+  }
+  return null
+}
+
 function renderMd(text: string): string {
   if (!text) return ''
-  return marked.parse(text) as string
+  let html = marked.parse(text) as string
+
+  // Post-process: convert [n] citation markers to clickable badges
+  // Avoid matching markdown links [text](url) or content inside tags/attributes
+  if (citationRegistry.value.size > 0) {
+    html = html.replace(
+      /(?<!["\w/])(\[(\d{1,3})\])(?!\()/g,
+      (_full, _bracket, num) => {
+        const n = Number.parseInt(num, 10)
+        if (citationRegistry.value.has(n)) {
+          return `<sup class="citation-badge" data-cite-n="${n}" title="Source [${n}]">${n}</sup>`
+        }
+        return _full
+      },
+    )
+  }
+
+  return html
 }
 
 function truncate(text: string, len: number): string {
@@ -596,15 +1131,69 @@ function startResize(e: MouseEvent) {
           <span v-else-if="currentProviderName" class="text-[10px] text-muted-foreground/50 ml-1">{{ currentProviderName }}</span>
         </div>
         <div class="flex items-center gap-0.5">
-          <div class="relative">
-            <button
-              class="h-6 w-6 rounded flex items-center justify-center transition-colors"
-              :class="showSessionPicker ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent'"
+          <!-- MCP Tools picker -->
+          <div v-if="hasMcpTools" ref="mcpPickerRef" class="relative">
+            <Button
+              variant="ghost" size="sm"
+              class="h-6 rounded px-1.5 gap-1"
+              :class="showMcpPicker ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'"
+              :title="t('chat.mcpTools')"
+              @click.stop="showMcpPicker = !showMcpPicker"
+            >
+              <Wrench class="h-3 w-3" />
+              <span class="text-[10px]">{{ mcpSelectedCount }}/{{ mcpTotalServers }}</span>
+            </Button>
+            <Transition enter-active-class="transition-all duration-150" enter-from-class="opacity-0 -translate-y-1" leave-active-class="transition-all duration-100" leave-to-class="opacity-0 -translate-y-1">
+              <div v-if="showMcpPicker" class="absolute right-0 top-8 w-64 z-50 rounded-lg border border-border/60 bg-card shadow-lg py-1 max-h-72 overflow-y-auto">
+                <div class="px-2 py-1 text-[10px] text-muted-foreground/60 font-medium uppercase tracking-wider">{{ t('chat.mcpTools') }}</div>
+                <!-- Tools grouped by server -->
+                <template v-for="srv in mcpServers" :key="srv.id">
+                  <!-- Server toggle row -->
+                  <button
+                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/50 transition-colors"
+                    @click="toggleMcpServer(srv.id)"
+                  >
+                    <div
+class="h-3.5 w-3.5 rounded border flex items-center justify-center shrink-0"
+                      :class="selectedMcpServerIds.includes(srv.id) ? 'bg-primary border-primary' : 'border-border'">
+                      <Check v-if="selectedMcpServerIds.includes(srv.id)" class="h-2.5 w-2.5 text-primary-foreground" />
+                    </div>
+                    <span class="font-medium truncate">{{ srv.name }}</span>
+                    <span class="text-[10px] text-muted-foreground/40 ml-auto">{{ srv.tools?.length || 0 }} tools</span>
+                  </button>
+                  <!-- Tool list under this server -->
+                  <div v-if="srv.tools?.length && selectedMcpServerIds.includes(srv.id)" class="pl-5 pr-2 space-y-0">
+                    <button
+                      v-for="tool in srv.tools"
+                      :key="tool.name"
+                      class="w-full flex items-center gap-1.5 py-0.5 text-[11px] hover:bg-accent/30 rounded px-1 transition-colors"
+                      :class="isToolEnabled(srv.id, tool.name) ? 'text-muted-foreground/70' : 'text-muted-foreground/30'"
+                      :title="tool.description"
+                      @click.stop="toggleMcpTool(srv.id, tool.name)"
+                    >
+                      <div
+class="h-3 w-3 rounded border flex items-center justify-center shrink-0"
+                        :class="isToolEnabled(srv.id, tool.name) ? 'bg-primary/80 border-primary/80' : 'border-border/50'">
+                        <Check v-if="isToolEnabled(srv.id, tool.name)" class="h-2 w-2 text-primary-foreground" />
+                      </div>
+                      <Terminal class="h-2.5 w-2.5 shrink-0 text-muted-foreground/40" />
+                      <span class="font-mono truncate">{{ tool.name }}</span>
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </Transition>
+          </div>
+          <div ref="sessionPickerRef" class="relative">
+            <Button
+              variant="ghost" size="sm"
+              class="h-6 w-6 p-0 rounded"
+              :class="showSessionPicker ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'"
               :title="t('chat.sessions')"
-              @click="showSessionPicker = !showSessionPicker; if (showSessionPicker) loadSessions()"
+              @click.stop="showSessionPicker = !showSessionPicker; if (showSessionPicker) loadSessions()"
             >
               <History class="h-3 w-3" />
-            </button>
+            </Button>
             <!-- Session dropdown -->
             <Transition
               enter-active-class="transition-all duration-150 ease-out"
@@ -620,7 +1209,7 @@ function startResize(e: MouseEvent) {
               >
                 <div class="px-2.5 py-1.5 border-b border-border/40 flex items-center justify-between">
                   <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">{{ t('chat.recentSessions') }}</span>
-                  <span class="text-[9px] text-muted-foreground/40">1h</span>
+                  <span class="text-[9px] text-muted-foreground/40">24h</span>
                 </div>
                 <div class="max-h-48 overflow-y-auto">
                   <div v-if="recentSessions.length === 0" class="px-3 py-4 text-center text-[11px] text-muted-foreground/50">
@@ -642,34 +1231,19 @@ function startResize(e: MouseEvent) {
               </div>
             </Transition>
           </div>
-          <button
-            class="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            :title="t('chat.newChat')"
-            @click="startNewChat"
-          >
+          <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-muted-foreground hover:text-foreground" :title="t('chat.newChat')" @click="startNewChat">
             <RotateCcw class="h-3 w-3" />
-          </button>
-          <button
-            class="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            :title="t('chat.workspace')"
-            @click="openWorkspace"
-          >
+          </Button>
+          <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-muted-foreground hover:text-foreground" :title="t('chat.workspace')" @click="openWorkspace">
             <FolderOpen class="h-3 w-3" />
-          </button>
-          <button
-            class="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            :title="chatFullscreen ? t('chat.minimize') : t('chat.maximize')"
-            @click="toggleFullscreen"
-          >
+          </Button>
+          <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-muted-foreground hover:text-foreground" :title="chatFullscreen ? t('chat.minimize') : t('chat.maximize')" @click="toggleFullscreen">
             <Minimize2 v-if="chatFullscreen" class="h-3 w-3" />
             <Maximize2 v-else class="h-3 w-3" />
-          </button>
-          <button
-            class="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            @click="close"
-          >
+          </Button>
+          <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-muted-foreground hover:text-foreground" @click="close">
             <PanelRightClose class="h-3.5 w-3.5" />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -694,7 +1268,7 @@ function startResize(e: MouseEvent) {
         </div>
 
         <!-- Messages list -->
-        <div v-else class="py-3 space-y-1" :class="chatFullscreen ? 'max-w-3xl mx-auto px-6' : 'px-3'">
+        <div v-else class="py-3 space-y-1" :class="chatFullscreen ? 'max-w-5xl mx-auto px-6' : 'px-3'">
           <template v-for="msg in messages" :key="msg.id">
 
             <!-- ========== User ========== -->
@@ -709,23 +1283,24 @@ function startResize(e: MouseEvent) {
                   @keydown.escape="cancelEdit"
                 />
                 <div class="flex justify-end gap-1">
-                  <button class="h-6 px-2 rounded text-[11px] text-muted-foreground hover:bg-accent transition-colors" @click="cancelEdit">
+                  <Button variant="ghost" size="sm" class="h-6 px-2 text-[11px]" @click="cancelEdit">
                     {{ t('common.cancel') }}
-                  </button>
-                  <button class="h-6 px-2 rounded text-[11px] bg-primary text-primary-foreground hover:bg-primary/90 transition-colors" @click="confirmEdit(msg.id)">
+                  </Button>
+                  <Button size="sm" class="h-6 px-2 text-[11px]" @click="confirmEdit(msg.id)">
                     {{ t('chat.resend') }}
-                  </button>
+                  </Button>
                 </div>
               </div>
               <!-- Normal display -->
               <div v-else class="flex items-start gap-1 max-w-[85%]">
-                <button
-                  class="h-5 w-5 rounded flex items-center justify-center text-muted-foreground/0 group-hover:text-muted-foreground/50 hover:!text-foreground hover:bg-accent transition-all shrink-0 mt-0.5"
+                <Button
+                  variant="ghost" size="sm"
+                  class="h-5 w-5 p-0 text-muted-foreground/0 group-hover:text-muted-foreground/50 hover:!text-foreground transition-all shrink-0 mt-0.5"
                   :title="t('common.edit')"
                   @click="startEdit(msg)"
                 >
                   <Pencil class="h-2.5 w-2.5" />
-                </button>
+                </Button>
                 <div class="space-y-1.5">
                   <!-- Image thumbnails -->
                   <div v-if="msg.images?.length" class="flex flex-wrap gap-1 justify-end">
@@ -773,46 +1348,40 @@ function startResize(e: MouseEvent) {
             </div>
 
             <!-- ========== Text (markdown) ========== -->
-            <div v-else-if="msg.type === 'text'" class="py-1">
+            <div v-else-if="msg.type === 'text'" class="py-1 overflow-x-auto">
               <div
                 class="chat-markdown text-[13px] leading-relaxed text-foreground/90"
                 v-html="renderMd(msg.content)"
               />
             </div>
 
-            <!-- ========== Tool use ========== -->
+            <!-- ========== Tool use (with merged result) ========== -->
             <div v-else-if="msg.type === 'tool_use'" class="py-0.5">
               <button
-                class="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground bg-card/80 rounded px-2 py-1 border border-border/50 transition-colors"
+                class="inline-flex items-center gap-1.5 text-[11px] transition-colors"
+                :class="getToolResult(msg) ? 'text-success/70 hover:text-success' : 'text-muted-foreground hover:text-foreground'"
                 @click="toggleTool(msg.id)"
               >
-                <Terminal class="h-3 w-3 shrink-0 text-warning" />
+                <Check v-if="getToolResult(msg)" class="h-3 w-3 shrink-0" />
+                <Terminal v-else class="h-3 w-3 shrink-0 text-warning animate-pulse" />
                 <span class="font-mono">{{ msg.toolName || 'tool' }}</span>
                 <ChevronRight v-if="!expandedTools.has(msg.id)" class="h-2.5 w-2.5 transition-transform" />
                 <ChevronDown v-else class="h-2.5 w-2.5 transition-transform" />
               </button>
-              <div
-                v-if="expandedTools.has(msg.id) && msg.content"
-                class="mt-1 ml-4 text-[11px] font-mono text-foreground/80 bg-muted/50 rounded px-2.5 py-2 max-h-40 overflow-y-auto border border-border/50 leading-relaxed whitespace-pre-wrap"
-              >{{ msg.content }}</div>
+              <div v-if="expandedTools.has(msg.id)" class="mt-1 ml-4 space-y-1">
+                <div
+                  v-if="msg.content"
+                  class="text-[11px] font-mono text-foreground/80 bg-muted/20 rounded px-2.5 py-2 max-h-40 overflow-y-auto border border-border/30 leading-relaxed whitespace-pre-wrap"
+                >{{ msg.content }}</div>
+                <div
+                  v-if="getToolResult(msg)"
+                  class="text-[11px] font-mono text-foreground/60 bg-muted/10 rounded px-2.5 py-2 max-h-40 overflow-y-auto border border-border/20 leading-relaxed whitespace-pre-wrap"
+                >{{ getToolResult(msg)!.length > 1000 ? getToolResult(msg)!.slice(0, 1000) + '\n...' : getToolResult(msg) }}</div>
+              </div>
             </div>
 
-            <!-- ========== Tool result ========== -->
-            <div v-else-if="msg.type === 'tool_result'" class="py-0.5">
-              <button
-                class="inline-flex items-center gap-1.5 text-[11px] text-success hover:text-success transition-colors"
-                @click="toggleTool(msg.id)"
-              >
-                <Check class="h-3 w-3 shrink-0" />
-                <span class="font-mono">{{ msg.toolName || 'result' }}</span>
-                <ChevronRight v-if="!expandedTools.has(msg.id)" class="h-2.5 w-2.5" />
-                <ChevronDown v-else class="h-2.5 w-2.5" />
-              </button>
-              <div
-                v-if="expandedTools.has(msg.id) && msg.content"
-                class="mt-1 ml-4 text-[11px] font-mono text-foreground/70 bg-muted/40 rounded px-2.5 py-2 max-h-40 overflow-y-auto border border-border/40 leading-relaxed whitespace-pre-wrap"
-              >{{ msg.content.length > 1000 ? msg.content.slice(0, 1000) + '\n...' : msg.content }}</div>
-            </div>
+            <!-- ========== Tool result (hidden — merged into tool_use above) ========== -->
+            <template v-else-if="msg.type === 'tool_result'" />
 
             <!-- ========== Error ========== -->
             <div v-else-if="msg.type === 'error'" class="py-1">
@@ -824,13 +1393,32 @@ function startResize(e: MouseEvent) {
 
           </template>
 
-          <!-- Streaming dots -->
-          <div v-if="isStreaming" class="py-1">
-            <span class="inline-flex gap-0.5">
-              <span class="w-1 h-1 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:0ms]" />
-              <span class="w-1 h-1 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:150ms]" />
-              <span class="w-1 h-1 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:300ms]" />
-            </span>
+          <!-- Streaming indicator — neko cat -->
+          <div v-if="isStreaming" class="py-2 pl-1">
+            <div class="neko-thinking inline-flex items-end gap-2">
+              <svg class="neko-cat" width="24" height="24" viewBox="0 0 64 64" fill="none">
+                <!-- ears -->
+                <path d="M14 28 L10 8 L24 20 Z" fill="currentColor" class="text-primary/70" />
+                <path d="M50 28 L54 8 L40 20 Z" fill="currentColor" class="text-primary/70" />
+                <path d="M16 26 L13 12 L23 21 Z" fill="currentColor" class="text-primary/20" />
+                <path d="M48 26 L51 12 L41 21 Z" fill="currentColor" class="text-primary/20" />
+                <!-- head -->
+                <ellipse cx="32" cy="36" rx="20" ry="18" fill="currentColor" class="text-primary/70" />
+                <!-- eyes -->
+                <ellipse class="neko-eye-l" cx="24" cy="34" rx="2.5" ry="3" fill="currentColor" />
+                <ellipse class="neko-eye-r" cx="40" cy="34" rx="2.5" ry="3" fill="currentColor" />
+                <!-- nose -->
+                <ellipse cx="32" cy="40" rx="1.5" ry="1" fill="currentColor" class="text-primary/40" />
+                <!-- mouth -->
+                <path d="M28 42 Q32 46 36 42" stroke="currentColor" class="text-primary/30" stroke-width="1.2" fill="none" />
+                <!-- whiskers -->
+                <line x1="6" y1="36" x2="20" y2="38" stroke="currentColor" class="text-primary/25" stroke-width="0.8" />
+                <line x1="6" y1="42" x2="20" y2="41" stroke="currentColor" class="text-primary/25" stroke-width="0.8" />
+                <line x1="44" y1="38" x2="58" y2="36" stroke="currentColor" class="text-primary/25" stroke-width="0.8" />
+                <line x1="44" y1="41" x2="58" y2="42" stroke="currentColor" class="text-primary/25" stroke-width="0.8" />
+              </svg>
+              <span class="text-[10px] text-muted-foreground/50 font-mono neko-text">thinking...</span>
+            </div>
           </div>
           <div ref="messagesEnd" />
         </div>
@@ -849,7 +1437,7 @@ function startResize(e: MouseEvent) {
         >
           <div
             v-if="showSlashMenu && filteredCommands.length > 0"
-            class="absolute bottom-full left-2 right-2 mb-1 bg-card border border-border/60 rounded-lg shadow-lg overflow-hidden z-20 max-h-48 overflow-y-auto"
+            class="slash-menu absolute bottom-full left-2 right-2 mb-1 bg-card border border-border/60 rounded-lg shadow-lg overflow-hidden z-20 max-h-48 overflow-y-auto"
           >
             <button
               v-for="(cmd, idx) in filteredCommands"
@@ -887,12 +1475,13 @@ function startResize(e: MouseEvent) {
               :alt="img.name || 'image'"
               class="h-14 w-14 rounded-md object-cover border border-border/40"
             />
-            <button
-              class="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            <Button
+              variant="destructive" size="sm"
+              class="absolute -top-1 -right-1 h-4 w-4 p-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
               @click="removeImage(idx)"
             >
               <X class="h-2.5 w-2.5" />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -900,13 +1489,14 @@ function startResize(e: MouseEvent) {
         <div class="relative rounded-xl p-[1.5px]" :class="[chatFullscreen ? 'max-w-3xl mx-auto' : '', isStreaming ? 'chat-input-glow' : 'chat-input-idle']">
           <div class="flex gap-1.5 items-end rounded-[10px] bg-card/95 backdrop-blur-sm px-1.5 py-1.5">
             <!-- Attach button -->
-            <button
-              class="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
+            <Button
+              variant="ghost" size="sm"
+              class="h-8 w-8 p-0 shrink-0 rounded-lg text-muted-foreground/50 hover:text-foreground"
               title="Attach image"
               @click="openFilePicker"
             >
               <Paperclip class="h-3.5 w-3.5" />
-            </button>
+            </Button>
             <textarea
               ref="inputRef"
               v-model="inputText"
@@ -980,8 +1570,8 @@ function startResize(e: MouseEvent) {
               </div>
               <button
                 class="p-0.5 rounded text-destructive/50 hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                @click.stop="deleteDir(dir.name)"
                 :title="t('common.delete')"
+                @click.stop="deleteDir(dir.name)"
               >
                 <Trash2 class="h-3 w-3" />
               </button>
@@ -1000,10 +1590,10 @@ function startResize(e: MouseEvent) {
                     <span class="text-[10px] text-muted-foreground/40 shrink-0">{{ formatSize(f.size) }}</span>
                   </div>
                   <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                    <button class="p-0.5 rounded hover:bg-accent" @click="downloadFile(f.name)" :title="t('chat.download')">
+                    <button class="p-0.5 rounded hover:bg-accent" :title="t('chat.download')" @click="downloadFile(f.name)">
                       <Download class="h-3 w-3 text-muted-foreground/60" />
                     </button>
-                    <button class="p-0.5 rounded text-destructive/50 hover:text-destructive hover:bg-destructive/10" @click="deleteFile(f.name)" :title="t('common.delete')">
+                    <button class="p-0.5 rounded text-destructive/50 hover:text-destructive hover:bg-destructive/10" :title="t('common.delete')" @click="deleteFile(f.name)">
                       <Trash2 class="h-3 w-3" />
                     </button>
                   </div>
@@ -1023,10 +1613,10 @@ function startResize(e: MouseEvent) {
               <span class="text-[10px] text-muted-foreground/40 shrink-0">{{ formatSize(f.size) }}</span>
             </div>
             <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-              <button class="p-0.5 rounded hover:bg-accent" @click="downloadFile(f.name)" :title="t('chat.download')">
+              <button class="p-0.5 rounded hover:bg-accent" :title="t('chat.download')" @click="downloadFile(f.name)">
                 <Download class="h-3 w-3 text-muted-foreground/60" />
               </button>
-              <button class="p-0.5 rounded text-destructive/50 hover:text-destructive hover:bg-destructive/10" @click="deleteFile(f.name)" :title="t('common.delete')">
+              <button class="p-0.5 rounded text-destructive/50 hover:text-destructive hover:bg-destructive/10" :title="t('common.delete')" @click="deleteFile(f.name)">
                 <Trash2 class="h-3 w-3" />
               </button>
             </div>
@@ -1035,6 +1625,16 @@ function startResize(e: MouseEvent) {
       </div>
     </DialogContent>
   </Dialog>
+
+  <!-- PDF Viewer (GraphRAG source document) -->
+  <PdfViewer
+    :open="pdfViewerOpen"
+    :pdf-url="pdfViewerUrl"
+    :page="pdfViewerPage"
+    :bbox="pdfViewerBbox"
+    :file-name="pdfViewerFileName"
+    @update:open="pdfViewerOpen = $event"
+  />
 </template>
 
 <style>
@@ -1062,18 +1662,128 @@ function startResize(e: MouseEvent) {
 .chat-markdown pre code { background: none; padding: 0; font-size: inherit; }
 .chat-markdown ul, .chat-markdown ol { margin: 0.3em 0; padding-left: 1.4em; }
 .chat-markdown li { margin: 0.15em 0; }
-.chat-markdown h1, .chat-markdown h2, .chat-markdown h3 { font-weight: 600; margin: 0.5em 0 0.2em; color: hsl(var(--foreground)); }
-.chat-markdown h1 { font-size: 1.1em; }
-.chat-markdown h2 { font-size: 1em; }
-.chat-markdown h3 { font-size: 0.95em; }
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3 { font-weight: 600; margin: 0.7em 0 0.25em; color: hsl(var(--foreground)); }
+.chat-markdown h1 { font-size: 1.15em; padding-bottom: 0.2em; border-bottom: 1px solid hsl(var(--border) / 0.3); }
+.chat-markdown h2 { font-size: 1.02em; padding-left: 0.5em; border-left: 3px solid hsl(var(--primary) / 0.7); }
+.chat-markdown h3 { font-size: 0.95em; color: hsl(var(--foreground) / 0.85); }
 .chat-markdown a { color: hsl(var(--primary)); text-decoration: underline; text-underline-offset: 2px; }
 .chat-markdown blockquote { border-left: 2px solid hsl(var(--border)); padding-left: 0.6em; margin: 0.3em 0; color: hsl(var(--muted-foreground)); }
-.chat-markdown table { border-collapse: collapse; margin: 0.4em 0; font-size: 0.9em; width: 100%; }
-.chat-markdown th, .chat-markdown td { border: 1px solid hsl(var(--border) / 0.4); padding: 0.3em 0.6em; text-align: left; }
-.chat-markdown th { background: hsl(var(--secondary)); font-weight: 600; }
-/* Mermaid */
-.chat-markdown pre.mermaid { background: transparent; border: none; padding: 0.5em 0; text-align: center; }
-.chat-markdown pre.mermaid svg { max-width: 100%; height: auto; }
+.chat-markdown table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.85em;
+  width: 100%;
+  border: 1px solid hsl(var(--border) / 0.3);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.chat-markdown thead { background: hsl(var(--secondary) / 0.8); }
+.chat-markdown th {
+  padding: 0.4em 0.65em;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.9em;
+  color: hsl(var(--foreground) / 0.9);
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  white-space: nowrap;
+}
+.chat-markdown td {
+  padding: 0.35em 0.65em;
+  border-bottom: 1px solid hsl(var(--border) / 0.2);
+  color: hsl(var(--foreground) / 0.8);
+}
+.chat-markdown tbody tr:nth-child(even) { background: hsl(var(--secondary) / 0.25); }
+.chat-markdown tbody tr:hover { background: hsl(var(--primary) / 0.06); }
+.chat-markdown th + th,
+.chat-markdown td + td { border-left: 1px solid hsl(var(--border) / 0.15); }
+/* GraphRAG clickable images */
+.graphrag-img-wrap {
+  display: inline-block;
+  position: relative;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+.graphrag-img-wrap:hover {
+  border-color: hsl(var(--primary) / 0.5);
+  box-shadow: 0 0 12px hsl(var(--primary) / 0.2);
+}
+.graphrag-img {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: 5px;
+  display: block;
+}
+.graphrag-img-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: hsl(var(--card) / 0.9);
+  backdrop-filter: blur(4px);
+  border: 1px solid hsl(var(--border) / 0.5);
+  color: hsl(var(--primary));
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.graphrag-img-wrap:hover .graphrag-img-badge {
+  opacity: 1;
+}
+
+/* ── Citation badges ── */
+.citation-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin: 0 1px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.12);
+  border: 1px solid hsl(var(--primary) / 0.25);
+  border-radius: 3px;
+  cursor: pointer;
+  vertical-align: super;
+  transition: all 0.15s ease;
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  user-select: none;
+}
+.citation-badge:hover {
+  background: hsl(var(--primary) / 0.25);
+  border-color: hsl(var(--primary) / 0.5);
+  box-shadow: 0 0 6px hsl(var(--primary) / 0.2);
+  transform: translateY(-1px);
+}
+.citation-badge:active {
+  transform: translateY(0);
+  background: hsl(var(--primary) / 0.3);
+}
+
+/* Mermaid — scrollable for large diagrams */
+.chat-markdown pre.mermaid {
+  background: hsl(var(--secondary) / 0.3);
+  border: 1px solid hsl(var(--border) / 0.2);
+  border-radius: 8px;
+  padding: 0.75em;
+  margin: 0.5em 0;
+  text-align: left;
+  overflow-x: auto;
+}
+.chat-markdown pre.mermaid svg { height: auto; min-width: min-content; }
+.chat-markdown pre.mermaid svg text { fill: hsl(var(--foreground) / 0.9) !important; }
+
+/* Images in markdown — scrollable */
+.chat-markdown img { max-height: 600px; border-radius: 6px; }
 
 /* Chat input border */
 .chat-input-idle {
@@ -1102,5 +1812,48 @@ function startResize(e: MouseEvent) {
   syntax: "<angle>";
   initial-value: 0deg;
   inherits: false;
+}
+
+/* Neko thinking animation */
+.neko-thinking {
+  animation: neko-fade-in 0.3s ease-out;
+}
+
+.neko-cat {
+  animation: neko-bob 1.8s ease-in-out infinite;
+  filter: drop-shadow(0 0 4px hsl(var(--primary) / 0.3));
+}
+
+/* Eyes blink */
+.neko-eye-l, .neko-eye-r {
+  fill: #111217;
+  animation: neko-blink 3s ease-in-out infinite;
+}
+.neko-eye-r { animation-delay: 0.1s; }
+
+/* "thinking..." text pulse */
+.neko-text {
+  animation: neko-pulse 2s ease-in-out infinite;
+}
+
+@keyframes neko-bob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-2px) rotate(-2deg); }
+  75% { transform: translateY(-1px) rotate(2deg); }
+}
+
+@keyframes neko-blink {
+  0%, 42%, 48%, 100% { ry: 3; }
+  45% { ry: 0.3; }
+}
+
+@keyframes neko-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.9; }
+}
+
+@keyframes neko-fade-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 </style>

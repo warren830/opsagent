@@ -9,6 +9,11 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 
+/// Default token type for backward compatibility with existing tokens
+fn default_access() -> String {
+    "access".to_string()
+}
+
 /// JWT claims stored in the token
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
@@ -16,6 +21,8 @@ pub struct Claims {
     pub role: String, // super_admin / tenant_admin
     pub tenant_id: Option<Uuid>,
     pub username: String,
+    #[serde(default = "default_access")]
+    pub token_type: String, // "access" or "refresh"
     pub exp: usize, // expiration timestamp
     pub iat: usize, // issued at
 }
@@ -89,6 +96,11 @@ pub async fn auth_middleware(
         &Validation::default(),
     )
     .map_err(|e| AppError::Unauthorized(format!("Invalid token: {}", e)))?;
+
+    // Reject refresh tokens used as access tokens
+    if token_data.claims.token_type != "access" {
+        return Err(AppError::Unauthorized("Invalid token type".to_string()));
+    }
 
     let auth_user = AuthUser {
         user_id: token_data.claims.sub,

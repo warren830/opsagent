@@ -26,7 +26,7 @@ const api = useApi()
 
 interface Channel {
   id: string
-  platform: 'slack' | 'feishu' | 'teams'
+  platform: 'slack' | 'feishu' | 'teams' | 'jira'
   name: string
   credentials: Record<string, unknown> | null
   enabled: boolean
@@ -43,11 +43,20 @@ const showDeleteDialog = ref(false)
 const deletingChannel = ref<Channel | null>(null)
 
 const form = ref({
-  platform: 'slack' as 'slack' | 'feishu' | 'teams',
+  platform: 'slack' as 'slack' | 'feishu' | 'teams' | 'jira',
   name: '',
   credentials: '',
   enabled: true,
+  // Jira structured fields
+  jiraUrl: '',
+  jiraEmail: '',
+  jiraApiToken: '',
+  jiraProjectKey: '',
+  jiraIssueType: 'Task',
+  jiraLabels: '',
 })
+
+const isJira = computed(() => form.value.platform === 'jira')
 
 const isEditing = computed(() => !!editingChannel.value)
 const formTitle = computed(() => isEditing.value ? t('common.edit') : t('channel.addIntegration'))
@@ -60,8 +69,12 @@ const columns = computed(() => [
 ])
 
 function platformLabel(p: string): string {
-  const map: Record<string, string> = { slack: t('channel.slack'), feishu: t('channel.feishu'), teams: t('channel.teams') }
+  const map: Record<string, string> = { slack: t('channel.slack'), feishu: t('channel.feishu'), teams: t('channel.teams'), jira: t('channel.jira') }
   return map[p] || p
+}
+
+function platformBadgeVariant(p: string): string {
+  return p === 'jira' ? 'warning' : 'info'
 }
 
 function formatDate(dateStr: string): string {
@@ -85,17 +98,24 @@ onMounted(() => { fetchChannels() })
 
 function openCreate() {
   editingChannel.value = null
-  form.value = { platform: 'slack', name: '', credentials: '', enabled: true }
+  form.value = { platform: 'slack', name: '', credentials: '', enabled: true, jiraUrl: '', jiraEmail: '', jiraApiToken: '', jiraProjectKey: '', jiraIssueType: 'Task', jiraLabels: '' }
   showFormDialog.value = true
 }
 
 function openEdit(channel: Channel) {
   editingChannel.value = channel
+  const creds = channel.credentials || {}
   form.value = {
     platform: channel.platform,
     name: channel.name,
-    credentials: channel.credentials ? JSON.stringify(channel.credentials, null, 2) : '',
+    credentials: channel.platform !== 'jira' && channel.credentials ? JSON.stringify(channel.credentials, null, 2) : '',
     enabled: channel.enabled,
+    jiraUrl: (creds.base_url as string) || '',
+    jiraEmail: (creds.email as string) || '',
+    jiraApiToken: (creds.api_token as string) || '',
+    jiraProjectKey: (creds.project_key as string) || '',
+    jiraIssueType: (creds.default_issue_type as string) || 'Task',
+    jiraLabels: Array.isArray(creds.default_labels) ? (creds.default_labels as string[]).join(', ') : '',
   }
   showFormDialog.value = true
 }
@@ -119,7 +139,16 @@ async function saveChannel() {
   saving.value = true
   try {
     let credObj = null
-    if (form.value.credentials.trim()) {
+    if (isJira.value) {
+      credObj = {
+        base_url: form.value.jiraUrl.trim(),
+        email: form.value.jiraEmail.trim(),
+        api_token: form.value.jiraApiToken.trim(),
+        project_key: form.value.jiraProjectKey.trim() || 'OPS',
+        default_issue_type: form.value.jiraIssueType || 'Task',
+        default_labels: form.value.jiraLabels.split(',').map(s => s.trim()).filter(Boolean),
+      }
+    } else if (form.value.credentials.trim()) {
       credObj = JSON.parse(form.value.credentials)
     }
     const payload = {
@@ -174,7 +203,7 @@ async function deleteChannel() {
     <!-- Data Table -->
     <DataTable :columns="columns" :data="channels" :loading="loading">
       <template #cell-platform="{ row }">
-        <Badge variant="info">{{ platformLabel((row as Channel).platform) }}</Badge>
+        <Badge :variant="platformBadgeVariant((row as Channel).platform) as any">{{ platformLabel((row as Channel).platform) }}</Badge>
       </template>
 
       <template #cell-name="{ row }">
@@ -216,6 +245,7 @@ async function deleteChannel() {
                 <SelectItem value="slack">{{ t('channel.slack') }}</SelectItem>
                 <SelectItem value="feishu">{{ t('channel.feishu') }}</SelectItem>
                 <SelectItem value="teams">{{ t('channel.teams') }}</SelectItem>
+                <SelectItem value="jira">{{ t('channel.jira') }}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -225,7 +255,51 @@ async function deleteChannel() {
             <Input v-model="form.name" :placeholder="t('tenant.name')" required />
           </div>
 
-          <div class="space-y-1.5">
+          <!-- Jira structured fields -->
+          <template v-if="isJira">
+            <p class="text-[10px] text-muted-foreground/60 -mt-1">{{ t('channel.jiraHint') }}</p>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium">{{ t('channel.jiraUrl') }} <span class="text-destructive">*</span></label>
+              <Input v-model="form.jiraUrl" :placeholder="t('channel.jiraUrlPlaceholder')" required />
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium">{{ t('channel.jiraEmail') }} <span class="text-destructive">*</span></label>
+              <Input v-model="form.jiraEmail" :placeholder="t('channel.jiraEmailPlaceholder')" required />
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium">{{ t('channel.jiraApiToken') }} <span class="text-destructive">*</span></label>
+              <Input v-model="form.jiraApiToken" type="password" placeholder="ATATT3xFf..." required />
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div class="space-y-1.5">
+                <label class="text-xs font-medium">{{ t('channel.jiraProjectKey') }}</label>
+                <Input v-model="form.jiraProjectKey" :placeholder="t('channel.jiraProjectKeyPlaceholder')" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="text-xs font-medium">{{ t('channel.jiraIssueType') }}</label>
+                <Select v-model="form.jiraIssueType">
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Task">Task</SelectItem>
+                    <SelectItem value="Story">Story</SelectItem>
+                    <SelectItem value="Bug">Bug</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium">{{ t('channel.jiraLabels') }}</label>
+              <Input v-model="form.jiraLabels" :placeholder="t('channel.jiraLabelsHint')" />
+            </div>
+          </template>
+
+          <!-- Generic credentials (Slack, Feishu, Teams) -->
+          <div v-else class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('channel.credentials') }} (JSON)</label>
             <Textarea v-model="form.credentials" placeholder='{"token": "..."}' class="font-mono min-h-[80px]" />
           </div>

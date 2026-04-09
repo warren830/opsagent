@@ -1,10 +1,11 @@
-# OpenOps Terraform Configuration
-# Update account and region for your environment
-
-account            = ""
-region             = "us-east-1"
-project_name       = "openops"
-project_name_alias = "oops"
-enable_waf         = false
-frontend_domain    = ""
-api_domain         = ""
+account                          = "612674025488"
+region                           = "us-west-1"
+enable_waf                       = false
+enable_global_accelerator        = false
+enable_cognito                   = true
+enable_self_hosted_observability = false
+frontend_domain                  = "oops.kolya.fun"
+api_domain                       = "api.oops.kolya.fun"
+project_name                     = "openops"
+project_name_alias               = "oops"
+cognito_allowed_email_domains    = ["amazon.com"]

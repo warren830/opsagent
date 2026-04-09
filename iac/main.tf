@@ -116,6 +116,40 @@ module "eks_addons" {
   depends_on = [module.eks_karpenter, module.vpc]
 }
 
+# ── Cognito (Optional) ──────────────────────────────────────
+module "cognito" {
+  count  = var.enable_cognito ? 1 : 0
+  source = "./modules/cognito"
+
+  project_name_alias = var.project_name_alias
+  workspace          = local.workspace
+  account            = local.account
+  region             = local.region
+
+  # OAuth URLs: use frontend_domain if set, otherwise defaults
+  callback_urls = var.frontend_domain != "" ? [
+    "https://${var.frontend_domain}/auth/cognito/callback",
+    "http://localhost:3000/auth/cognito/callback"
+  ] : var.cognito_callback_urls
+
+  logout_urls = var.frontend_domain != "" ? [
+    "https://${var.frontend_domain}/",
+    "http://localhost:3000/"
+  ] : var.cognito_logout_urls
+
+  access_token_validity  = var.cognito_access_token_validity
+  id_token_validity      = var.cognito_id_token_validity
+  refresh_token_validity = var.cognito_refresh_token_validity
+
+  # Security settings based on workspace
+  advanced_security_mode = local.workspace == "prod" ? "ENFORCED" : "AUDIT"
+  deletion_protection    = local.workspace == "prod" ? true : false
+
+  allowed_email_domains = var.cognito_allowed_email_domains
+
+  default_tags = local.default_tags
+}
+
 # ── WAF (Optional) ──────────────────────────────────────────
 # NOTE: This module requires ALBs to be created first by Kubernetes ALB Controller
 # Enable this after deploying the Ingress resources
