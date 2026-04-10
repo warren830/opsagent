@@ -116,6 +116,25 @@ module "eks_addons" {
   depends_on = [module.eks_karpenter, module.vpc]
 }
 
+# ── EFS (Workspace persistent storage) ──────────────────────
+module "efs" {
+  source = "./modules/efs"
+
+  project_name_alias = var.project_name_alias
+  account            = local.account
+  region             = local.region
+  workspace          = local.workspace
+
+  vpc_id                      = module.vpc.vpc_id
+  private_subnet_ids          = module.vpc.private_subnet_ids
+  eks_nodes_security_group_id = module.vpc.eks_nodes_security_group_id
+  eks_node_security_group_id  = module.eks_karpenter.node_security_group_id
+
+  default_tags = local.default_tags
+
+  depends_on = [module.vpc, module.eks_karpenter]
+}
+
 # ── Cognito (Optional) ──────────────────────────────────────
 module "cognito" {
   count  = var.enable_cognito ? 1 : 0

@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 interface User {
   id: string
   username: string
-  role: 'super_admin' | 'tenant_admin'
+  role: 'super_admin' | 'member'
   tenant_id: string | null
   email: string | null
   auth_method: string
@@ -13,6 +13,7 @@ interface AuthProviders {
   local: boolean
   microsoft: boolean
   cognito: boolean
+  is_cloud: boolean
 }
 
 export const useAuthStore = defineStore('auth', {

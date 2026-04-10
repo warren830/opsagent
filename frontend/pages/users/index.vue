@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Pencil, Trash2 } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Mail } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,10 +28,11 @@ interface User {
   id: string
   username: string
   email: string | null
-  role: 'super_admin' | 'tenant_admin'
+  role: 'super_admin' | 'member'
   tenant_id: string | null
   tenant_name?: string | null
   is_active: boolean
+  auth_method: string
   created_at: string
 }
 
@@ -51,20 +52,28 @@ const editingUser = ref<User | null>(null)
 const showDeleteDialog = ref(false)
 const deletingUser = ref<User | null>(null)
 
+const isCloud = computed(() => authStore.providers?.is_cloud === true)
+
 const form = ref({
   username: '',
   password: '',
   email: '',
-  role: 'tenant_admin' as 'super_admin' | 'tenant_admin',
+  role: 'member' as 'super_admin' | 'member',
   tenant_id: '' as string,
   is_active: true,
 })
 
 const isEditing = computed(() => !!editingUser.value)
 
-const formTitle = computed(() =>
-  isEditing.value ? t('user.edit') : t('user.create'),
-)
+const formTitle = computed(() => {
+  if (isEditing.value) return t('user.edit')
+  return isCloud.value ? t('user.invite') : t('user.create')
+})
+
+const formDescription = computed(() => {
+  if (isEditing.value) return t('user.editDescription')
+  return isCloud.value ? t('user.inviteDescription') : t('user.createDescription')
+})
 
 const columns = computed(() => [
   { key: 'username', label: t('user.username') },
@@ -101,7 +110,7 @@ onMounted(() => {
 
 function openCreate() {
   editingUser.value = null
-  form.value = { username: '', password: '', email: '', role: 'tenant_admin', tenant_id: '', is_active: true }
+  form.value = { username: '', password: '', email: '', role: 'member', tenant_id: '', is_active: true }
   showFormDialog.value = true
 }
 
@@ -117,7 +126,6 @@ function openDelete(user: User) {
 }
 
 function onRoleChange() {
-  // Super admin doesn't need tenant; clear it
   if (form.value.role === 'super_admin') {
     form.value.tenant_id = ''
   }
@@ -126,18 +134,36 @@ function onRoleChange() {
 async function saveUser() {
   saving.value = true
   try {
-    const payload: Record<string, unknown> = {
-      username: form.value.username,
-      email: form.value.email || null,
-      role: form.value.role,
-      tenant_id: form.value.role === 'super_admin' ? null : (form.value.tenant_id || null),
-      is_active: form.value.is_active,
-    }
     if (isEditing.value) {
+      // Update existing user
+      const payload: Record<string, unknown> = {
+        username: form.value.username,
+        email: form.value.email || null,
+        role: form.value.role,
+        tenant_id: form.value.role === 'super_admin' ? null : (form.value.tenant_id || null),
+        is_active: form.value.is_active,
+      }
       await api.put(`/api/users/${editingUser.value!.id}`, payload)
       toast.success(t('user.updateSuccess'))
+    } else if (isCloud.value) {
+      // Cloud: invite by email
+      const payload = {
+        email: form.value.email,
+        role: form.value.role,
+        tenant_id: form.value.role === 'super_admin' ? null : (form.value.tenant_id || null),
+      }
+      await api.post('/api/users/invite', payload)
+      toast.success(t('user.inviteSuccess'))
     } else {
-      payload.password = form.value.password
+      // Local: create with password
+      const payload: Record<string, unknown> = {
+        username: form.value.username,
+        password: form.value.password,
+        email: form.value.email || null,
+        role: form.value.role,
+        tenant_id: form.value.role === 'super_admin' ? null : (form.value.tenant_id || null),
+        is_active: form.value.is_active,
+      }
       await api.post('/api/users', payload)
       toast.success(t('user.createSuccess'))
     }
@@ -170,6 +196,11 @@ function getTenantName(tenantId: string | null): string {
   const tenant = tenants.value.find((t) => t.id === tenantId)
   return tenant?.name || tenantId
 }
+
+function getRoleLabel(role: string): string {
+  if (role === 'super_admin') return t('user.superAdmin')
+  return t('user.member')
+}
 </script>
 
 <template>
@@ -178,8 +209,8 @@ function getTenantName(tenantId: string | null): string {
     <div class="flex items-center justify-between">
       <h1 class="text-base font-semibold text-foreground">{{ t('user.title') }}</h1>
       <Button v-if="authStore.isSuperAdmin" size="sm" @click="openCreate">
-        <Plus class="h-3.5 w-3.5" />
-        {{ t('user.create') }}
+        <component :is="isCloud ? Mail : Plus" class="h-3.5 w-3.5" />
+        {{ isCloud ? t('user.invite') : t('user.create') }}
       </Button>
     </div>
 
@@ -195,7 +226,10 @@ function getTenantName(tenantId: string | null): string {
 
       <template #cell-role="{ row }">
         <Badge :variant="(row as User).role === 'super_admin' ? 'default' : 'secondary'">
-          {{ (row as User).role === 'super_admin' ? t('user.superAdmin') : t('user.tenantAdmin') }}
+          {{ getRoleLabel((row as User).role) }}
+        </Badge>
+        <Badge v-if="(row as User).auth_method === 'invited'" variant="warning" class="ml-1">
+          {{ t('user.pending') }}
         </Badge>
       </template>
 
@@ -219,42 +253,55 @@ function getTenantName(tenantId: string | null): string {
       </template>
     </DataTable>
 
-    <!-- Create/Edit Dialog -->
+    <!-- Create/Edit/Invite Dialog -->
     <Dialog :open="showFormDialog" @update:open="(val) => { showFormDialog = val }">
       <DialogContent class="max-w-sm">
         <DialogHeader>
           <DialogTitle>{{ formTitle }}</DialogTitle>
-          <DialogDescription>{{ isEditing ? t('user.editDescription') : t('user.createDescription') }}</DialogDescription>
+          <DialogDescription>{{ formDescription }}</DialogDescription>
         </DialogHeader>
 
         <form class="space-y-3" @submit.prevent="saveUser">
-          <div class="space-y-1.5">
-            <label class="text-xs font-medium">{{ t('user.username') }}</label>
-            <Input v-model="form.username" :placeholder="t('user.username')" required />
-          </div>
+          <!-- Cloud invite: email only -->
+          <template v-if="isCloud && !isEditing">
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium">{{ t('user.email') }}</label>
+              <Input v-model="form.email" type="email" :placeholder="t('user.email')" required />
+            </div>
+          </template>
 
-          <div v-if="!isEditing" class="space-y-1.5">
-            <label class="text-xs font-medium">{{ t('user.password') }}</label>
-            <Input v-model="form.password" type="password" :placeholder="t('user.password')" required />
-          </div>
+          <!-- Local create / Edit: full form -->
+          <template v-else>
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium">{{ t('user.username') }}</label>
+              <Input v-model="form.username" :placeholder="t('user.username')" required />
+            </div>
 
-          <div class="space-y-1.5">
-            <label class="text-xs font-medium">{{ t('user.email') }}</label>
-            <Input v-model="form.email" type="email" :placeholder="t('user.email')" />
-          </div>
+            <div v-if="!isEditing" class="space-y-1.5">
+              <label class="text-xs font-medium">{{ t('user.password') }}</label>
+              <Input v-model="form.password" type="password" :placeholder="t('user.password')" required />
+            </div>
 
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium">{{ t('user.email') }}</label>
+              <Input v-model="form.email" type="email" :placeholder="t('user.email')" />
+            </div>
+          </template>
+
+          <!-- Role (always shown) -->
           <div class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('user.role') }}</label>
             <Select v-model="form.role" @update:model-value="onRoleChange">
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="super_admin">{{ t('user.superAdmin') }}</SelectItem>
-                <SelectItem value="tenant_admin">{{ t('user.tenantAdmin') }}</SelectItem>
+                <SelectItem value="member">{{ t('user.member') }}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          <div v-if="form.role === 'tenant_admin'" class="space-y-1.5">
+          <!-- Tenant (member only) -->
+          <div v-if="form.role === 'member'" class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('user.tenant') }} <span class="text-destructive">*</span></label>
             <Select v-model="form.tenant_id">
               <SelectTrigger><SelectValue :placeholder="t('user.selectTenant')" /></SelectTrigger>
@@ -264,7 +311,8 @@ function getTenantName(tenantId: string | null): string {
             </Select>
           </div>
 
-          <div class="flex items-center justify-between rounded border border-border/60 px-3 py-2">
+          <!-- Active toggle (not shown for cloud invite) -->
+          <div v-if="isEditing || !isCloud" class="flex items-center justify-between rounded border border-border/60 px-3 py-2">
             <label class="text-xs font-medium">{{ t('user.isActive') }}</label>
             <Switch v-model:checked="form.is_active" />
           </div>
@@ -272,7 +320,7 @@ function getTenantName(tenantId: string | null): string {
           <DialogFooter class="gap-1.5 pt-1">
             <Button type="button" variant="outline" size="sm" @click="showFormDialog = false">{{ t('common.cancel') }}</Button>
             <Button type="submit" size="sm" :disabled="saving">
-              {{ saving ? t('common.loading') : (isEditing ? t('common.save') : t('common.create')) }}
+              {{ saving ? t('common.loading') : (isEditing ? t('common.save') : (isCloud ? t('user.invite') : t('common.create'))) }}
             </Button>
           </DialogFooter>
         </form>

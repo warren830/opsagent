@@ -458,35 +458,32 @@ onMounted(async () => {
       <h1 class="text-base font-semibold text-foreground">{{ t('resource.title') }}</h1>
     </div>
 
-    <!-- ═══════ PROGRESSIVE 5-STEP SCAN SETUP ═══════ -->
-    <div v-if="screenerChecked" class="rounded-lg border border-border/60 overflow-hidden">
-      <div class="stepper-grid grid grid-cols-6 max-lg:grid-cols-3">
+    <!-- ═══════ PROGRESSIVE 6-STEP SCAN SETUP ═══════ -->
+    <div v-if="screenerChecked" class="rounded-lg border border-border/60 bg-card/30 p-2">
+      <div class="stepper-flow flex flex-wrap gap-1.5">
         <!-- Step 1: Install Screener -->
         <div
-          class="stepper-cell flex items-center gap-3 px-3 py-3 transition-all"
+          class="stepper-step flex items-center gap-2 rounded-md px-3 py-2 transition-all min-w-0"
           :class="screenerInstalled
-            ? 'bg-primary/5'
-            : 'bg-gradient-to-r from-primary/15 to-primary/5'"
+            ? 'bg-primary/8 ring-1 ring-primary/15'
+            : 'bg-gradient-to-r from-primary/15 to-primary/8 ring-1 ring-primary/25'"
         >
           <div
-            class="h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 shadow-sm"
+            class="h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
             :class="screenerInstalled
-              ? 'bg-primary/20 text-primary ring-1 ring-primary/30'
-              : 'bg-primary text-primary-foreground ring-1 ring-primary/50'"
+              ? 'bg-primary/20 text-primary'
+              : 'bg-primary text-primary-foreground'"
           >
-            <CheckCircle2 v-if="screenerInstalled" class="h-4 w-4" />
+            <CheckCircle2 v-if="screenerInstalled" class="h-3.5 w-3.5" />
             <span v-else>1</span>
           </div>
-          <div class="min-w-0 flex-1">
-            <div class="text-xs font-semibold" :class="screenerInstalled ? 'text-primary/80' : 'text-foreground'">
-              {{ t('resource.setupScreener') }}
-            </div>
-            <div v-if="!screenerInstalled" class="text-[10px] text-muted-foreground/70 mt-0.5">{{ t('resource.setupScreenerDesc') }}</div>
-          </div>
+          <span class="text-[11px] font-medium whitespace-nowrap" :class="screenerInstalled ? 'text-primary/80' : 'text-foreground'">
+            {{ t('resource.setupScreener') }}
+          </span>
           <Button
             v-if="!screenerInstalled"
             size="sm"
-            class="shrink-0 h-7 text-[11px]"
+            class="shrink-0 h-6 px-2 text-[10px]"
             :disabled="settingUp"
             @click="setupScreener"
           >
@@ -495,28 +492,30 @@ onMounted(async () => {
           </Button>
         </div>
 
+        <ChevronRight class="h-4 w-4 text-muted-foreground/30 shrink-0 self-center max-sm:hidden" />
+
         <!-- Step 2: Select Account -->
         <div
-          class="stepper-cell flex items-center gap-2 px-3 py-3 transition-all"
+          class="stepper-step flex items-center gap-2 rounded-md px-3 py-2 transition-all"
           :class="!screenerInstalled
-            ? 'opacity-30 pointer-events-none bg-card/10'
+            ? 'opacity-30 pointer-events-none'
             : hasSelectedAccount
-              ? 'bg-primary/5'
-              : 'bg-gradient-to-r from-primary/15 to-primary/5'"
+              ? 'bg-primary/8 ring-1 ring-primary/15'
+              : 'bg-card/60 ring-1 ring-border/40'"
         >
           <div
-            class="h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 shadow-sm"
+            class="h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
             :class="!screenerInstalled
-              ? 'bg-muted text-muted-foreground/40 ring-1 ring-border/30'
+              ? 'bg-muted text-muted-foreground/40'
               : hasSelectedAccount
-                ? 'bg-primary/20 text-primary ring-1 ring-primary/30'
-                : 'bg-primary text-primary-foreground ring-1 ring-primary/50'"
+                ? 'bg-primary/20 text-primary'
+                : 'bg-primary text-primary-foreground'"
           >
-            <CheckCircle2 v-if="hasSelectedAccount && screenerInstalled" class="h-4 w-4" />
+            <CheckCircle2 v-if="hasSelectedAccount && screenerInstalled" class="h-3.5 w-3.5" />
             <span v-else>2</span>
           </div>
-          <Select v-model="selectedAccountId" :disabled="!screenerInstalled" class="flex-1 min-w-0">
-            <SelectTrigger class="h-7 text-[11px]">
+          <Select v-model="selectedAccountId" :disabled="!screenerInstalled">
+            <SelectTrigger class="h-6 text-[11px] min-w-[140px] max-w-[200px] border-0 bg-transparent px-1">
               <SelectValue :placeholder="t('resource.selectAccount')" />
             </SelectTrigger>
             <SelectContent>
@@ -528,28 +527,30 @@ onMounted(async () => {
           </Select>
         </div>
 
+        <ChevronRight class="h-4 w-4 text-muted-foreground/30 shrink-0 self-center max-sm:hidden" />
+
         <!-- Step 3: Select Region -->
         <div
-          class="stepper-cell flex items-center gap-2 px-3 py-3 transition-all"
+          class="stepper-step flex items-center gap-2 rounded-md px-3 py-2 transition-all"
           :class="!hasSelectedAccount
-            ? 'opacity-30 pointer-events-none bg-card/10'
+            ? 'opacity-30 pointer-events-none'
             : hasSelectedRegion
-              ? 'bg-primary/5'
-              : 'bg-gradient-to-r from-primary/15 to-primary/5'"
+              ? 'bg-primary/8 ring-1 ring-primary/15'
+              : 'bg-card/60 ring-1 ring-border/40'"
         >
           <div
-            class="h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 shadow-sm"
+            class="h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
             :class="!hasSelectedAccount
-              ? 'bg-muted text-muted-foreground/40 ring-1 ring-border/30'
+              ? 'bg-muted text-muted-foreground/40'
               : hasSelectedRegion
-                ? 'bg-primary/20 text-primary ring-1 ring-primary/30'
-                : 'bg-primary text-primary-foreground ring-1 ring-primary/50'"
+                ? 'bg-primary/20 text-primary'
+                : 'bg-primary text-primary-foreground'"
           >
-            <CheckCircle2 v-if="hasSelectedRegion && hasSelectedAccount" class="h-4 w-4" />
+            <CheckCircle2 v-if="hasSelectedRegion && hasSelectedAccount" class="h-3.5 w-3.5" />
             <span v-else>3</span>
           </div>
-          <Select v-model="selectedRegion" :disabled="!hasSelectedAccount" class="flex-1 min-w-0">
-            <SelectTrigger class="h-7 text-[11px]">
+          <Select v-model="selectedRegion" :disabled="!hasSelectedAccount">
+            <SelectTrigger class="h-6 text-[11px] min-w-[120px] max-w-[170px] border-0 bg-transparent px-1">
               <SelectValue :placeholder="t('resource.selectRegion')" />
             </SelectTrigger>
             <SelectContent>
@@ -559,28 +560,30 @@ onMounted(async () => {
           </Select>
         </div>
 
+        <ChevronRight class="h-4 w-4 text-muted-foreground/30 shrink-0 self-center max-sm:hidden" />
+
         <!-- Step 4: Select Service -->
         <div
-          class="stepper-cell flex items-center gap-2 px-3 py-3 transition-all"
+          class="stepper-step flex items-center gap-2 rounded-md px-3 py-2 transition-all"
           :class="!hasSelectedRegion
-            ? 'opacity-30 pointer-events-none bg-card/10'
+            ? 'opacity-30 pointer-events-none'
             : hasSelectedService
-              ? 'bg-primary/5'
-              : 'bg-gradient-to-r from-primary/15 to-primary/5'"
+              ? 'bg-primary/8 ring-1 ring-primary/15'
+              : 'bg-card/60 ring-1 ring-border/40'"
         >
           <div
-            class="h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 shadow-sm"
+            class="h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
             :class="!hasSelectedRegion
-              ? 'bg-muted text-muted-foreground/40 ring-1 ring-border/30'
+              ? 'bg-muted text-muted-foreground/40'
               : hasSelectedService
-                ? 'bg-primary/20 text-primary ring-1 ring-primary/30'
-                : 'bg-primary text-primary-foreground ring-1 ring-primary/50'"
+                ? 'bg-primary/20 text-primary'
+                : 'bg-primary text-primary-foreground'"
           >
-            <CheckCircle2 v-if="hasSelectedService && hasSelectedRegion" class="h-4 w-4" />
+            <CheckCircle2 v-if="hasSelectedService && hasSelectedRegion" class="h-3.5 w-3.5" />
             <span v-else>4</span>
           </div>
-          <Select v-model="selectedService" :disabled="!hasSelectedRegion" class="flex-1 min-w-0">
-            <SelectTrigger class="h-7 text-[11px]">
+          <Select v-model="selectedService" :disabled="!hasSelectedRegion">
+            <SelectTrigger class="h-6 text-[11px] min-w-[120px] max-w-[170px] border-0 bg-transparent px-1">
               <SelectValue :placeholder="t('resource.selectService')" />
             </SelectTrigger>
             <SelectContent>
@@ -590,28 +593,26 @@ onMounted(async () => {
           </Select>
         </div>
 
+        <ChevronRight class="h-4 w-4 text-muted-foreground/30 shrink-0 self-center max-sm:hidden" />
+
         <!-- Step 5: Run Scan -->
         <div
-          class="stepper-cell flex items-center gap-3 px-3 py-3 transition-all"
+          class="stepper-step flex items-center gap-2 rounded-md px-3 py-2 transition-all"
           :class="canScan
-            ? 'bg-gradient-to-r from-primary/15 to-primary/5'
-            : 'opacity-30 pointer-events-none bg-card/10'"
+            ? 'bg-card/60 ring-1 ring-border/40'
+            : 'opacity-30 pointer-events-none'"
         >
           <div
-            class="h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 shadow-sm"
+            class="h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
             :class="canScan
-              ? 'bg-primary text-primary-foreground ring-1 ring-primary/50'
-              : 'bg-muted text-muted-foreground/40 ring-1 ring-border/30'"
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-muted text-muted-foreground/40'"
           >
             <span>5</span>
           </div>
-          <div class="min-w-0 flex-1">
-            <div class="text-xs font-semibold" :class="canScan ? 'text-foreground' : 'text-muted-foreground/40'">{{ t('resource.scan') }}</div>
-            <div v-if="scanning" class="text-[10px] text-primary/60 mt-0.5">{{ t('resource.scanningTip') }}</div>
-          </div>
           <Button
             size="sm"
-            class="shrink-0 h-7 text-[11px]"
+            class="shrink-0 h-6 px-2.5 text-[10px]"
             :disabled="!canScan || scanning"
             @click="startScan"
           >
@@ -621,38 +622,33 @@ onMounted(async () => {
           </Button>
         </div>
 
+        <ChevronRight class="h-4 w-4 text-muted-foreground/30 shrink-0 self-center max-sm:hidden" />
+
         <!-- Step 6: Chat with Agent -->
         <div
-          class="stepper-cell flex items-center gap-3 px-3 py-3 transition-all"
+          class="stepper-step flex items-center gap-2 rounded-md px-3 py-2 transition-all"
           :class="canChat
-            ? 'bg-gradient-to-r from-primary/10 to-primary/5'
-            : 'opacity-30 pointer-events-none bg-card/10'"
+            ? 'bg-primary/8 ring-1 ring-primary/15'
+            : 'opacity-30 pointer-events-none'"
         >
           <div
-            class="h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 shadow-sm"
+            class="h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
             :class="canChat
-              ? 'bg-primary/20 text-primary ring-1 ring-primary/30'
-              : 'bg-muted text-muted-foreground/40 ring-1 ring-border/30'"
+              ? 'bg-primary/20 text-primary'
+              : 'bg-muted text-muted-foreground/40'"
           >
             <span>6</span>
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="text-xs font-semibold" :class="canChat ? 'text-primary/80' : 'text-muted-foreground/40'">
-              {{ t('resource.chatWithAgent') }}
-            </div>
-            <div v-if="canChat" class="text-[10px] text-muted-foreground/60 mt-0.5">
-              {{ latestCompletedScan?.finding_count }} {{ t('resource.findings').toLowerCase() }}
-            </div>
           </div>
           <Button
             size="sm"
             variant="outline"
-            class="shrink-0 h-7 text-[11px] border-primary/30 text-primary hover:bg-primary/10"
+            class="shrink-0 h-6 px-2.5 text-[10px] border-primary/30 text-primary hover:bg-primary/10"
             :disabled="!canChat"
             @click="chatWithAgent"
           >
             <MessageSquare class="h-3 w-3" />
             {{ t('resource.analyze') }}
+            <span v-if="canChat" class="text-muted-foreground/60 ml-0.5">({{ latestCompletedScan?.finding_count }})</span>
           </Button>
         </div>
       </div>
@@ -1002,27 +998,8 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* Stepper grid borders: right border between cells, bottom border only when wrapped (3-col) */
-.stepper-cell {
-  border-right: 1px solid hsl(var(--border) / 0.4);
-}
-/* Last cell in each row: no right border */
-.stepper-grid.grid-cols-6 > .stepper-cell:nth-child(6n) {
-  border-right: none;
-}
-/* 3-col mode: row ends + bottom borders for first row */
-@media (max-width: 1023px) {
-  .stepper-cell:nth-child(3n) {
-    border-right: none;
-  }
-  .stepper-cell:nth-child(-n+3) {
-    border-bottom: 1px solid hsl(var(--border) / 0.4);
-  }
-}
-/* 6-col (default): last cell no border */
-@media (min-width: 1024px) {
-  .stepper-cell:last-child {
-    border-right: none;
-  }
+/* Stepper flow: flex-wrap steps with smooth transitions */
+.stepper-step {
+  flex-shrink: 0;
 }
 </style>

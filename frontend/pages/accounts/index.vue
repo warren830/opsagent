@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Pencil, Trash2, Zap, BookOpen, X, Shield, Building2 } from 'lucide-vue-next'
+import { Pencil, Trash2, Zap, BookOpen, X, Shield, Building2, Copy, Check, Info, ExternalLink } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -88,6 +88,17 @@ const editingAccount = ref<Account | null>(null)
 const showDeleteDialog = ref(false)
 const deletingAccount = ref<Account | null>(null)
 const showGuideDialog = ref(false)
+const copiedBlock = ref('')
+const guideSnippets: Record<string, string> = {
+  s1: "aws iam create-role \\\n  --role-name OpenOpsRole \\\n  --assume-role-policy-document '{\n    \"Version\": \"2012-10-17\",\n    \"Statement\": [{\n      \"Effect\": \"Allow\",\n      \"Principal\": {\n        \"AWS\": \"arn:aws:iam::<OPENOPS_ACCOUNT>:root\"\n      },\n      \"Action\": [\"sts:AssumeRole\", \"sts:TagSession\"]\n    }]\n  }'",
+  s2: "aws iam attach-role-policy \\\n  --role-name OpenOpsRole \\\n  --policy-arn arn:aws:iam::aws:policy/ReadOnlyAccess",
+  s3: "aws iam get-role --role-name OpenOpsRole \\\n  --query 'Role.Arn' --output text",
+}
+function copyCode(id: string) {
+  navigator.clipboard.writeText(guideSnippets[id] || '')
+  copiedBlock.value = id
+  setTimeout(() => { copiedBlock.value = '' }, 2000)
+}
 const showRegionPicker = ref(false)
 
 // Access management
@@ -711,52 +722,105 @@ async function revokeAccess(userId: string) {
     <Dialog :open="showGuideDialog" @update:open="(val) => { showGuideDialog = val }">
       <DialogContent class="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{{ t('account.setupGuideTitle') }}</DialogTitle>
-          <DialogDescription>{{ t('account.setupGuideTitle') }}</DialogDescription>
+          <DialogTitle class="flex items-center gap-2">
+            <Shield class="h-4 w-4 text-primary" />
+            {{ t('account.setupGuideTitle') }}
+          </DialogTitle>
+          <DialogDescription class="text-xs">{{ t('account.setupGuideDesc') }}</DialogDescription>
         </DialogHeader>
-        <div class="space-y-4 text-xs text-foreground/90">
-          <div>
-            <h3 class="text-sm font-semibold mb-2">1. Create IAM Role in target account</h3>
-            <pre class="rounded bg-secondary/80 p-3 text-[11px] font-mono overflow-x-auto">aws iam create-role \
+
+        <div class="space-y-3 text-xs">
+          <!-- Step 1 -->
+          <div class="rounded-lg border border-border/50 bg-secondary/20 p-3 space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">1</span>
+              <h3 class="text-xs font-semibold">{{ t('account.guideStep1') }}</h3>
+            </div>
+            <p class="text-[11px] text-muted-foreground pl-7">{{ t('account.guideStep1Desc') }}</p>
+            <div class="relative pl-7">
+              <pre class="rounded bg-[#0d0f12] p-3 text-[11px] font-mono overflow-x-auto text-emerald-400/90 leading-relaxed">aws iam create-role \
   --role-name OpenOpsRole \
-  --assume-role-policy-document file://trust-policy.json</pre>
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::&lt;OPENOPS_ACCOUNT&gt;:root"
+      },
+      "Action": ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  }'</pre>
+              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s1')">
+                <Check v-if="copiedBlock === 's1'" class="h-3.5 w-3.5 text-emerald-400" />
+                <Copy v-else class="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div class="pl-7 flex items-start gap-1.5 rounded bg-primary/5 border border-primary/10 px-2.5 py-1.5 text-[10px] text-muted-foreground">
+              <Info class="h-3 w-3 shrink-0 mt-0.5 text-primary/70" />
+              <span>{{ t('account.guideStep1Tip') }}</span>
+            </div>
           </div>
-          <div>
-            <h3 class="text-sm font-semibold mb-2">2. Trust Policy (trust-policy.json)</h3>
-            <p class="mb-2 text-muted-foreground">Allow OpenOps backend to assume this role:</p>
-            <pre class="rounded bg-secondary/80 p-3 text-[11px] font-mono overflow-x-auto">{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {
-      "AWS": "arn:aws:iam::&lt;OPENOPS_ACCOUNT&gt;:root"
-    },
-    "Action": "sts:AssumeRole"
-  }]
-}</pre>
-            <p class="mt-2 text-muted-foreground">
-              Replace <code class="text-foreground/80 bg-secondary px-1 rounded text-[10px]">&lt;OPENOPS_ACCOUNT&gt;</code>
-              with the AWS account ID where OpenOps is deployed.
-            </p>
-          </div>
-          <div>
-            <h3 class="text-sm font-semibold mb-2">3. Attach Permissions</h3>
-            <p class="mb-2 text-muted-foreground">Recommended: ReadOnlyAccess for resource scanning. Add more policies as needed.</p>
-            <pre class="rounded bg-secondary/80 p-3 text-[11px] font-mono overflow-x-auto">aws iam attach-role-policy \
+
+          <!-- Step 2 -->
+          <div class="rounded-lg border border-border/50 bg-secondary/20 p-3 space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">2</span>
+              <h3 class="text-xs font-semibold">{{ t('account.guideStep2') }}</h3>
+            </div>
+            <p class="text-[11px] text-muted-foreground pl-7">{{ t('account.guideStep2Desc') }}</p>
+            <div class="relative pl-7">
+              <pre class="rounded bg-[#0d0f12] p-3 text-[11px] font-mono overflow-x-auto text-emerald-400/90 leading-relaxed">aws iam attach-role-policy \
   --role-name OpenOpsRole \
   --policy-arn arn:aws:iam::aws:policy/ReadOnlyAccess</pre>
+              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s2')">
+                <Check v-if="copiedBlock === 's2'" class="h-3.5 w-3.5 text-emerald-400" />
+                <Copy v-else class="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div class="pl-7 text-[10px] text-muted-foreground">
+              {{ t('account.guideStep2Tip') }}
+            </div>
           </div>
-          <div>
-            <h3 class="text-sm font-semibold mb-2">4. Copy Role ARN</h3>
-            <pre class="rounded bg-secondary/80 p-3 text-[11px] font-mono overflow-x-auto">aws iam get-role --role-name OpenOpsRole \
+
+          <!-- Step 3 -->
+          <div class="rounded-lg border border-border/50 bg-secondary/20 p-3 space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">3</span>
+              <h3 class="text-xs font-semibold">{{ t('account.guideStep3') }}</h3>
+            </div>
+            <div class="relative pl-7">
+              <pre class="rounded bg-[#0d0f12] p-3 text-[11px] font-mono overflow-x-auto text-emerald-400/90 leading-relaxed">aws iam get-role --role-name OpenOpsRole \
   --query 'Role.Arn' --output text</pre>
-            <p class="mt-2 text-muted-foreground">
-              Paste the output (e.g. <code class="text-foreground/80 bg-secondary px-1 rounded text-[10px]">arn:aws:iam::123456789012:role/OpenOpsRole</code>)
-              into the Role ARN field.
+              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s3')">
+                <Check v-if="copiedBlock === 's3'" class="h-3.5 w-3.5 text-emerald-400" />
+                <Copy v-else class="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <p class="pl-7 text-[11px] text-muted-foreground">
+              {{ t('account.guideStep3Desc') }}
+              <code class="text-foreground/80 bg-secondary px-1 rounded text-[10px]">arn:aws:iam::123456789012:role/OpenOpsRole</code>
             </p>
           </div>
+
+          <!-- Security tip -->
+          <div class="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] text-muted-foreground">
+            <Shield class="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+            <div class="space-y-1">
+              <p class="font-medium text-foreground/80">{{ t('account.guideSecurityTitle') }}</p>
+              <ul class="space-y-0.5 list-disc pl-3.5 text-[10px]">
+                <li>{{ t('account.guideSecurityTip1') }}</li>
+                <li>{{ t('account.guideSecurityTip2') }}</li>
+                <li>{{ t('account.guideSecurityTip3') }}</li>
+              </ul>
+            </div>
+          </div>
         </div>
-        <DialogFooter>
+
+        <DialogFooter class="flex-row gap-2 sm:justify-between">
+          <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-user.html" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors">
+            <ExternalLink class="h-3 w-3" />
+            {{ t('account.guideAwsDocs') }}
+          </a>
           <Button size="sm" @click="showGuideDialog = false">{{ t('common.close') }}</Button>
         </DialogFooter>
       </DialogContent>

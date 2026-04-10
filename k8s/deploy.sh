@@ -63,6 +63,8 @@ cmd_init() {
     export FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-$(_read_tfvar frontend_domain 2>/dev/null || echo "")}"
     export API_DOMAIN="${API_DOMAIN:-$(_read_tfvar api_domain 2>/dev/null || echo "")}"
     export SECRETS_MANAGER_NAME="${SECRETS_MANAGER_NAME:-$(_tf_output backend_secrets_manager_name 2>/dev/null || echo "")}"
+    export EFS_FILESYSTEM_ID="${EFS_FILESYSTEM_ID:-$(_tf_output efs_filesystem_id 2>/dev/null || echo "")}"
+    export COGNITO_DOMAIN="${COGNITO_DOMAIN:-$(_tf_output cognito_domain 2>/dev/null || echo "")}"
 
     # Detect environment from terraform workspace
     local workspace
@@ -86,6 +88,7 @@ cmd_init() {
     log "API:         $API_DOMAIN"
     log "Frontend ACM: ${FRONTEND_ACM_CERT:-<not set>}"
     log "API ACM:      ${API_ACM_CERT:-<not set>}"
+    log "EFS FS ID:   ${EFS_FILESYSTEM_ID:-<not set>}"
 
     # Environment-specific resource settings
     if [[ "$DEPLOY_ENV" == "prod" ]]; then
@@ -158,6 +161,9 @@ cmd_deploy() {
     kubectl apply -f "$APP_DIR/frontend-configmap.yaml"
 
     # 6. Deploy applications
+    log "Deploying StorageClass..."
+    kubectl apply -f "$APP_DIR/storageclass-encrypted.yaml"
+
     log "Deploying backend..."
     kubectl apply -f "$APP_DIR/backend-deployment.yaml"
     kubectl apply -f "$APP_DIR/backend-service.yaml"

@@ -245,6 +245,7 @@ fn build_router(state: AppState) -> Router {
         // Users
         .route("/api/users", get(handlers::user::list_users))
         .route("/api/users", post(handlers::user::create_user))
+        .route("/api/users/invite", post(handlers::user::invite_user))
         .route("/api/users/{id}", put(handlers::user::update_user))
         .route("/api/users/{id}", delete(handlers::user::delete_user))
         // Glossary

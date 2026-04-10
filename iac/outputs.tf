@@ -128,6 +128,17 @@ output "rds_security_group_id" {
   value       = module.vpc.rds_security_group_id
 }
 
+# EFS Outputs
+output "efs_filesystem_id" {
+  description = "EFS filesystem ID for workspace storage"
+  value       = module.efs.file_system_id
+}
+
+output "efs_security_group_id" {
+  description = "Security group ID for EFS"
+  value       = module.efs.security_group_id
+}
+
 # Cognito Outputs (conditional)
 output "cognito_enabled" {
   description = "Whether Cognito is enabled"

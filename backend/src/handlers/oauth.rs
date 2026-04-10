@@ -16,6 +16,7 @@ pub struct ProvidersResponse {
     pub local: bool,
     pub microsoft: bool,
     pub cognito: bool,
+    pub is_cloud: bool,
 }
 
 pub async fn providers(State(state): State<AppState>) -> Json<ProvidersResponse> {
@@ -26,6 +27,7 @@ pub async fn providers(State(state): State<AppState>) -> Json<ProvidersResponse>
             || (!state.config.microsoft_is_configured() && !state.config.cognito_is_configured()),
         microsoft: state.config.microsoft_is_configured(),
         cognito: state.config.cognito_is_configured(),
+        is_cloud: !state.config.env.is_local(),
     })
 }
 

@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
-use crate::models::user::{CreateUserRequest, UpdateUserRequest, User, UserInfo};
+use crate::models::user::{CreateUserRequest, InviteUserRequest, UpdateUserRequest, User, UserInfo};
 
 /// GET /api/users
 pub async fn list_users(
@@ -49,13 +49,13 @@ pub async fn create_user(
         ));
     }
 
-    if req.role != "super_admin" && req.role != "tenant_admin" {
+    if req.role != "super_admin" && req.role != "member" {
         return Err(AppError::BadRequest(
-            "Role must be 'super_admin' or 'tenant_admin'".to_string(),
+            "Role must be 'super_admin' or 'member'".to_string(),
         ));
     }
 
-    if req.role == "tenant_admin" && req.tenant_id.is_none() {
+    if req.role == "member" && req.tenant_id.is_none() {
         return Err(AppError::BadRequest(
             "tenant_id is required for tenant_admin role".to_string(),
         ));
@@ -168,4 +168,50 @@ pub async fn delete_user(
     }
 
     Ok(Json(serde_json::json!({"message": "User deleted"})))
+}
+
+/// POST /api/users/invite (super_admin only, cloud mode)
+/// Pre-creates a user record so OAuth login can match by email.
+pub async fn invite_user(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Json(req): Json<InviteUserRequest>,
+) -> AppResult<Json<UserInfo>> {
+    if !auth_user.is_super_admin() {
+        return Err(AppError::Forbidden("Only super admins can invite users".to_string()));
+    }
+
+    let email = req.email.trim().to_lowercase();
+    if email.is_empty() || !email.contains('@') {
+        return Err(AppError::BadRequest("Valid email is required".to_string()));
+    }
+
+    let role = req.role.as_deref().unwrap_or("member");
+    if role != "super_admin" && role != "member" {
+        return Err(AppError::BadRequest(
+            "Role must be 'super_admin' or 'member'".to_string(),
+        ));
+    }
+
+    let user = sqlx::query_as::<_, User>(
+        r#"INSERT INTO users (username, email, role, tenant_id, auth_method)
+           VALUES ($1, $2, $3, $4, 'invited')
+           RETURNING *"#,
+    )
+    .bind(&email)
+    .bind(&email)
+    .bind(role)
+    .bind(req.tenant_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::Database(ref db_err) = e
+            && db_err.constraint() == Some("users_username_key")
+        {
+            return AppError::Conflict("A user with this email already exists".to_string());
+        }
+        AppError::Database(e)
+    })?;
+
+    Ok(Json(UserInfo::from(user)))
 }

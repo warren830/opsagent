@@ -12,8 +12,10 @@ impl Environment {
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "prod" | "production" => Self::Prod,
-            "dev" | "development" => Self::Dev,
-            _ => Self::Local,
+            "dev" | "development" | "non-prod" | "staging" => Self::Dev,
+            "local" | "" => Self::Local,
+            // Any unrecognized non-empty value is treated as non-local (cloud)
+            _ => Self::Dev,
         }
     }
 

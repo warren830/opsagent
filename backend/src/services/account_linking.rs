@@ -60,13 +60,18 @@ pub async fn find_or_create_oauth_user(
         return Ok(updated);
     }
 
-    // 3. Create new user
+    // 3. Create new user — first user ever becomes super_admin
     let username = email.unwrap_or(display_name);
     let user_id = Uuid::new_v4();
 
+    let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(pool)
+        .await?;
+    let role = if user_count == 0 { "super_admin" } else { "member" };
+
     let insert_query = format!(
         r#"INSERT INTO users (id, username, role, email, auth_method, {})
-           VALUES ($1, $2, 'tenant_admin', $3, $4, $5)
+           VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING *"#,
         provider_column
     );
@@ -74,6 +79,7 @@ pub async fn find_or_create_oauth_user(
     let user = sqlx::query_as::<_, User>(&insert_query)
         .bind(user_id)
         .bind(username)
+        .bind(role)
         .bind(email)
         .bind(provider)
         .bind(provider_id)

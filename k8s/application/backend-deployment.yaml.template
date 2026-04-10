@@ -38,6 +38,29 @@ spec:
             secretKeyRef:
               name: backend-secrets
               key: jwt-secret
+        - name: COGNITO_USER_POOL_ID
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: cognito-user-pool-id
+        - name: COGNITO_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: cognito-client-id
+        - name: COGNITO_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: cognito-client-secret
+        - name: COGNITO_REGION
+          valueFrom:
+            secretKeyRef:
+              name: backend-secrets
+              key: cognito-region
+        volumeMounts:
+        - name: workspace
+          mountPath: /app/workspace
         livenessProbe:
           httpGet:
             path: /health
@@ -61,3 +84,7 @@ spec:
           limits:
             cpu: "${BACKEND_CPU_LIMIT}"
             memory: "${BACKEND_MEMORY_LIMIT}"
+      volumes:
+      - name: workspace
+        persistentVolumeClaim:
+          claimName: backend-workspace

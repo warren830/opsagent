@@ -41,6 +41,13 @@ pub struct UpdateUserRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct InviteUserRequest {
+    pub email: String,
+    pub role: Option<String>,
+    pub tenant_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
