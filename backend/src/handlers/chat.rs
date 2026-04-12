@@ -13,7 +13,8 @@ use tokio_stream::Stream;
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::{AuthUser, Claims};
-use crate::services::claude::{AgentPermission, ChatImageData, ClaudeService, StreamChunk};
+use crate::services::agent::{Agent, AgentEvent, AgentSessionConfig, ImageData as AgentImageData};
+use crate::services::claude::{AgentPermission, ClaudeService, StreamChunk};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -126,10 +127,10 @@ pub async fn stream(
         session_id,
     );
 
-    let images: Vec<ChatImageData> = req
+    let images: Vec<AgentImageData> = req
         .images
         .iter()
-        .map(|img| ChatImageData {
+        .map(|img| AgentImageData {
             data: img.data.clone(),
             media_type: img.media_type.clone(),
         })
@@ -227,117 +228,133 @@ pub async fn stream(
         });
     }
 
-    // Spawn Claude CLI process — skills are discovered via .claude/skills/ in user_work_dir
-    let event_stream: SseEventStream = match service.run(
-        &req.message,
-        session_id.as_deref(),
-        Some(&system_prompt),
+    // Create the agent
+    let agent = crate::services::agent::claude::ClaudeAgent {
+        bin_path: service.claude_bin.clone(),
+        work_dir: service.work_dir.clone(),
+        timeout: service.timeout,
+    };
+
+    // Build agent session config
+    let agent_config = AgentSessionConfig {
+        session_id: session_id.clone(),
+        message: req.message.clone(),
+        system_prompt: Some(system_prompt.clone()),
+        model: service.model.clone(),
+        max_turns: service.max_turns,
+        permission_mode: provider.permission_mode.to_string(),
+        allowed_tools: allowed_tools.clone(),
+        disallowed_tools: disallowed_tools.clone(),
+        env_vars: all_env_vars,
+        mcp_config_path: mcp_config.clone(),
         images,
-        all_env_vars,
-        &provider.permission_mode,
-        &disallowed_tools,
-        &allowed_tools,
-        mcp_config.as_deref(),
-    ) {
-        Ok(claude_stream) => {
-            let sse_stream = tokio_stream::StreamExt::map(claude_stream, move |chunk| {
-                // --- Persist session metadata ---
-                match &chunk {
-                    StreamChunk::Init { session_id: Some(sid) } => {
-                        let pool2 = pool.clone();
-                        let sid2 = sid.clone();
-                        let msg = message_text.clone();
-                        tokio::spawn(async move {
-                            let title = if msg.len() > 50 { format!("{}...", &msg[..50]) } else { msg };
-                            if let Err(e) = ClaudeService::save_session(&pool2, &sid2, user_id, tenant_id, Some(&title)).await {
-                                tracing::error!("Failed to save session (init): {}", e);
-                            }
-                        });
-                        // Store session_id and backfill user message with precise ID
-                        let ssid = stream_session_id.clone();
-                        let pool2 = pool.clone();
-                        let sid2 = sid.clone();
-                        let umid = user_msg_id.clone();
-                        tokio::spawn(async move {
-                            *ssid.lock().await = Some(sid2.clone());
-                            if let Some(id) = *umid.lock().await {
-                                let _ = ClaudeService::backfill_message_session(&pool2, id, &sid2).await;
-                            }
-                        });
-                    }
-                    StreamChunk::Done { session_id: Some(sid), .. } => {
-                        let pool2 = pool.clone();
-                        let sid2 = sid.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = ClaudeService::save_session(&pool2, &sid2, user_id, tenant_id, None).await {
-                                tracing::error!("Failed to save session (done): {}", e);
-                            }
-                        });
-                    }
-                    _ => {}
-                }
+    };
 
-                // --- Persist message content ---
-                // Helper: spawn a task to save a simple message (thinking, tool_use, tool_result)
-                let spawn_save = |pool: sqlx::PgPool, ssid: Arc<tokio::sync::Mutex<Option<String>>>, seq: Arc<AtomicI32>, content: String, msg_type: &'static str, tool_name: Option<String>| {
-                    tokio::spawn(async move {
-                        let sid = ssid.lock().await.clone().unwrap_or_default();
-                        let s = seq.fetch_add(1, Ordering::Relaxed) + 1;
-                        if let Err(e) = ClaudeService::save_message(&pool, &sid, "assistant", &content, msg_type, tool_name.as_deref(), None, None, s).await {
-                            tracing::error!("Failed to save {} message: {}", msg_type, e);
+    // Spawn Claude CLI process via Agent trait — skills are discovered via .claude/skills/ in user_work_dir
+    let event_stream: SseEventStream = match agent.run(agent_config) {
+        Ok(mut rx) => {
+            let sse_stream = async_stream::stream! {
+                while let Some(event) = rx.recv().await {
+                    let chunk = StreamChunk::from_agent_event(&event);
+
+                    // --- Persist session metadata ---
+                    match &event {
+                        AgentEvent::Init { session_id: Some(sid) } => {
+                            let pool2 = pool.clone();
+                            let sid2 = sid.clone();
+                            let msg = message_text.clone();
+                            tokio::spawn(async move {
+                                let title = if msg.len() > 50 { format!("{}...", &msg[..50]) } else { msg };
+                                if let Err(e) = ClaudeService::save_session(&pool2, &sid2, user_id, tenant_id, Some(&title)).await {
+                                    tracing::error!("Failed to save session (init): {}", e);
+                                }
+                            });
+                            // Store session_id and backfill user message with precise ID
+                            let ssid = stream_session_id.clone();
+                            let pool2 = pool.clone();
+                            let sid2 = sid.clone();
+                            let umid = user_msg_id.clone();
+                            tokio::spawn(async move {
+                                *ssid.lock().await = Some(sid2.clone());
+                                if let Some(id) = *umid.lock().await {
+                                    let _ = ClaudeService::backfill_message_session(&pool2, id, &sid2).await;
+                                }
+                            });
                         }
-                    });
-                };
+                        AgentEvent::Done { session_id: Some(sid), .. } => {
+                            let pool2 = pool.clone();
+                            let sid2 = sid.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = ClaudeService::save_session(&pool2, &sid2, user_id, tenant_id, None).await {
+                                    tracing::error!("Failed to save session (done): {}", e);
+                                }
+                            });
+                        }
+                        _ => {}
+                    }
 
-                match &chunk {
-                    StreamChunk::Text { content } => {
-                        let pool2 = pool.clone();
-                        let content = content.clone();
-                        let text_id = current_text_msg_id.clone();
-                        let ssid = stream_session_id.clone();
-                        let seq = seq.clone();
+                    // --- Persist message content ---
+                    // Helper: spawn a task to save a simple message (thinking, tool_use, tool_result)
+                    let spawn_save = |pool: sqlx::PgPool, ssid: Arc<tokio::sync::Mutex<Option<String>>>, seq: Arc<AtomicI32>, content: String, msg_type: &'static str, tool_name: Option<String>| {
                         tokio::spawn(async move {
-                            let existing = *text_id.lock().await;
-                            if let Some(id) = existing {
-                                if let Err(e) = ClaudeService::append_message_content(&pool2, id, &content).await {
-                                    tracing::error!("Failed to append text: {}", e);
-                                }
-                            } else {
-                                let sid = ssid.lock().await.clone().unwrap_or_default();
-                                let s = seq.fetch_add(1, Ordering::Relaxed) + 1;
-                                match ClaudeService::save_message(&pool2, &sid, "assistant", &content, "text", None, None, None, s).await {
-                                    Ok(id) => { *text_id.lock().await = Some(id); }
-                                    Err(e) => tracing::error!("Failed to save text message: {}", e),
-                                }
+                            let sid = ssid.lock().await.clone().unwrap_or_default();
+                            let s = seq.fetch_add(1, Ordering::Relaxed) + 1;
+                            if let Err(e) = ClaudeService::save_message(&pool, &sid, "assistant", &content, msg_type, tool_name.as_deref(), None, None, s).await {
+                                tracing::error!("Failed to save {} message: {}", msg_type, e);
                             }
                         });
+                    };
+
+                    match &event {
+                        AgentEvent::Text { content } => {
+                            let pool2 = pool.clone();
+                            let content = content.clone();
+                            let text_id = current_text_msg_id.clone();
+                            let ssid = stream_session_id.clone();
+                            let seq = seq.clone();
+                            tokio::spawn(async move {
+                                let existing = *text_id.lock().await;
+                                if let Some(id) = existing {
+                                    if let Err(e) = ClaudeService::append_message_content(&pool2, id, &content).await {
+                                        tracing::error!("Failed to append text: {}", e);
+                                    }
+                                } else {
+                                    let sid = ssid.lock().await.clone().unwrap_or_default();
+                                    let s = seq.fetch_add(1, Ordering::Relaxed) + 1;
+                                    match ClaudeService::save_message(&pool2, &sid, "assistant", &content, "text", None, None, None, s).await {
+                                        Ok(id) => { *text_id.lock().await = Some(id); }
+                                        Err(e) => tracing::error!("Failed to save text message: {}", e),
+                                    }
+                                }
+                            });
+                        }
+                        AgentEvent::Thinking { content } => {
+                            spawn_save(pool.clone(), stream_session_id.clone(), seq.clone(), content.clone(), "thinking", None);
+                        }
+                        AgentEvent::ToolUse { tool_name, content } => {
+                            spawn_save(pool.clone(), stream_session_id.clone(), seq.clone(), content.clone(), "tool_use", Some(tool_name.clone()));
+                        }
+                        AgentEvent::ToolResult { tool_name, content } => {
+                            spawn_save(pool.clone(), stream_session_id.clone(), seq.clone(), content.clone(), "tool_result", Some(tool_name.clone()));
+                        }
+                        AgentEvent::Done { duration_ms, .. } => {
+                            let text_id = current_text_msg_id.clone();
+                            let dm = *duration_ms;
+                            let pool2 = pool.clone();
+                            tokio::spawn(async move {
+                                if let Some(id) = *text_id.lock().await {
+                                    let _ = ClaudeService::set_message_duration(&pool2, id, dm as i64).await;
+                                }
+                                *text_id.lock().await = None;
+                            });
+                        }
+                        _ => {}
                     }
-                    StreamChunk::Thinking { content } => {
-                        spawn_save(pool.clone(), stream_session_id.clone(), seq.clone(), content.clone(), "thinking", None);
-                    }
-                    StreamChunk::ToolUse { tool_name, content } => {
-                        spawn_save(pool.clone(), stream_session_id.clone(), seq.clone(), content.clone(), "tool_use", Some(tool_name.clone()));
-                    }
-                    StreamChunk::ToolResult { tool_name, content } => {
-                        spawn_save(pool.clone(), stream_session_id.clone(), seq.clone(), content.clone(), "tool_result", Some(tool_name.clone()));
-                    }
-                    StreamChunk::Done { duration_ms, .. } => {
-                        let text_id = current_text_msg_id.clone();
-                        let dm = *duration_ms;
-                        let pool2 = pool.clone();
-                        tokio::spawn(async move {
-                            if let Some(id) = *text_id.lock().await {
-                                let _ = ClaudeService::set_message_duration(&pool2, id, dm as i64).await;
-                            }
-                            *text_id.lock().await = None;
-                        });
-                    }
-                    _ => {}
+
+                    let data = serde_json::to_string(&chunk).unwrap_or_default();
+                    yield Ok::<_, Infallible>(Event::default().data(data));
                 }
-
-                let data = serde_json::to_string(&chunk).unwrap_or_default();
-                Ok::<_, Infallible>(Event::default().data(data))
-            });
+            };
             Box::pin(sse_stream)
         }
         Err(e) => {
