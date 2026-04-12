@@ -7,7 +7,7 @@ use aws_sdk_cloudwatch as cw;
 use chrono::Utc;
 use sqlx::PgPool;
 
-use crate::handlers::alerts::upsert_issue;
+use crate::services::alerts::upsert_issue;
 
 /// Run a full prediction check cycle.
 /// Called by the scheduler in main.rs every N seconds.

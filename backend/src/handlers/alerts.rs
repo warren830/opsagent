@@ -1,139 +1,10 @@
 use axum::{Json, extract::State};
 use serde::Deserialize;
+use std::sync::Arc;
 
 use crate::AppState;
 use crate::error::AppResult;
-
-// ─── Shared helpers ───────────────────────────────────────────
-
-/// Deduplicate + create/resolve an issue from any alert source.
-/// `source`: "grafana" | "datadog" | "dynatrace"
-/// `dedup_key`: unique identifier for deduplication (fingerprint / alert_id / problem_id)
-#[allow(clippy::too_many_arguments)]
-pub async fn upsert_issue(
-    pool: &sqlx::PgPool,
-    source: &str,
-    dedup_key: &str,
-    title: &str,
-    description: &str,
-    severity: &str,
-    meta: &serde_json::Value,
-    is_resolved: bool,
-    issue_type: &str,
-    state: Option<&AppState>,
-) -> (u64, u64) {
-    let mut created = 0u64;
-    let mut resolved = 0u64;
-
-    if is_resolved {
-        let result = sqlx::query(
-            r#"UPDATE issues SET status = 'resolved', resolved_at = NOW(), updated_at = NOW()
-               WHERE source = $1 AND status != 'resolved'
-               AND rca_result @> $2::jsonb"#,
-        )
-        .bind(source)
-        .bind(serde_json::json!({"fingerprint": dedup_key}).to_string())
-        .execute(pool)
-        .await;
-        if let Ok(r) = result {
-            resolved = r.rows_affected();
-        }
-        return (created, resolved);
-    }
-
-    // Skip duplicate
-    let existing = sqlx::query_scalar::<_, i64>(
-        r#"SELECT COUNT(*) FROM issues
-           WHERE source = $1 AND status != 'resolved'
-           AND rca_result @> $2::jsonb"#,
-    )
-    .bind(source)
-    .bind(serde_json::json!({"fingerprint": dedup_key}).to_string())
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
-
-    if existing > 0 {
-        tracing::debug!("Skipping duplicate {} alert: key={}", source, dedup_key);
-        return (created, resolved);
-    }
-
-    let result = sqlx::query(
-        r#"INSERT INTO issues (title, description, source, severity, status, rca_result, issue_type)
-           VALUES ($1, $2, $3, $4, 'open', $5, $6)"#,
-    )
-    .bind(title)
-    .bind(description)
-    .bind(source)
-    .bind(severity)
-    .bind(meta)
-    .bind(issue_type)
-    .execute(pool)
-    .await;
-
-    match result {
-        Ok(_) => {
-            created = 1;
-            tracing::info!(
-                "Created issue from {} alert: title={}, severity={}",
-                source,
-                title,
-                severity
-            );
-
-            // Auto-pause progressing rollouts on critical/high alerts
-            if severity == "critical" || severity == "high" {
-                if let Some(namespace) = crate::services::rollout_guard::extract_namespace_from_alert(meta) {
-                    let pool_clone = pool.clone();
-                    let ns = namespace.clone();
-                    tokio::spawn(async move {
-                        let paused = crate::services::rollout_guard::check_and_pause_rollouts(&pool_clone, &ns).await;
-                        if !paused.is_empty() {
-                            tracing::warn!("Alert guard auto-paused rollouts: {:?}", paused);
-                        }
-                    });
-                }
-
-                // Auto-trigger RCA on critical/high alerts
-                if let Some(app_state) = state {
-                    let pool_clone = pool.clone();
-                    let registry = app_state.rca_registry.clone();
-                    let config = std::sync::Arc::new(app_state.config.clone());
-                    let title_str = title.to_string();
-                    tokio::spawn(async move {
-                        // Fetch the just-created issue
-                        let issue = sqlx::query_as::<_, crate::models::issue::Issue>(
-                            "SELECT * FROM issues WHERE title = $1 AND status = 'open' ORDER BY created_at DESC LIMIT 1",
-                        )
-                        .bind(&title_str)
-                        .fetch_optional(&pool_clone)
-                        .await;
-
-                        if let Ok(Some(issue)) = issue {
-                            tracing::info!("Auto-triggering RCA for critical/high issue: {}", issue.id);
-                            crate::services::rca::run_rca(pool_clone, config, registry, issue).await;
-                        }
-                    });
-                }
-            }
-        }
-        Err(e) => {
-            tracing::error!("Failed to create issue from {} alert: {}", source, e);
-        }
-    }
-
-    (created, resolved)
-}
-
-/// Normalize severity string from various providers to our enum.
-pub fn normalize_severity(raw: &str) -> &'static str {
-    match raw.to_lowercase().as_str() {
-        "critical" | "p1" | "availability" => "critical",
-        "high" | "warning" | "p2" | "error" | "resource_contention" => "high",
-        "low" | "info" | "p4" | "p5" | "custom_alert" => "low",
-        _ => "medium",
-    }
-}
+use crate::services;
 
 // ─── Grafana ──────────────────────────────────────────────────
 
@@ -179,6 +50,12 @@ pub async fn receive(
         alert_count
     );
 
+    let rca_ctx = services::alerts::RcaContext {
+        pool: state.pool.clone(),
+        registry: state.rca_registry.clone(),
+        config: Arc::new(state.config.clone()),
+    };
+
     let mut created = 0u64;
     let mut resolved = 0u64;
 
@@ -210,17 +87,17 @@ pub async fn receive(
             "annotations": annotations,
         });
 
-        let (c, r) = upsert_issue(
+        let (c, r) = services::alerts::upsert_issue(
             &state.pool,
             "grafana",
             fingerprint,
             summary.unwrap_or(alertname),
             description.unwrap_or(""),
-            normalize_severity(severity_raw),
+            services::alerts::normalize_severity(severity_raw),
             &meta,
             alert_status == "resolved",
             "incident",
-            Some(&state),
+            Some(&rca_ctx),
         )
         .await;
         created += c;
@@ -275,6 +152,12 @@ pub async fn receive_datadog(
         payload.alert_type
     );
 
+    let rca_ctx = services::alerts::RcaContext {
+        pool: state.pool.clone(),
+        registry: state.rca_registry.clone(),
+        config: Arc::new(state.config.clone()),
+    };
+
     let alert_id = payload.id.as_deref().unwrap_or("unknown");
     let title = payload.title.as_deref().unwrap_or("Datadog Alert");
     let body = payload.body.as_deref().unwrap_or("");
@@ -283,7 +166,7 @@ pub async fn receive_datadog(
     let is_resolved =
         matches!(payload.transition.as_deref(), Some("Recovered") | Some("Resolved")) || alert_type == "success";
 
-    let severity = normalize_severity(alert_type);
+    let severity = services::alerts::normalize_severity(alert_type);
 
     let meta = serde_json::json!({
         "fingerprint": alert_id,
@@ -292,7 +175,7 @@ pub async fn receive_datadog(
         "transition": payload.transition,
     });
 
-    let (created, resolved) = upsert_issue(
+    let (created, resolved) = services::alerts::upsert_issue(
         &state.pool,
         "datadog",
         alert_id,
@@ -302,7 +185,7 @@ pub async fn receive_datadog(
         &meta,
         is_resolved,
         "incident",
-        Some(&state),
+        Some(&rca_ctx),
     )
     .await;
 
@@ -351,12 +234,18 @@ pub async fn receive_dynatrace(
         payload.state
     );
 
+    let rca_ctx = services::alerts::RcaContext {
+        pool: state.pool.clone(),
+        registry: state.rca_registry.clone(),
+        config: Arc::new(state.config.clone()),
+    };
+
     let problem_id = payload.problem_id.as_deref().unwrap_or("unknown");
     let title = payload.problem_title.as_deref().unwrap_or("Dynatrace Problem");
     let severity_raw = payload.problem_severity.as_deref().unwrap_or("PERFORMANCE");
     let is_resolved = payload.state.as_deref() == Some("RESOLVED");
 
-    let severity = normalize_severity(severity_raw);
+    let severity = services::alerts::normalize_severity(severity_raw);
 
     let meta = serde_json::json!({
         "fingerprint": problem_id,
@@ -375,7 +264,7 @@ pub async fn receive_dynatrace(
         payload.problem_url.as_deref().unwrap_or("")
     );
 
-    let (created, resolved) = upsert_issue(
+    let (created, resolved) = services::alerts::upsert_issue(
         &state.pool,
         "dynatrace",
         problem_id,
@@ -385,7 +274,7 @@ pub async fn receive_dynatrace(
         &meta,
         is_resolved,
         "incident",
-        Some(&state),
+        Some(&rca_ctx),
     )
     .await;
 
