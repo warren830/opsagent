@@ -911,11 +911,10 @@ fn build_provider_env_vars(provider_type: &str, config: &serde_json::Value) -> V
     env
 }
 
-/// Tools to block in readonly mode: all file-write tools
 const DEFAULT_DISALLOWED_TOOLS: &[&str] = &["Write", "Edit", "NotebookEdit"];
-
-/// Allowed tool patterns for readonly mode: restrict Bash to read-only
 const DEFAULT_ALLOWED_TOOLS: &[&str] = &["Bash(read-only:*)"];
+
+use crate::services::claude::AgentPermission;
 
 /// Provider configuration extracted from DB
 struct ProviderSettings {
@@ -923,7 +922,7 @@ struct ProviderSettings {
     timeout: Duration,
     max_turns: u32,
     env_vars: Vec<(String, String)>,
-    permission_mode: String,
+    permission_mode: &'static str,
     disallowed_tools: Vec<String>,
     allowed_tools: Vec<String>,
 }
@@ -972,31 +971,21 @@ async fn load_provider_config(
         let max_turns = config.get("max_turns").and_then(|v| v.as_u64()).unwrap_or(25) as u32;
         let provider_envs = build_provider_env_vars(&provider_type, &config);
 
-        // Permission settings: config stores "readonly" or "bypassPermissions"
-        // Maps to CLI --permission-mode: readonly→"default", bypassPermissions→"bypassPermissions"
-        let permission_mode = config
-            .get("permission_mode")
-            .and_then(|v| v.as_str())
-            .unwrap_or("readonly")
-            .to_string();
+        let perm = AgentPermission::from_config(
+            config.get("permission_mode").and_then(|v| v.as_str()).unwrap_or("readonly"),
+        );
 
-        let cli_permission_mode = if permission_mode == "bypassPermissions" {
-            "bypassPermissions".to_string()
-        } else {
-            // readonly & readwrite both use "default" sandbox (CWD-scoped)
-            "default".to_string()
-        };
-
-        let (disallowed_tools, allowed_tools) = if permission_mode == "bypassPermissions" || permission_mode == "readwrite" {
-            (Vec::new(), Vec::new())
-        } else {
-            let disallowed = config
-                .get("disallowed_tools")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_else(|| DEFAULT_DISALLOWED_TOOLS.iter().map(|s| s.to_string()).collect());
-            let allowed = DEFAULT_ALLOWED_TOOLS.iter().map(|s| s.to_string()).collect();
-            (disallowed, allowed)
+        let (disallowed_tools, allowed_tools) = match perm {
+            AgentPermission::Readonly => {
+                let disallowed = config
+                    .get("disallowed_tools")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .unwrap_or_else(|| DEFAULT_DISALLOWED_TOOLS.iter().map(|s| s.to_string()).collect());
+                let allowed = DEFAULT_ALLOWED_TOOLS.iter().map(|s| s.to_string()).collect();
+                (disallowed, allowed)
+            }
+            _ => (Vec::new(), Vec::new()),
         };
 
         ProviderSettings {
@@ -1004,7 +993,7 @@ async fn load_provider_config(
             timeout: Duration::from_millis(timeout_ms),
             max_turns,
             env_vars: provider_envs,
-            permission_mode: cli_permission_mode,
+            permission_mode: perm.cli_flag(),
             disallowed_tools,
             allowed_tools,
         }
@@ -1014,7 +1003,7 @@ async fn load_provider_config(
             timeout: Duration::from_millis(state.config.claude_timeout_ms),
             max_turns: 25,
             env_vars: Vec::new(),
-            permission_mode: "default".to_string(),
+            permission_mode: AgentPermission::Readonly.cli_flag(),
             disallowed_tools: DEFAULT_DISALLOWED_TOOLS.iter().map(|s| s.to_string()).collect(),
             allowed_tools: DEFAULT_ALLOWED_TOOLS.iter().map(|s| s.to_string()).collect(),
         }

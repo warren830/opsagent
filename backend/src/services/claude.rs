@@ -7,6 +7,35 @@ use tokio::process::Command;
 use tokio_stream::Stream;
 use uuid::Uuid;
 
+/// Agent permission level — controls tool restrictions and sandbox mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentPermission {
+    /// Block Write/Edit/NotebookEdit, Bash restricted to read-only
+    Readonly,
+    /// All tools allowed, sandboxed to CWD
+    ReadWrite,
+    /// Unrestricted
+    Bypass,
+}
+
+impl AgentPermission {
+    pub fn from_config(s: &str) -> Self {
+        match s {
+            "bypassPermissions" => Self::Bypass,
+            "readwrite" => Self::ReadWrite,
+            _ => Self::Readonly,
+        }
+    }
+
+    /// Value for Claude CLI `--permission-mode` flag
+    pub fn cli_flag(self) -> &'static str {
+        match self {
+            Self::Bypass => "bypassPermissions",
+            _ => "default",
+        }
+    }
+}
+
 /// Stream chunk types matching Claude CLI stream-json output
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]

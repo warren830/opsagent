@@ -147,7 +147,7 @@ pub async fn run_rca(pool: PgPool, config: Arc<AppConfig>, registry: Arc<RcaRegi
         None,                // no system prompt override
         vec![],              // no images
         vec![],              // no extra env vars
-        "bypassPermissions", // permission mode
+        super::claude::AgentPermission::Bypass.cli_flag(),
         &[],                 // no disallowed tools
         &[],                 // no allowed tools
         None,                // no MCP config
