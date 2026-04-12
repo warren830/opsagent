@@ -12,20 +12,30 @@ module "eks" {
   vpc_id     = var.vpc_id
   subnet_ids = var.subnet_ids
 
-  addons = {
-    coredns = {}
-    eks-pod-identity-agent = {
-      before_compute = true
-    }
-    kube-proxy = {
-      before_compute = true
-    }
-    vpc-cni = {
-      before_compute = true
-    }
-    aws-ebs-csi-driver = {}
-    aws-efs-csi-driver = {}
-  }
+  addons = merge(
+    {
+      coredns = {}
+      eks-pod-identity-agent = {
+        before_compute = true
+      }
+      kube-proxy = {
+        before_compute = true
+      }
+      vpc-cni = {
+        before_compute = true
+      }
+      aws-ebs-csi-driver = {}
+      aws-efs-csi-driver = {}
+    },
+    var.enable_cloudwatch_observability ? {
+      amazon-cloudwatch-observability = {
+        pod_identity_association = [{
+          role_arn        = aws_iam_role.cloudwatch_agent[0].arn
+          service_account = "cloudwatch-agent"
+        }]
+      }
+    } : {}
+  )
 
   endpoint_private_access = true
   endpoint_public_access  = true
@@ -101,4 +111,72 @@ resource "aws_iam_role_policy_attachment" "node_group_ebs_csi_policy" {
 resource "aws_iam_role_policy_attachment" "node_group_efs_csi_policy" {
   role       = module.eks.eks_managed_node_groups["core_node_group"].iam_role_name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy"
+}
+
+# Pre-create CloudWatch log groups with short retention to minimize cost.
+# The observability addon will reuse these instead of creating groups with no expiry.
+resource "aws_cloudwatch_log_group" "container_insights" {
+  for_each = var.enable_cloudwatch_observability ? toset([
+    "/aws/containerinsights/${var.cluster_name}/application",
+    "/aws/containerinsights/${var.cluster_name}/dataplane",
+    "/aws/containerinsights/${var.cluster_name}/host",
+    "/aws/containerinsights/${var.cluster_name}/performance",
+  ]) : toset([])
+
+  name              = each.value
+  retention_in_days = var.workspace == "prod" ? 7 : 3
+  tags              = var.default_tags
+}
+
+################################################################################
+# CloudWatch Observability addon IAM
+################################################################################
+
+data "aws_iam_policy_document" "cloudwatch_agent_assume_role" {
+  count = var.enable_cloudwatch_observability ? 1 : 0
+
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["pods.eks.amazonaws.com"]
+    }
+
+    actions = [
+      "sts:AssumeRole",
+      "sts:TagSession"
+    ]
+  }
+}
+
+resource "aws_iam_role" "cloudwatch_agent" {
+  count = var.enable_cloudwatch_observability ? 1 : 0
+
+  name               = "${var.project_name_alias}-${var.workspace}-${var.account}-${var.region}-cw-agent"
+  assume_role_policy = data.aws_iam_policy_document.cloudwatch_agent_assume_role[0].json
+
+  tags = var.default_tags
+}
+
+resource "aws_iam_role_policy_attachment" "cloudwatch_agent_server" {
+  count = var.enable_cloudwatch_observability ? 1 : 0
+
+  role       = aws_iam_role.cloudwatch_agent[0].name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "cloudwatch_agent_xray" {
+  count = var.enable_cloudwatch_observability ? 1 : 0
+
+  role       = aws_iam_role.cloudwatch_agent[0].name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }

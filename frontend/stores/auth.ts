@@ -33,11 +33,17 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     async fetchProviders() {
       try {
-        const api = useApi()
-        this.providers = await api.get<AuthProviders>('/api/auth/providers')
+        const config = useRuntimeConfig()
+        const baseURL = config.public.apiBase || ''
+        const resp = await fetch(`${baseURL}/api/auth/providers`)
+        if (resp.ok) {
+          this.providers = await resp.json()
+        }
       } catch {
-        // Default to local-only if providers endpoint fails
-        this.providers = { local: true, microsoft: false, cognito: false }
+        // Fallback: show local login only (safe default for local dev / SSR failure)
+        if (!this.providers) {
+          this.providers = { local: true, microsoft: false, cognito: false, is_cloud: false }
+        }
       }
     },
 

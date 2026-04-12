@@ -1001,11 +1001,14 @@ configure_secrets() {
         echo "  4) ACM Certificates"
         echo "  5) All missing categories"
         echo "  6) Skip (save auto-detected values only)"
+        echo "  7) Reconfigure ALL (including already configured)"
         echo ""
         read -p "Select categories to configure (comma-separated, e.g. 1,2) [6]: " secret_choices
         secret_choices="${secret_choices:-6}"
 
-        if [[ "$secret_choices" == *"5"* ]]; then
+        if [[ "$secret_choices" == *"7"* ]]; then
+            do_gc=true do_anthropic=true do_ms=true do_cert=true
+        elif [[ "$secret_choices" == *"5"* ]]; then
             [[ "$s_gc" != "✅" ]] && do_gc=true
             [[ "$s_anthropic" != "✅" ]] && do_anthropic=true
             [[ "$s_ms" != "✅" ]] && do_ms=true

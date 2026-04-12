@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Zap } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
@@ -20,7 +19,7 @@ onMounted(async () => {
   await authStore.fetchProviders()
 })
 
-const showLocalForm = computed(() => authStore.providers?.local !== false)
+const showLocalForm = computed(() => authStore.providers?.local === true)
 const showMicrosoft = computed(() => authStore.providers?.microsoft === true)
 const showCognito = computed(() => authStore.providers?.cognito === true)
 const showOAuth = computed(() => showMicrosoft.value || showCognito.value)
@@ -59,9 +58,7 @@ async function handleOAuthLogin(provider: 'microsoft' | 'cognito') {
   <div class="w-full max-w-[420px] space-y-8 relative z-10 px-4">
     <!-- Logo + header -->
     <div class="text-center space-y-3">
-      <div class="mx-auto h-14 w-14 rounded-2xl bg-gradient-to-br from-primary to-amber-400 flex items-center justify-center shadow-2xl shadow-primary/40">
-        <Zap class="h-7 w-7 text-white" />
-      </div>
+      <img src="/logo-icon.png" alt="Ops" class="mx-auto h-36 w-auto drop-shadow-2xl" />
       <h1 class="text-2xl font-bold text-white">{{ t('auth.loginTitle') }}</h1>
       <p class="text-sm text-white/90">{{ t('auth.loginDescription') }}</p>
     </div>

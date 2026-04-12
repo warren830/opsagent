@@ -10,10 +10,9 @@ pub async fn security_headers(request: axum::extract::Request, next: Next) -> Re
     headers.insert("X-Frame-Options", "DENY".parse().unwrap());
     headers.insert("X-XSS-Protection", "1; mode=block".parse().unwrap());
     headers.insert("Referrer-Policy", "strict-origin-when-cross-origin".parse().unwrap());
-    headers.insert(
-        "Content-Security-Policy",
-        "default-src 'self'; frame-ancestors 'none';".parse().unwrap(),
-    );
+    // Note: CSP 'default-src self' removed — it blocks cross-origin API calls
+    // from the frontend (oops.kolya.fun → api.oops.kolya.fun). CSP is meant
+    // for HTML pages, not JSON API responses.
 
     response
 }

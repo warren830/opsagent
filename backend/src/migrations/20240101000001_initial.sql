@@ -1,4 +1,4 @@
--- Initial schema for Ops
+-- Initial schema for OpenOps
 
 -- Tenants
 CREATE TABLE IF NOT EXISTS tenants (

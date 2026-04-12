@@ -190,6 +190,10 @@ resource "aws_rds_cluster" "aurora_cluster" {
   tags = merge(var.default_tags, {
     Name = local.cluster_identifier
   })
+
+  lifecycle {
+    ignore_changes = [database_name]
+  }
 }
 
 # Aurora Cluster Instances

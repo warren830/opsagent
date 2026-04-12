@@ -56,17 +56,21 @@ workspace/
 # Service Screener (cloned locally)
 .ops/
 
-# Temporary analysis/reference docs (not part of the project)
-FRONTEND_ANALYSIS.md
-FRONTEND_CODE_REFERENCE.md
-FRONTEND_INDEX.md
-FRONTEND_QUICK_REF.txt
-FRONTEND_SUMMARY.txt
-JIRA_INTEGRATION_PLAN.md
-README_JIRA_ANALYSIS.md
-code_locations_index.md
-jira_integration_analysis.md
-jira_quick_ref.md
+# Temporary analysis/reference docs
+tmp/
+
+# Generated k8s manifests (from .yaml.template, contain env-specific values)
+k8s/application/ingress-api.yaml
+k8s/application/ingress-frontend.yaml
+k8s/application/backend-deployment.yaml
+k8s/application/frontend-deployment.yaml
+k8s/application/backend-configmap.yaml
+k8s/application/frontend-configmap.yaml
+k8s/application/hpa-backend.yaml
+k8s/application/hpa-frontend.yaml
+k8s/application/secret-store.yaml
+k8s/application/external-secret.yaml
+k8s/application/storageclass-encrypted.yaml
 
 # Large assets / archives
 ops-sre-zerotrust/

@@ -85,17 +85,17 @@ resource "null_resource" "configure_child_account" {
       echo "  OK: OrganizationAccountAccessRole trust updated"
 
       # Create OpsRole or update its trust policy (idempotent)
-      if aws iam create-role \
-           --role-name OpsRole \
-           --assume-role-policy-document "$TRUST_POLICY" \
-           --tags Key=ManagedBy,Value=terraform Key=Project,Value=ops${join("", [for k, v in var.default_tags : " Key=${k},Value=${v}"])} \
-           2>/dev/null; then
-        echo "  OK: OpsRole created"
-      else
+      if aws iam get-role --role-name OpsRole &>/dev/null; then
         aws iam update-assume-role-policy \
           --role-name OpsRole \
           --policy-document "$TRUST_POLICY"
         echo "  OK: OpsRole trust updated"
+      else
+        aws iam create-role \
+          --role-name OpsRole \
+          --assume-role-policy-document "$TRUST_POLICY" \
+          --tags ${join(" ", [for k, v in var.default_tags : "Key=${k},Value=${v}"])}
+        echo "  OK: OpsRole created"
       fi
 
       # Attach managed ReadOnlyAccess
