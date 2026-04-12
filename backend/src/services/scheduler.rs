@@ -177,7 +177,7 @@ async fn run_claude_cli(prompt: &str) -> Result<JobOutput, String> {
         "--output-format",
         "text",
         "--permission-mode",
-        "bypassPermissions",
+        super::claude::AgentPermission::Bypass.cli_flag(),
     ]);
 
     // Remove Claude Code nesting detection vars (causes subprocess to fail)
