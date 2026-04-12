@@ -48,6 +48,48 @@ export function useChat() {
   let abortController: AbortController | null = null
   let forceNewSession = false
 
+  // Typewriter effect state
+  let typewriterDisplayed = 0    // chars already revealed
+  let typewriterRafId: number | null = null
+  const TYPEWRITER_CHARS_PER_FRAME = 4  // base speed: ~240 chars/sec at 60fps
+
+  function startTypewriter() {
+    if (typewriterRafId !== null) return
+    const tick = () => {
+      const msg = messages.value.find(m => m.id === currentAssistantId && m.type === 'text')
+      if (!msg) { stopTypewriter(); return }
+
+      const remaining = currentAssistantText.length - typewriterDisplayed
+      if (remaining <= 0) {
+        // Stop looping — startTypewriter() will restart when new chunks arrive
+        typewriterRafId = null
+        return
+      }
+
+      // Adaptive speed: catch up faster when buffer grows large
+      const speed = Math.max(TYPEWRITER_CHARS_PER_FRAME, Math.floor(remaining / 10))
+      typewriterDisplayed = Math.min(typewriterDisplayed + speed, currentAssistantText.length)
+      msg.content = currentAssistantText.slice(0, typewriterDisplayed)
+
+      typewriterRafId = requestAnimationFrame(tick)
+    }
+    typewriterRafId = requestAnimationFrame(tick)
+  }
+
+  function stopTypewriter() {
+    if (typewriterRafId !== null) {
+      cancelAnimationFrame(typewriterRafId)
+      typewriterRafId = null
+    }
+  }
+
+  function flushTypewriter() {
+    stopTypewriter()
+    const msg = messages.value.find(m => m.id === currentAssistantId && m.type === 'text')
+    if (msg) msg.content = currentAssistantText
+    typewriterDisplayed = currentAssistantText.length
+  }
+
   function addUserMessage(text: string, images?: ChatImage[]): ChatMessage {
     const msg: ChatMessage = {
       id: crypto.randomUUID(),
@@ -126,6 +168,8 @@ export function useChat() {
     isStreaming.value = true
     currentAssistantText = ''
     currentAssistantId = ''
+    typewriterDisplayed = 0
+    stopTypewriter()
 
     abortController = new AbortController()
 
@@ -207,6 +251,7 @@ export function useChat() {
         timestamp: new Date(),
       })
     } finally {
+      flushTypewriter()
       isStreaming.value = false
       abortController = null
     }
@@ -225,9 +270,9 @@ export function useChat() {
       }
 
       case 'text': {
-        const msg = findOrCreateAssistantMessage('text')
+        findOrCreateAssistantMessage('text')
         currentAssistantText += chunk.content || ''
-        msg.content = currentAssistantText
+        startTypewriter()
         break
       }
 
@@ -251,6 +296,7 @@ export function useChat() {
           const msg = findOrCreateAssistantMessage('text')
           msg.content = chunk.content
         }
+        flushTypewriter()
         break
 
       case 'error':
@@ -267,10 +313,12 @@ export function useChat() {
   }
 
   function clearMessages() {
+    stopTypewriter()
     messages.value = []
     currentSessionId.value = null
     currentAssistantText = ''
     currentAssistantId = ''
+    typewriterDisplayed = 0
     error.value = null
   }
 
@@ -279,14 +327,45 @@ export function useChat() {
     forceNewSession = true
   }
 
-  /** Resume an existing session by ID */
-  function resumeSession(sessionId: string) {
-    messages.value = []
+  /** Resume an existing session by ID — loads message history from backend */
+  async function resumeSession(sessionId: string) {
     currentAssistantText = ''
     currentAssistantId = ''
     error.value = null
     currentSessionId.value = sessionId
     forceNewSession = false
+
+    try {
+      const resp = await fetch(`${baseURL}/api/chat/sessions/${encodeURIComponent(sessionId)}/messages`, {
+        credentials: 'include',
+      })
+      if (resp.ok) {
+        const rows: Array<{
+          id: string
+          role: string
+          content: string
+          msg_type: string
+          tool_name: string | null
+          images: ChatImage[] | null
+          duration_ms: number | null
+          created_at: string
+        }> = await resp.json()
+        messages.value = rows.map(r => ({
+          id: r.id,
+          role: r.role as 'user' | 'assistant',
+          content: r.content,
+          type: r.msg_type as ChatMessage['type'],
+          toolName: r.tool_name ?? undefined,
+          images: r.images ?? undefined,
+          timestamp: new Date(r.created_at),
+          durationMs: r.duration_ms ?? undefined,
+        }))
+      } else {
+        messages.value = []
+      }
+    } catch {
+      messages.value = []
+    }
   }
 
   return {

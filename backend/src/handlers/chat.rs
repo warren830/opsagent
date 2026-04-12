@@ -13,9 +13,11 @@ use tokio_stream::Stream;
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::{AuthUser, Claims};
-use crate::services::claude::{ChatImageData, ClaudeService, StreamChunk};
+use crate::services::claude::{AgentPermission, ChatImageData, ClaudeService, StreamChunk};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, Ordering};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ChatImage {
     /// Base64-encoded image data
     pub data: String,
@@ -191,6 +193,40 @@ pub async fn stream(
         }
     }
 
+    // Prepare message persistence state shared across stream chunks
+    let seq = Arc::new(AtomicI32::new(0));
+    // Tracks the current assistant text message DB id (for appending chunks)
+    let current_text_msg_id: Arc<tokio::sync::Mutex<Option<uuid::Uuid>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
+    // Session ID discovered from Init chunk, shared with closure
+    let stream_session_id: Arc<tokio::sync::Mutex<Option<String>>> =
+        Arc::new(tokio::sync::Mutex::new(session_id.clone()));
+    // Tracks the user message DB id for backfilling session_id after Init
+    let user_msg_id: Arc<tokio::sync::Mutex<Option<uuid::Uuid>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
+
+    // Save user message (seq 0) — session_id may be unknown yet, update later on Init
+    let user_images_json = if req.images.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_value(&req.images).unwrap_or_default())
+    };
+    {
+        let pool = pool.clone();
+        let sid = session_id.clone().unwrap_or_default();
+        let content = message_text.clone();
+        let images_val = user_images_json.clone();
+        let user_msg_id = user_msg_id.clone();
+        tokio::spawn(async move {
+            match ClaudeService::save_message(
+                &pool, &sid, "user", &content, "text", None, images_val.as_ref(), None, 0,
+            ).await {
+                Ok(id) => { *user_msg_id.lock().await = Some(id); }
+                Err(e) => tracing::error!("Failed to save user message: {}", e),
+            }
+        });
+    }
+
     // Spawn Claude CLI process — skills are discovered via .claude/skills/ in user_work_dir
     let event_stream: SseEventStream = match service.run(
         &req.message,
@@ -205,48 +241,95 @@ pub async fn stream(
     ) {
         Ok(claude_stream) => {
             let sse_stream = tokio_stream::StreamExt::map(claude_stream, move |chunk| {
-                // Save session on init or done
+                // --- Persist session metadata ---
                 match &chunk {
                     StreamChunk::Init { session_id: Some(sid) } => {
-                        let pool = pool.clone();
-                        let sid = sid.clone();
+                        let pool2 = pool.clone();
+                        let sid2 = sid.clone();
                         let msg = message_text.clone();
                         tokio::spawn(async move {
-                            let title = if msg.len() > 50 {
-                                format!("{}...", &msg[..50])
-                            } else {
-                                msg
-                            };
-                            let svc = ClaudeService::new(
-                                String::new(),
-                                PathBuf::from("."),
-                                Duration::from_secs(1),
-                                String::new(),
-                                25,
-                                pool,
-                            );
-                            if let Err(e) = svc.save_session(&sid, user_id, tenant_id, Some(&title)).await {
+                            let title = if msg.len() > 50 { format!("{}...", &msg[..50]) } else { msg };
+                            if let Err(e) = ClaudeService::save_session(&pool2, &sid2, user_id, tenant_id, Some(&title)).await {
                                 tracing::error!("Failed to save session (init): {}", e);
                             }
                         });
-                    }
-                    StreamChunk::Done {
-                        session_id: Some(sid), ..
-                    } => {
-                        let pool = pool.clone();
-                        let sid = sid.clone();
+                        // Store session_id and backfill user message with precise ID
+                        let ssid = stream_session_id.clone();
+                        let pool2 = pool.clone();
+                        let sid2 = sid.clone();
+                        let umid = user_msg_id.clone();
                         tokio::spawn(async move {
-                            let svc = ClaudeService::new(
-                                String::new(),
-                                PathBuf::from("."),
-                                Duration::from_secs(1),
-                                String::new(),
-                                25,
-                                pool,
-                            );
-                            if let Err(e) = svc.save_session(&sid, user_id, tenant_id, None).await {
+                            *ssid.lock().await = Some(sid2.clone());
+                            if let Some(id) = *umid.lock().await {
+                                let _ = ClaudeService::backfill_message_session(&pool2, id, &sid2).await;
+                            }
+                        });
+                    }
+                    StreamChunk::Done { session_id: Some(sid), .. } => {
+                        let pool2 = pool.clone();
+                        let sid2 = sid.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = ClaudeService::save_session(&pool2, &sid2, user_id, tenant_id, None).await {
                                 tracing::error!("Failed to save session (done): {}", e);
                             }
+                        });
+                    }
+                    _ => {}
+                }
+
+                // --- Persist message content ---
+                // Helper: spawn a task to save a simple message (thinking, tool_use, tool_result)
+                let spawn_save = |pool: sqlx::PgPool, ssid: Arc<tokio::sync::Mutex<Option<String>>>, seq: Arc<AtomicI32>, content: String, msg_type: &'static str, tool_name: Option<String>| {
+                    tokio::spawn(async move {
+                        let sid = ssid.lock().await.clone().unwrap_or_default();
+                        let s = seq.fetch_add(1, Ordering::Relaxed) + 1;
+                        if let Err(e) = ClaudeService::save_message(&pool, &sid, "assistant", &content, msg_type, tool_name.as_deref(), None, None, s).await {
+                            tracing::error!("Failed to save {} message: {}", msg_type, e);
+                        }
+                    });
+                };
+
+                match &chunk {
+                    StreamChunk::Text { content } => {
+                        let pool2 = pool.clone();
+                        let content = content.clone();
+                        let text_id = current_text_msg_id.clone();
+                        let ssid = stream_session_id.clone();
+                        let seq = seq.clone();
+                        tokio::spawn(async move {
+                            let existing = *text_id.lock().await;
+                            if let Some(id) = existing {
+                                if let Err(e) = ClaudeService::append_message_content(&pool2, id, &content).await {
+                                    tracing::error!("Failed to append text: {}", e);
+                                }
+                            } else {
+                                let sid = ssid.lock().await.clone().unwrap_or_default();
+                                let s = seq.fetch_add(1, Ordering::Relaxed) + 1;
+                                match ClaudeService::save_message(&pool2, &sid, "assistant", &content, "text", None, None, None, s).await {
+                                    Ok(id) => { *text_id.lock().await = Some(id); }
+                                    Err(e) => tracing::error!("Failed to save text message: {}", e),
+                                }
+                            }
+                        });
+                    }
+                    StreamChunk::Thinking { content } => {
+                        spawn_save(pool.clone(), stream_session_id.clone(), seq.clone(), content.clone(), "thinking", None);
+                    }
+                    StreamChunk::ToolUse { tool_name, content } => {
+                        spawn_save(pool.clone(), stream_session_id.clone(), seq.clone(), content.clone(), "tool_use", Some(tool_name.clone()));
+                    }
+                    StreamChunk::ToolResult { tool_name, content } => {
+                        spawn_save(pool.clone(), stream_session_id.clone(), seq.clone(), content.clone(), "tool_result", Some(tool_name.clone()));
+                    }
+                    StreamChunk::Done { duration_ms, .. } => {
+                        let text_id = current_text_msg_id.clone();
+                        let dm = *duration_ms;
+                        let pool2 = pool.clone();
+                        tokio::spawn(async move {
+                            if let Some(id) = *text_id.lock().await {
+                                let _ = ClaudeService::set_message_duration(&pool2, id, dm as i64).await;
+                            }
+                            *text_id.lock().await = None;
                         });
                     }
                     _ => {}
@@ -881,6 +964,52 @@ pub async fn list_sessions(
     Ok(Json(sessions))
 }
 
+/// GET /api/chat/sessions/:session_id/messages — load message history for a session
+pub async fn get_messages(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> AppResult<Json<Vec<ChatMessageRow>>> {
+    // Verify the session belongs to this user
+    let exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM claude_sessions WHERE claude_session_id = $1 AND user_id = $2)",
+    )
+    .bind(&session_id)
+    .bind(auth_user.user_id)
+    .fetch_one(&state.pool)
+    .await?;
+
+    if !exists {
+        return Err(AppError::NotFound("Session not found".into()));
+    }
+
+    let rows = sqlx::query_as::<_, ChatMessageRow>(
+        r#"SELECT id, session_id, role, content, msg_type, tool_name, images, duration_ms, seq, created_at
+           FROM chat_messages
+           WHERE session_id = $1
+           ORDER BY seq ASC"#,
+    )
+    .bind(&session_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct ChatMessageRow {
+    pub id: uuid::Uuid,
+    pub session_id: String,
+    pub role: String,
+    pub content: String,
+    pub msg_type: String,
+    pub tool_name: Option<String>,
+    pub images: Option<serde_json::Value>,
+    pub duration_ms: Option<i64>,
+    pub seq: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// Build provider-specific environment variables for Claude CLI
 fn build_provider_env_vars(provider_type: &str, config: &serde_json::Value) -> Vec<(String, String)> {
     let mut env = Vec::new();
@@ -913,8 +1042,6 @@ fn build_provider_env_vars(provider_type: &str, config: &serde_json::Value) -> V
 
 const DEFAULT_DISALLOWED_TOOLS: &[&str] = &["Write", "Edit", "NotebookEdit"];
 const DEFAULT_ALLOWED_TOOLS: &[&str] = &["Bash(read-only:*)"];
-
-use crate::services::claude::AgentPermission;
 
 /// Provider configuration extracted from DB
 struct ProviderSettings {

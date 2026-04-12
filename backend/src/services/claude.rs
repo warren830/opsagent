@@ -167,7 +167,7 @@ impl ClaudeService {
 
     /// Persist a new or updated session
     pub async fn save_session(
-        &self,
+        pool: &PgPool,
         claude_session_id: &str,
         user_id: Uuid,
         tenant_id: Option<Uuid>,
@@ -183,9 +183,82 @@ impl ClaudeService {
         .bind(user_id)
         .bind(tenant_id)
         .bind(title)
-        .execute(&self.pool)
+        .execute(pool)
         .await?;
 
+        Ok(())
+    }
+
+    /// Update session_id on a specific message (used for backfilling after Init).
+    pub async fn backfill_message_session(
+        pool: &PgPool,
+        message_id: Uuid,
+        session_id: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE chat_messages SET session_id = $1 WHERE id = $2")
+            .bind(session_id)
+            .bind(message_id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Set duration_ms on a message.
+    pub async fn set_message_duration(
+        pool: &PgPool,
+        message_id: Uuid,
+        duration_ms: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE chat_messages SET duration_ms = $2 WHERE id = $1")
+            .bind(message_id)
+            .bind(duration_ms)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Insert a new chat message record.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn save_message(
+        pool: &PgPool,
+        session_id: &str,
+        role: &str,
+        content: &str,
+        msg_type: &str,
+        tool_name: Option<&str>,
+        images: Option<&serde_json::Value>,
+        duration_ms: Option<i64>,
+        seq: i32,
+    ) -> anyhow::Result<Uuid> {
+        let id = sqlx::query_scalar::<_, Uuid>(
+            r#"INSERT INTO chat_messages (session_id, role, content, msg_type, tool_name, images, duration_ms, seq)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               RETURNING id"#,
+        )
+        .bind(session_id)
+        .bind(role)
+        .bind(content)
+        .bind(msg_type)
+        .bind(tool_name)
+        .bind(images)
+        .bind(duration_ms)
+        .bind(seq)
+        .fetch_one(pool)
+        .await?;
+        Ok(id)
+    }
+
+    /// Append content to an existing message (used for streaming text chunks).
+    pub async fn append_message_content(
+        pool: &PgPool,
+        id: Uuid,
+        additional_content: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE chat_messages SET content = content || $2 WHERE id = $1")
+            .bind(id)
+            .bind(additional_content)
+            .execute(pool)
+            .await?;
         Ok(())
     }
 

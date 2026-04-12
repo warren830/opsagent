@@ -12,7 +12,7 @@ onMounted(() => {
   const dotSpacing = 6        // px between dot centers
   const dotRadius = 1.8       // base dot radius
   const scrollSpeed = 0.3     // px per frame
-  const text = 'Ops'
+  const text = 'loops'
   const rowGap = 30           // extra vertical gap between repeated rows
 
   // ── Resize ──
@@ -110,7 +110,7 @@ onMounted(() => {
             // Shimmer: subtle brightness variation
             const phase = phases[r][c]
             const shimmer = 0.5 + 0.5 * Math.sin(time * 0.001 + phase)
-            const alpha = 0.10 + shimmer * 0.14
+            const alpha = 0.18 + shimmer * 0.22
 
             ctx!.beginPath()
             ctx!.arc(px, py, dotRadius + shimmer * 0.6, 0, Math.PI * 2)

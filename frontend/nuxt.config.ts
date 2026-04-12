@@ -4,6 +4,14 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   telemetry: false,
 
+  app: {
+    head: {
+      link: [
+        { rel: 'icon', type: 'image/png', href: '/logo-icon.png' },
+      ],
+    },
+  },
+
   modules: [
     '@nuxtjs/tailwindcss',
     '@nuxtjs/color-mode',
@@ -34,7 +42,7 @@ export default defineNuxtConfig({
     },
   },
 
-  // API proxy for development (forward /api/* to Rust backend)
+  // API proxy for local development (forward /api/* to Rust backend)
   routeRules: {
     '/api/**': {
       proxy: { to: 'http://localhost:3080/api/**' },

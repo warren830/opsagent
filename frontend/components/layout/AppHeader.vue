@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { LogOut, Zap } from 'lucide-vue-next'
+import { LogOut } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Avatar } from '@/components/ui/avatar'
 
@@ -17,9 +17,7 @@ async function handleLogout() {
     <div class="flex h-12 items-center px-4 gap-3">
       <!-- Logo -->
       <NuxtLink to="/" class="flex items-center gap-2.5 font-semibold text-base hover:opacity-90 transition-opacity">
-        <div class="h-7 w-7 rounded bg-gradient-to-br from-primary to-amber-500 flex items-center justify-center shadow-sm shadow-primary/20">
-          <Zap class="h-3.5 w-3.5 text-white" />
-        </div>
+        <img src="/logo-icon.png" alt="Ops" class="h-7 w-7" />
         <span class="text-foreground">{{ t('app.name') }}</span>
       </NuxtLink>
 

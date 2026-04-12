@@ -441,6 +441,7 @@ fn build_router(state: AppState) -> Router {
         // Chat (SSE streaming)
         .route("/api/chat", post(handlers::chat::stream))
         .route("/api/chat/sessions", get(handlers::chat::list_sessions))
+        .route("/api/chat/sessions/{session_id}/messages", get(handlers::chat::get_messages))
         .route("/api/chat/workspace", get(handlers::chat::workspace_list))
         .route(
             "/api/chat/workspace/{*filepath}",
