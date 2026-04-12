@@ -128,7 +128,7 @@ async fn main() {
             interval.tick().await; // skip first immediate tick
             loop {
                 interval.tick().await;
-                match handlers::cluster::discover_all_clusters(&discover_pool, None).await {
+                match services::cluster::discover_all_clusters(&discover_pool, None).await {
                     Ok(r) => {
                         tracing::info!(
                             "Cluster discovery completed: discovered={}, errors={}",
