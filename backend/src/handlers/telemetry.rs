@@ -5,25 +5,17 @@ use axum::{
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::middleware::auth::AuthUser;
 use crate::models::telemetry::{CreateTelemetryRequest, TelemetryConfig, UpdateTelemetryRequest};
+use crate::services;
 
 /// GET /api/telemetry — list all configs for the user's tenant
 pub async fn list(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
 ) -> AppResult<Json<Vec<TelemetryConfig>>> {
-    let rows = if auth_user.is_super_admin() {
-        sqlx::query_as::<_, TelemetryConfig>("SELECT * FROM telemetry_config ORDER BY created_at")
-            .fetch_all(&state.pool)
-            .await?
-    } else {
-        sqlx::query_as::<_, TelemetryConfig>("SELECT * FROM telemetry_config WHERE tenant_id = $1 ORDER BY created_at")
-            .bind(auth_user.tenant_id)
-            .fetch_all(&state.pool)
-            .await?
-    };
+    let rows = services::telemetry::list(&state.pool, &auth_user).await?;
     Ok(Json(rows))
 }
 
@@ -33,34 +25,7 @@ pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateTelemetryRequest>,
 ) -> AppResult<Json<TelemetryConfig>> {
-    if req.name.trim().is_empty() {
-        return Err(AppError::BadRequest("Name is required".to_string()));
-    }
-
-    let tenant_id = auth_user.tenant_id;
-
-    let row = sqlx::query_as::<_, TelemetryConfig>(
-        r#"INSERT INTO telemetry_config (name, provider, config, routing, enabled, tenant_id)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING *"#,
-    )
-    .bind(&req.name)
-    .bind(&req.provider)
-    .bind(&req.config)
-    .bind(&req.routing)
-    .bind(req.enabled)
-    .bind(tenant_id)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        if let sqlx::Error::Database(ref db_err) = e
-            && db_err.constraint().is_some_and(|c| c.contains("tenant_name"))
-        {
-            return AppError::Conflict(format!("Config '{}' already exists", req.name));
-        }
-        AppError::Database(e)
-    })?;
-
+    let row = services::telemetry::create(&state.pool, &auth_user, req).await?;
     Ok(Json(row))
 }
 
@@ -71,45 +36,7 @@ pub async fn update(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateTelemetryRequest>,
 ) -> AppResult<Json<TelemetryConfig>> {
-    // Verify ownership
-    let existing = sqlx::query_as::<_, TelemetryConfig>("SELECT * FROM telemetry_config WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Telemetry config not found".to_string()))?;
-
-    if !auth_user.is_super_admin() && existing.tenant_id != auth_user.tenant_id {
-        return Err(AppError::Forbidden("Access denied".to_string()));
-    }
-
-    let row = sqlx::query_as::<_, TelemetryConfig>(
-        r#"UPDATE telemetry_config SET
-           name = COALESCE($2, name),
-           provider = COALESCE($3, provider),
-           config = COALESCE($4, config),
-           routing = COALESCE($5, routing),
-           enabled = COALESCE($6, enabled),
-           updated_at = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(&req.name)
-    .bind(&req.provider)
-    .bind(&req.config)
-    .bind(&req.routing)
-    .bind(req.enabled)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        if let sqlx::Error::Database(ref db_err) = e
-            && db_err.constraint().is_some_and(|c| c.contains("tenant_name"))
-        {
-            return AppError::Conflict("Config name already exists".to_string());
-        }
-        AppError::Database(e)
-    })?;
-
+    let row = services::telemetry::update(&state.pool, &auth_user, id, req).await?;
     Ok(Json(row))
 }
 
@@ -119,21 +46,7 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let existing = sqlx::query_as::<_, TelemetryConfig>("SELECT * FROM telemetry_config WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Telemetry config not found".to_string()))?;
-
-    if !auth_user.is_super_admin() && existing.tenant_id != auth_user.tenant_id {
-        return Err(AppError::Forbidden("Access denied".to_string()));
-    }
-
-    sqlx::query("DELETE FROM telemetry_config WHERE id = $1")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
-
+    services::telemetry::delete(&state.pool, &auth_user, id).await?;
     Ok(Json(serde_json::json!({"message": "Telemetry config deleted"})))
 }
 

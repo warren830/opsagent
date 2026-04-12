@@ -1,3 +1,13 @@
+pub mod account_access;
+pub mod approval;
+pub mod channel;
+pub mod common;
+pub mod dashboard;
+pub mod glossary;
+pub mod provider;
+pub mod telemetry;
+pub mod tenant;
+pub mod user;
 pub mod account_linking;
 pub mod auth_common;
 pub mod claude;
