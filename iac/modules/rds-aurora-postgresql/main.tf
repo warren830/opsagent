@@ -88,7 +88,7 @@ locals {
   resource_prefix    = "${var.project_name_alias}-${var.account}-${var.region}-${var.workspace}"
 
   # Default configurations
-  default_database_name   = "openops"
+  default_database_name   = "ops"
   default_master_username = "postgres"
   default_engine          = "aurora-postgresql"
   default_engine_version  = "16.6"

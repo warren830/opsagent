@@ -28,13 +28,13 @@ variable "api_alb_arn" {
 variable "frontend_alb_name" {
   description = "Name of the frontend ALB for auto-discovery"
   type        = string
-  default     = "openops-frontend-alb"
+  default     = "ops-frontend-alb"
 }
 
 variable "api_alb_name" {
   description = "Name of the API ALB for auto-discovery"
   type        = string
-  default     = "openops-api-alb"
+  default     = "ops-api-alb"
 }
 
 variable "traffic_dial_percentage" {

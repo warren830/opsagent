@@ -143,11 +143,11 @@ pub async fn stream(
     let aws_env_vars = build_aws_env_vars(&state, &auth_user).await;
     all_env_vars.extend(aws_env_vars);
 
-    // Generate short-lived API token for agent to call OpenOps APIs
+    // Generate short-lived API token for agent to call Ops APIs
     if let Some(token) = generate_agent_token(&auth_user, &state.config.jwt_secret) {
-        all_env_vars.push(("OPENOPS_API_TOKEN".to_string(), token));
+        all_env_vars.push(("OPS_API_TOKEN".to_string(), token));
         all_env_vars.push((
-            "OPENOPS_API_BASE".to_string(),
+            "OPS_API_BASE".to_string(),
             format!("http://localhost:{}", state.config.backend_port),
         ));
     }
@@ -155,7 +155,7 @@ pub async fn stream(
     // Build MCP config from user's enabled MCP servers (writes to file in user_work_dir)
     let api_token_for_mcp = all_env_vars
         .iter()
-        .find(|(k, _)| k == "OPENOPS_API_TOKEN")
+        .find(|(k, _)| k == "OPS_API_TOKEN")
         .map(|(_, v)| v.clone());
     let (mcp_config, mcp_server_names) = build_mcp_config(
         &state,
@@ -277,7 +277,7 @@ pub async fn stream(
     )
 }
 
-/// Generate a short-lived JWT for the agent to call OpenOps APIs
+/// Generate a short-lived JWT for the agent to call Ops APIs
 fn generate_agent_token(auth_user: &AuthUser, jwt_secret: &str) -> Option<String> {
     let now = chrono::Utc::now().timestamp() as usize;
     let claims = Claims {
@@ -325,7 +325,7 @@ async fn build_aws_env_vars(state: &AppState, auth_user: &AuthUser) -> Vec<(Stri
             && !arn.is_empty()
         {
             env_vars.push(("AWS_ROLE_ARN".to_string(), arn));
-            env_vars.push(("AWS_ROLE_SESSION_NAME".to_string(), "openops-chat".to_string()));
+            env_vars.push(("AWS_ROLE_SESSION_NAME".to_string(), "ops-chat".to_string()));
         }
         if let Some(prof) = profile
             && !prof.is_empty()
@@ -391,13 +391,13 @@ async fn build_mcp_config(
                 if let Some(url) = &srv.url {
                     obj.insert("url".to_string(), serde_json::json!(url));
                 }
-                // For openops-* built-in servers, auto-inject Authorization header
+                // For ops-* built-in servers, auto-inject Authorization header
                 let mut merged_headers = if srv.headers != serde_json::json!({}) {
                     srv.headers.clone()
                 } else {
                     serde_json::json!({})
                 };
-                if srv.name.starts_with("openops-")
+                if srv.name.starts_with("ops-")
                     && let Some(token) = api_token
                     && let Some(obj_map) = merged_headers.as_object_mut()
                 {
@@ -467,7 +467,7 @@ async fn build_system_prompt(
     custom: Option<&str>,
 ) -> String {
     let mut parts = vec![
-        "You are OpenOps AI, a multi-cloud infrastructure operations assistant.".to_string(),
+        "You are Ops AI, a multi-cloud infrastructure operations assistant.".to_string(),
         "Answer in the user's language. Be concise and actionable.".to_string(),
         "Follow all instructions in CLAUDE.md carefully.".to_string(),
     ];
@@ -488,9 +488,9 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
 
     let mut lines = Vec::new();
 
-    lines.push("# OpenOps Agent Instructions".to_string());
+    lines.push("# Ops Agent Instructions".to_string());
     lines.push(String::new());
-    lines.push("You are OpenOps AI, a multi-cloud infrastructure operations assistant.".to_string());
+    lines.push("You are Ops AI, a multi-cloud infrastructure operations assistant.".to_string());
     lines.push("Answer in the user's language. Be concise and actionable.".to_string());
     lines.push(String::new());
 
@@ -523,32 +523,32 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
     // Knowledge API — the critical part
     lines.push("## How to Answer Knowledge Questions".to_string());
     lines.push(String::new());
-    lines.push("When the user asks about **internal terminology, glossary, abbreviations, runbooks, knowledge base entries, cloud accounts, or security findings**, you MUST query the OpenOps API.".to_string());
+    lines.push("When the user asks about **internal terminology, glossary, abbreviations, runbooks, knowledge base entries, cloud accounts, or security findings**, you MUST query the Ops API.".to_string());
     lines.push(String::new());
     lines.push("The knowledge is stored in a database, NOT in local files. Do NOT search or read local files for this information.".to_string());
     lines.push(String::new());
     lines.push("Use these commands (env vars are pre-set):".to_string());
     lines.push(String::new());
-    lines.push("All APIs use the same auth header: `Authorization: Bearer $OPENOPS_API_TOKEN`".to_string());
-    lines.push("Base URL is `$OPENOPS_API_BASE`. Both env vars are pre-set.".to_string());
+    lines.push("All APIs use the same auth header: `Authorization: Bearer $OPS_API_TOKEN`".to_string());
+    lines.push("Base URL is `$OPS_API_BASE`. Both env vars are pre-set.".to_string());
     lines.push(String::new());
     lines.push("### Discovery & Assets".to_string());
     lines.push("```bash".to_string());
     lines.push("# Cloud accounts (provider, account_id, regions, role_arn)".to_string());
     lines
-        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/accounts\"".to_string());
+        .push("curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/accounts\"".to_string());
     lines.push("# Kubernetes clusters (name, cloud, region, status, endpoint)".to_string());
     lines
-        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters\"".to_string());
+        .push("curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/clusters\"".to_string());
     lines.push("# Service topology (real-time Ingress→Service→Deployment/Rollout graph)".to_string());
     lines
-        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/topology\"".to_string());
+        .push("curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/topology\"".to_string());
     lines.push("# Security resources & findings".to_string());
     lines.push(
-        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/resources\"".to_string(),
+        "curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/resources\"".to_string(),
     );
     lines.push(
-        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/resources/dashboard\""
+        "curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/resources/dashboard\""
             .to_string(),
     );
     lines.push("```".to_string());
@@ -556,20 +556,20 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
     lines.push("### Deployments (Argo Rollouts)".to_string());
     lines.push("```bash".to_string());
     lines.push("# List rollouts on a cluster".to_string());
-    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts\"".to_string());
+    lines.push("curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/clusters/{cluster_id}/rollouts\"".to_string());
     lines.push("# Get rollout detail (canary steps, containers)".to_string());
-    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}\"".to_string());
+    lines.push("curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}\"".to_string());
     lines.push("# Promote rollout (step or full)".to_string());
-    lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" -H 'Content-Type: application/json' -d '{\"full\":false}' \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/promote\"".to_string());
+    lines.push("curl -s -X POST -H \"Authorization: Bearer $OPS_API_TOKEN\" -H 'Content-Type: application/json' -d '{\"full\":false}' \"$OPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/promote\"".to_string());
     lines.push("# Rollback rollout".to_string());
-    lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/rollback\"".to_string());
+    lines.push("curl -s -X POST -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/rollback\"".to_string());
     lines.push("# Change strategy (canary/blueGreen/rollingUpdate)".to_string());
-    lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" -H 'Content-Type: application/json' -d '{\"strategy\":\"canary\",\"canarySteps\":[{\"setWeight\":20},{\"pause\":{}},{\"setWeight\":50},{\"pause\":{\"duration\":\"60s\"}}]}' \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/strategy\"".to_string());
+    lines.push("curl -s -X POST -H \"Authorization: Bearer $OPS_API_TOKEN\" -H 'Content-Type: application/json' -d '{\"strategy\":\"canary\",\"canarySteps\":[{\"setWeight\":20},{\"pause\":{}},{\"setWeight\":50},{\"pause\":{\"duration\":\"60s\"}}]}' \"$OPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/strategy\"".to_string());
     lines.push("# Analysis runs for a rollout".to_string());
-    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/analysis\"".to_string());
+    lines.push("curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/clusters/{cluster_id}/rollouts/{ns}/{name}/analysis\"".to_string());
     lines.push("# Deployment history (audit log of promote/rollback/strategy changes)".to_string());
     lines.push(
-        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/deployment-events\""
+        "curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/deployment-events\""
             .to_string(),
     );
     lines.push("# Filter by cluster: ?cluster_id=UUID  or by rollout: &namespace=X&rollout_name=Y".to_string());
@@ -578,23 +578,23 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
     lines.push("### Issues & Observability".to_string());
     lines.push("```bash".to_string());
     lines.push("# Active issues / alerts".to_string());
-    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/issues\"".to_string());
+    lines.push("curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/issues\"".to_string());
     lines.push("# Issue detail".to_string());
     lines.push(
-        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/issues/{id}\"".to_string(),
+        "curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/issues/{id}\"".to_string(),
     );
     lines.push("# Start root cause analysis on an issue".to_string());
     lines.push(
-        "curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/issues/{id}/rca\""
+        "curl -s -X POST -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/issues/{id}/rca\""
             .to_string(),
     );
     lines.push("# Telemetry config (Grafana/Mimir/Loki/Tempo endpoints)".to_string());
     lines.push(
-        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/telemetry\"".to_string(),
+        "curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/telemetry\"".to_string(),
     );
     lines.push("# Dashboard stats".to_string());
     lines.push(
-        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/dashboard/stats\"".to_string(),
+        "curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/dashboard/stats\"".to_string(),
     );
     lines.push("```".to_string());
     lines.push(String::new());
@@ -602,10 +602,10 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
     lines.push("```bash".to_string());
     lines.push("# Glossary (internal terminology)".to_string());
     lines
-        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/glossary\"".to_string());
+        .push("curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/glossary\"".to_string());
     lines.push("# Knowledge base (runbooks, docs)".to_string());
     lines.push(
-        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/knowledge\"".to_string(),
+        "curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/knowledge\"".to_string(),
     );
     lines.push("```".to_string());
     lines.push(String::new());
@@ -613,20 +613,20 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
     lines.push("```bash".to_string());
     lines.push("# Notification channels (Slack, webhook, etc.)".to_string());
     lines
-        .push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/channels\"".to_string());
+        .push("curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/channels\"".to_string());
     lines.push("# LLM providers".to_string());
     lines.push(
-        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/providers\"".to_string(),
+        "curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/providers\"".to_string(),
     );
     lines.push("# MCP servers".to_string());
-    lines.push("curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/mcp\"".to_string());
+    lines.push("curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/mcp\"".to_string());
     lines.push("# Scheduled jobs".to_string());
     lines.push(
-        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/scheduled-jobs\"".to_string(),
+        "curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/scheduled-jobs\"".to_string(),
     );
     lines.push("# Pipeline repos (Git)".to_string());
     lines.push(
-        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/pipeline/repos\"".to_string(),
+        "curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/pipeline/repos\"".to_string(),
     );
     lines.push("```".to_string());
     lines.push(String::new());
@@ -656,22 +656,22 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
         lines.push(String::new());
         lines.push("```bash".to_string());
         lines.push("# Create Jira issue (returns key like OPS-123)".to_string());
-        lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \\".to_string());
+        lines.push("curl -s -X POST -H \"Authorization: Bearer $OPS_API_TOKEN\" \\".to_string());
         lines.push("  -H \"Content-Type: application/json\" \\".to_string());
         lines.push("  -d '{\"summary\":\"...\",\"description\":\"...\",\"issue_type\":\"Task\"}' \\".to_string());
-        lines.push("  \"$OPENOPS_API_BASE/api/jira/create\"".to_string());
+        lines.push("  \"$OPS_API_BASE/api/jira/create\"".to_string());
         lines.push(String::new());
         lines.push("# Transition to Done with comment".to_string());
-        lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \\".to_string());
+        lines.push("curl -s -X POST -H \"Authorization: Bearer $OPS_API_TOKEN\" \\".to_string());
         lines.push("  -H \"Content-Type: application/json\" \\".to_string());
         lines.push("  -d '{\"status\":\"Done\",\"comment\":\"...results...\"}' \\".to_string());
-        lines.push("  \"$OPENOPS_API_BASE/api/jira/{key}/transition\"".to_string());
+        lines.push("  \"$OPS_API_BASE/api/jira/{key}/transition\"".to_string());
         lines.push(String::new());
         lines.push("# Add comment to existing issue".to_string());
-        lines.push("curl -s -X POST -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \\".to_string());
+        lines.push("curl -s -X POST -H \"Authorization: Bearer $OPS_API_TOKEN\" \\".to_string());
         lines.push("  -H \"Content-Type: application/json\" \\".to_string());
         lines.push("  -d '{\"comment\":\"...\"}' \\".to_string());
-        lines.push("  \"$OPENOPS_API_BASE/api/jira/{key}/comment\"".to_string());
+        lines.push("  \"$OPS_API_BASE/api/jira/{key}/comment\"".to_string());
         lines.push("```".to_string());
         lines.push(String::new());
         lines.push(
@@ -753,7 +753,7 @@ async fn write_user_claude_md(state: &AppState, auth_user: &AuthUser, user_work_
     lines.push("```bash".to_string());
     lines.push("# Fetch configured telemetry provider + endpoints".to_string());
     lines.push(
-        "curl -s -H \"Authorization: Bearer $OPENOPS_API_TOKEN\" \"$OPENOPS_API_BASE/api/telemetry\"".to_string(),
+        "curl -s -H \"Authorization: Bearer $OPS_API_TOKEN\" \"$OPS_API_BASE/api/telemetry\"".to_string(),
     );
     lines.push("```".to_string());
     lines.push(String::new());
@@ -982,6 +982,7 @@ async fn load_provider_config(
 
         // Map config value to CLI --permission-mode flag
         // readonly → "default": blocks reads outside workspace (CWD), no interactive terminal
+        // readwrite → "default": same sandbox, but Write/Edit/Bash allowed
         // bypassPermissions → "bypassPermissions": full access
         let cli_permission_mode = if permission_mode == "bypassPermissions" {
             "bypassPermissions".to_string()
@@ -991,6 +992,9 @@ async fn load_provider_config(
 
         let (disallowed_tools, allowed_tools) = if permission_mode == "bypassPermissions" {
             // Full access — no restrictions
+            (Vec::new(), Vec::new())
+        } else if permission_mode == "readwrite" {
+            // Read-write in CWD: allow Write/Edit/Bash, but still sandboxed to workspace
             (Vec::new(), Vec::new())
         } else {
             // readonly: block write tools, restrict Bash to read-only

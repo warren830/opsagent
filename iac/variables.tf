@@ -1,11 +1,11 @@
 variable "frontend_domain" {
-  description = "Frontend domain (e.g. openops.example.com)"
+  description = "Frontend domain (e.g. ops.example.com)"
   type        = string
   default     = ""
 }
 
 variable "api_domain" {
-  description = "API domain (e.g. api.openops.example.com)"
+  description = "API domain (e.g. api.ops.example.com)"
   type        = string
   default     = ""
 }
@@ -13,7 +13,7 @@ variable "api_domain" {
 variable "project_name" {
   description = "The name of the project"
   type        = string
-  default     = "openops"
+  default     = "ops"
 }
 
 variable "project_name_alias" {
@@ -56,13 +56,13 @@ variable "enable_global_accelerator" {
 variable "ga_frontend_alb_name" {
   description = "Name of the frontend ALB for Global Accelerator (auto-discovery)"
   type        = string
-  default     = "openops-frontend-alb"
+  default     = "ops-frontend-alb"
 }
 
 variable "ga_api_alb_name" {
   description = "Name of the API ALB for Global Accelerator (auto-discovery)"
   type        = string
-  default     = "openops-api-alb"
+  default     = "ops-api-alb"
 }
 
 # Observability configuration
@@ -125,13 +125,13 @@ variable "enable_waf" {
 variable "waf_frontend_alb_name" {
   description = "Name of the frontend ALB for WAF association (auto-discovery)"
   type        = string
-  default     = "openops-frontend-alb"
+  default     = "ops-frontend-alb"
 }
 
 variable "waf_api_alb_name" {
   description = "Name of the API ALB for WAF association (auto-discovery)"
   type        = string
-  default     = "openops-api-alb"
+  default     = "ops-api-alb"
 }
 
 variable "waf_rate_limit_global" {

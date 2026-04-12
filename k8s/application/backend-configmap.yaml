@@ -2,12 +2,12 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: backend-config
-  namespace: openops
+  namespace: ops
 data:
   # ── Environment ──────────────────────────────
-  OPENOPS_ENV: "kolya"
+  OPS_ENV: "kolya"
   BACKEND_PORT: "3080"
-  RUST_LOG: "openops=info,tower_http=info"
+  RUST_LOG: "ops=info,tower_http=info"
 
   # ── Database ─────────────────────────────────
   # DATABASE_URL comes from Secret (ESO)

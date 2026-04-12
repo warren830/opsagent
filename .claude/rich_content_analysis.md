@@ -1,8 +1,8 @@
-# OpenOps Frontend - Rich Content Rendering Analysis
+# Ops Frontend - Rich Content Rendering Analysis
 
 ## Executive Summary
 
-The OpenOps frontend (Nuxt 3 + Vue 3) uses a **marked-based markdown rendering system with integrated Mermaid diagram support** across multiple pages. Rich content is rendered via `v-html` with custom `marked` renderers that handle markdown, code blocks, tables, and diagrams. The styling is **Grafana-inspired with dark theme defaults**.
+The Ops frontend (Nuxt 3 + Vue 3) uses a **marked-based markdown rendering system with integrated Mermaid diagram support** across multiple pages. Rich content is rendered via `v-html` with custom `marked` renderers that handle markdown, code blocks, tables, and diagrams. The styling is **Grafana-inspired with dark theme defaults**.
 
 ---
 

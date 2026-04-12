@@ -12,7 +12,7 @@ onMounted(() => {
   const dotSpacing = 6        // px between dot centers
   const dotRadius = 1.8       // base dot radius
   const scrollSpeed = 0.3     // px per frame
-  const text = 'OpenOps'
+  const text = 'Ops'
   const rowGap = 30           // extra vertical gap between repeated rows
 
   // ── Resize ──
@@ -59,7 +59,7 @@ onMounted(() => {
   const grid = rasterizeText()
   const gridRows = grid.length
   const gridCols = grid[0]?.length || 0
-  const blockW = gridCols * dotSpacing  // pixel width of one "OpenOps" block
+  const blockW = gridCols * dotSpacing  // pixel width of one "Ops" block
   const blockH = gridRows * dotSpacing  // pixel height of one block
 
   // vertical repeat: how many rows needed to tile the screen

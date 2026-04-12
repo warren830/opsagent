@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# OpenOps - Deploy to an existing EKS cluster
+# Ops - Deploy to an existing EKS cluster
 # Skips Terraform (Step 1) and Helm (Step 2), only builds and deploys the application
 #
 # Use this when:
@@ -17,7 +17,8 @@ set -e
 export AWS_PAGER=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-K8S_DIR="$SCRIPT_DIR/k8s"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+K8S_DIR="$PROJECT_ROOT/k8s"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

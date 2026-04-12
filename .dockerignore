@@ -36,10 +36,6 @@ scripts/
 *.md
 LICENSE
 docker-compose.yml
-deploy-all.sh
-deploy-to-existing.sh
-destroy.sh
-build-and-push.sh
 
-# Allow .openops/screener (needed by backend build)
-!.openops/
+# Allow .ops/screener (needed by backend build)
+!.ops/

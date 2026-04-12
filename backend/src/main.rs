@@ -17,13 +17,13 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "openops=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "ops=debug,tower_http=debug".into()),
         )
         .init();
 
     // Load config
     let config = AppConfig::from_env();
-    tracing::info!("Starting OpenOps backend (env={:?})", config.env);
+    tracing::info!("Starting Ops backend (env={:?})", config.env);
 
     // Create database pool
     let pool = db::create_pool(&config).await.expect("Failed to create database pool");
@@ -468,7 +468,7 @@ async fn seed_admin_user(pool: &sqlx::PgPool) {
 
         let result = sqlx::query(
             r#"INSERT INTO users (username, password_hash, role, email)
-               VALUES ('admin', $1, 'super_admin', 'admin@openops.local')"#,
+               VALUES ('admin', $1, 'super_admin', 'admin@ops.local')"#,
         )
         .bind(&password_hash)
         .execute(pool)

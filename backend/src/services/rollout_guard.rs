@@ -80,7 +80,7 @@ pub async fn check_and_pause_rollouts(pool: &sqlx::PgPool, namespace: &str) -> V
                 "status": {
                     "controllerPause": true,
                     "pauseConditions": [{
-                        "reason": "OpenOpsAlertGuard",
+                        "reason": "OpsAlertGuard",
                         "startTime": chrono::Utc::now().to_rfc3339(),
                     }]
                 }

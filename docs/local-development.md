@@ -1,4 +1,4 @@
-# OpenOps Local Development Guide
+# Ops Local Development Guide
 
 ## Prerequisites
 
@@ -54,13 +54,13 @@ The defaults work out of the box for local development. Key settings:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENOPS_ENV` | `local` | Environment mode |
-| `DATABASE_URL` | `postgresql://openops:openops_dev@localhost:5432/openops` | PostgreSQL connection |
+| `OPS_ENV` | `local` | Environment mode |
+| `DATABASE_URL` | `postgresql://ops:ops_dev@localhost:5432/ops` | PostgreSQL connection |
 | `JWT_SECRET` | `dev-secret-minimum-32-characters-long-change-in-prod` | JWT signing key |
 | `BACKEND_PORT` | `3080` | Rust server port |
 | `FRONTEND_PORT` | `3000` | Nuxt dev server port |
 | `ALLOWED_ORIGINS` | `http://localhost:3000` | CORS allowed origins |
-| `RUST_LOG` | `openops=debug,tower_http=debug` | Log level |
+| `RUST_LOG` | `ops=debug,tower_http=debug` | Log level |
 
 ### Step 2: Start Database
 
@@ -70,7 +70,7 @@ docker compose up -d postgres
 
 # Verify it's running
 docker compose ps
-docker compose exec postgres pg_isready -U openops
+docker compose exec postgres pg_isready -U ops
 ```
 
 If you also need Redis (optional for local):
@@ -95,11 +95,11 @@ First run will:
 You should see:
 
 ```
-INFO openops: Starting OpenOps backend (env=Local)
-INFO openops::db: Database pool created (max=20, min=5)
-INFO openops::db: Running database migrations...
-INFO openops: Default admin user created (username: admin, password: admin123)
-INFO openops: Listening on 0.0.0.0:3080
+INFO ops: Starting Ops backend (env=Local)
+INFO ops::db: Database pool created (max=20, min=5)
+INFO ops::db: Running database migrations...
+INFO ops: Default admin user created (username: admin, password: admin123)
+INFO ops: Listening on 0.0.0.0:3080
 ```
 
 ### Step 4: Start Frontend (Terminal 2)
@@ -170,20 +170,20 @@ Browser (:3000)
 |-------|-------|
 | Host | `localhost` |
 | Port | `5432` |
-| Database | `openops` |
-| User | `openops` |
-| Password | `openops_dev` |
+| Database | `ops` |
+| User | `ops` |
+| Password | `ops_dev` |
 
 ### Connect with psql
 
 ```bash
-docker compose exec postgres psql -U openops -d openops
+docker compose exec postgres psql -U ops -d ops
 ```
 
 Or with a GUI client (e.g., pgAdmin, DBeaver, DataGrip):
 
 ```
-jdbc:postgresql://localhost:5432/openops
+jdbc:postgresql://localhost:5432/ops
 ```
 
 ### Migrations
@@ -230,7 +230,7 @@ On first startup, the backend seeds:
 | Username | `admin` |
 | Password | `admin123` |
 | Role | `super_admin` |
-| Email | `admin@openops.local` |
+| Email | `admin@ops.local` |
 
 > **Warning**: Change this password before any non-local deployment.
 
@@ -381,7 +381,7 @@ docker compose logs postgres
 docker compose restart postgres
 
 # Verify connection
-docker compose exec postgres pg_isready -U openops
+docker compose exec postgres pg_isready -U ops
 ```
 
 ### Backend Compile Error
@@ -422,7 +422,7 @@ docker compose up -d postgres
 ### Permission Denied on Scripts
 
 ```bash
-chmod +x scripts/*.sh deploy-all.sh build-and-push.sh deploy-to-existing.sh destroy.sh
+chmod +x scripts/*.sh
 ```
 
 ---

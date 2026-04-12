@@ -11,8 +11,8 @@ locals {
     "DeploymentName" = local.deployment_name
     "Workspace"      = local.workspace
     "ManagedBy"      = "terraform"
-    "Project"        = "openops"
-    "Repository"     = "https://github.com/kolya-amazon/openops"
+    "Project"        = "ops"
+    "Repository"     = "https://github.com/kolya-amazon/ops"
   }
 }
 
@@ -194,7 +194,7 @@ module "waf" {
 }
 
 # ── Org Cross-Account Setup ─────────────────────────────────
-# Updates trust policies + creates OpenOpsRole on all child accounts
+# Updates trust policies + creates OpsRole on all child accounts
 module "org_cross_account" {
   source                = "./modules/org-cross-account"
   management_account_id = local.account

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Create a user via the OpenOps API
+# Create a user via the Ops API
 # Usage: ./scripts/create-user.sh [admin|tenant_admin] [username]
 #
 set -euo pipefail

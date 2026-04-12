@@ -1,6 +1,6 @@
-# OpenOps Terraform Infrastructure - Exploration Documentation
+# Ops Terraform Infrastructure - Exploration Documentation
 
-This directory contains comprehensive documentation about the OpenOps Terraform infrastructure after a complete exploration. These documents are designed to help you understand the architecture, replicate patterns, and extend the infrastructure.
+This directory contains comprehensive documentation about the Ops Terraform infrastructure after a complete exploration. These documents are designed to help you understand the architecture, replicate patterns, and extend the infrastructure.
 
 ## 📚 Documentation Files
 
@@ -65,7 +65,7 @@ Contains:
 ## 🗂️ Directory Structure
 
 ```
-/Users/kolya/kolya-projects/openops/iac/
+/Users/kolya/kolya-projects/ops/iac/
 ├── README_EXPLORATION.md                    ← You are here
 ├── TERRAFORM_INFRASTRUCTURE_REPORT.md       ← Comprehensive reference
 ├── QUICK_REFERENCE.md                       ← Fast lookup
@@ -174,7 +174,7 @@ Contains:
 | Min Nodes | 2 | QUICK_REFERENCE.md |
 | Max Nodes | 4 | QUICK_REFERENCE.md |
 | RDS Engine | Aurora PostgreSQL | QUICK_REFERENCE.md |
-| RDS Database | openops | QUICK_REFERENCE.md |
+| RDS Database | ops | QUICK_REFERENCE.md |
 
 ### Important Variables
 
@@ -190,7 +190,7 @@ Example: `oops-612674025488-us-west-1-dev`
 | Role | Namespace | Service Account |
 |------|-----------|-----------------|
 | ALB Controller | kube-system | aws-load-balancer-controller |
-| Backend | openops | backend |
+| Backend | ops | backend |
 | ESO | external-secrets | external-secrets |
 
 ### KMS Keys
@@ -292,7 +292,7 @@ aws secretsmanager get-secret-value --secret-id oops-612674025488-us-west-1-dev-
 │  │  │ ALB         │  │ Backend    │  │ External     │      │   │
 │  │  │ Controller  │  │ Service    │  │ Secrets Ops  │      │   │
 │  │  │             │  │            │  │              │      │   │
-│  │  │ kube-system │  │ openops    │  │ external-    │      │   │
+│  │  │ kube-system │  │ ops    │  │ external-    │      │   │
 │  │  │             │  │ namespace  │  │ secrets      │      │   │
 │  │  └─────────────┘  └────────────┘  └──────────────┘      │   │
 │  └──────────────────────────────────────────────────────────┘   │
@@ -326,8 +326,8 @@ aws secretsmanager get-secret-value --secret-id oops-612674025488-us-west-1-dev-
 ## 🔧 Terraform State
 
 **Backend:** S3
-**Bucket:** openops-tfstate-{account_id}
-**Key:** openops/tf.state
+**Bucket:** ops-tfstate-{account_id}
+**Key:** ops/tf.state
 **Region:** us-west-1
 
 **Workspace Support:**
@@ -407,5 +407,5 @@ See: `TERRAFORM_INFRASTRUCTURE_REPORT.md` Section 9 and `EKS_ADDONS_POD_IDENTITY
 
 **Last Updated:** 2026-04-09
 **Explorer:** Claude Code
-**Infrastructure:** OpenOps - EKS + Karpenter + RDS Aurora + Pod Identity
+**Infrastructure:** Ops - EKS + Karpenter + RDS Aurora + Pod Identity
 

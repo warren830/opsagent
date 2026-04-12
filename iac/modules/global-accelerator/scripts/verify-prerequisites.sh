@@ -46,29 +46,29 @@ fi
 echo ""
 
 # Check 2: Namespace exists
-info "Check 2: Namespace 'openops' exists"
-if kubectl get namespace openops &>/dev/null; then
-    success "Namespace 'openops' exists"
+info "Check 2: Namespace 'ops' exists"
+if kubectl get namespace ops &>/dev/null; then
+    success "Namespace 'ops' exists"
 else
-    error "Namespace 'openops' not found"
+    error "Namespace 'ops' not found"
 fi
 echo ""
 
 # Check 3: Ingress resources exist
 info "Check 3: Ingress resources exist"
-FRONTEND_EXISTS=$(kubectl get ingress openops-frontend -n openops --ignore-not-found -o name)
-API_EXISTS=$(kubectl get ingress openops-api -n openops --ignore-not-found -o name)
+FRONTEND_EXISTS=$(kubectl get ingress ops-frontend -n ops --ignore-not-found -o name)
+API_EXISTS=$(kubectl get ingress ops-api -n ops --ignore-not-found -o name)
 
 if [ -n "$FRONTEND_EXISTS" ]; then
     success "Frontend Ingress exists"
 else
-    error "Frontend Ingress 'openops-frontend' not found in namespace 'openops'"
+    error "Frontend Ingress 'ops-frontend' not found in namespace 'ops'"
 fi
 
 if [ -n "$API_EXISTS" ]; then
     success "API Ingress exists"
 else
-    error "API Ingress 'openops-api' not found in namespace 'openops'"
+    error "API Ingress 'ops-api' not found in namespace 'ops'"
 fi
 echo ""
 
@@ -76,7 +76,7 @@ echo ""
 info "Check 4: Ingress resources specify ALB names (CRITICAL)"
 
 if [ -n "$FRONTEND_EXISTS" ]; then
-    FRONTEND_ALB_NAME=$(kubectl get ingress openops-frontend -n openops \
+    FRONTEND_ALB_NAME=$(kubectl get ingress ops-frontend -n ops \
         -o jsonpath='{.metadata.annotations.alb\.ingress\.kubernetes\.io/load-balancer-name}' 2>/dev/null)
 
     if [ -n "$FRONTEND_ALB_NAME" ]; then
@@ -86,12 +86,12 @@ if [ -n "$FRONTEND_EXISTS" ]; then
         error "ALB Controller will generate a random name, and Terraform won't be able to discover it"
         echo -e "${YELLOW}Fix: Add annotation to ingress-frontend.yaml:${NC}"
         echo "  annotations:"
-        echo "    alb.ingress.kubernetes.io/load-balancer-name: openops-frontend-alb"
+        echo "    alb.ingress.kubernetes.io/load-balancer-name: ops-frontend-alb"
     fi
 fi
 
 if [ -n "$API_EXISTS" ]; then
-    API_ALB_NAME=$(kubectl get ingress openops-api -n openops \
+    API_ALB_NAME=$(kubectl get ingress ops-api -n ops \
         -o jsonpath='{.metadata.annotations.alb\.ingress\.kubernetes\.io/load-balancer-name}' 2>/dev/null)
 
     if [ -n "$API_ALB_NAME" ]; then
@@ -101,7 +101,7 @@ if [ -n "$API_EXISTS" ]; then
         error "ALB Controller will generate a random name, and Terraform won't be able to discover it"
         echo -e "${YELLOW}Fix: Add annotation to ingress-api.yaml:${NC}"
         echo "  annotations:"
-        echo "    alb.ingress.kubernetes.io/load-balancer-name: openops-api-alb"
+        echo "    alb.ingress.kubernetes.io/load-balancer-name: ops-api-alb"
     fi
 fi
 echo ""
@@ -110,7 +110,7 @@ echo ""
 info "Check 5: ALBs are provisioned"
 
 if [ -n "$FRONTEND_EXISTS" ]; then
-    FRONTEND_ALB_DNS=$(kubectl get ingress openops-frontend -n openops \
+    FRONTEND_ALB_DNS=$(kubectl get ingress ops-frontend -n ops \
         -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
 
     if [ -n "$FRONTEND_ALB_DNS" ]; then
@@ -122,7 +122,7 @@ if [ -n "$FRONTEND_EXISTS" ]; then
 fi
 
 if [ -n "$API_EXISTS" ]; then
-    API_ALB_DNS=$(kubectl get ingress openops-api -n openops \
+    API_ALB_DNS=$(kubectl get ingress ops-api -n ops \
         -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
 
     if [ -n "$API_ALB_DNS" ]; then

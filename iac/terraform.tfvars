@@ -6,6 +6,6 @@ enable_cognito                   = true
 enable_self_hosted_observability = false
 frontend_domain                  = "oops.kolya.fun"
 api_domain                       = "api.oops.kolya.fun"
-project_name                     = "openops"
+project_name                     = "ops"
 project_name_alias               = "oops"
 cognito_allowed_email_domains    = ["amazon.com"]

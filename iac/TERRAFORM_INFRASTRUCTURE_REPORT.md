@@ -1,9 +1,9 @@
-# OpenOps Terraform Infrastructure Exploration Report
+# Ops Terraform Infrastructure Exploration Report
 
 ## 1. Full Directory Structure of `/iac/`
 
 ```
-/Users/kolya/kolya-projects/openops/iac/
+/Users/kolya/kolya-projects/ops/iac/
 ├── .terraform/                          # Terraform working directory (cached modules)
 ├── .terraform.lock.hcl                  # Dependency lock file
 ├── environments/                        # Environment-specific configs (empty)
@@ -60,7 +60,7 @@
 
 ## 2. Main.tf - Module Composition & Wiring
 
-**File:** `/Users/kolya/kolya-projects/openops/iac/main.tf`
+**File:** `/Users/kolya/kolya-projects/ops/iac/main.tf`
 
 ### Key Locals
 ```hcl
@@ -76,8 +76,8 @@ locals {
     "DeploymentName" = local.deployment_name
     "Workspace"      = local.workspace
     "ManagedBy"      = "terraform"
-    "Project"        = "openops"
-    "Repository"     = "https://github.com/kolya-amazon/openops"
+    "Project"        = "ops"
+    "Repository"     = "https://github.com/kolya-amazon/ops"
   }
 }
 ```
@@ -212,10 +212,10 @@ module "waf" {
 ## 3. EKS-Addons Module - Deep Dive (IAM, Pod Identity, KMS)
 
 **Files:** 
-- `/Users/kolya/kolya-projects/openops/iac/modules/eks-addons/main.tf`
-- `/Users/kolya/kolya-projects/openops/iac/modules/eks-addons/variables.tf`
-- `/Users/kolya/kolya-projects/openops/iac/modules/eks-addons/outputs.tf`
-- `/Users/kolya/kolya-projects/openops/iac/modules/eks-addons/policies/AWSLoadBalancerController.json`
+- `/Users/kolya/kolya-projects/ops/iac/modules/eks-addons/main.tf`
+- `/Users/kolya/kolya-projects/ops/iac/modules/eks-addons/variables.tf`
+- `/Users/kolya/kolya-projects/ops/iac/modules/eks-addons/outputs.tf`
+- `/Users/kolya/kolya-projects/ops/iac/modules/eks-addons/policies/AWSLoadBalancerController.json`
 
 ### Resource Prefix Pattern
 ```hcl
@@ -347,7 +347,7 @@ resource "aws_iam_policy" "backend" {
       {
         Effect   = "Allow"
         Action   = ["sts:AssumeRole"]
-        Resource = "arn:aws:iam::*:role/OpenOpsReadOnly"
+        Resource = "arn:aws:iam::*:role/OpsReadOnly"
       }
     ]
   })
@@ -357,7 +357,7 @@ resource "aws_iam_policy" "backend" {
 
 resource "aws_eks_pod_identity_association" "backend" {
   cluster_name    = var.cluster_name
-  namespace       = "openops"           # App namespace
+  namespace       = "ops"           # App namespace
   service_account = "backend"            # App service account
   role_arn        = aws_iam_role.backend.arn
 }
@@ -366,7 +366,7 @@ resource "aws_eks_pod_identity_association" "backend" {
 **Key Permissions:**
 - Secrets Manager: Read/write/update secrets matching pattern `${resource_prefix}-*`
 - Organizations: List and describe accounts
-- Cross-account AssumeRole: `OpenOpsReadOnly` role in any account
+- Cross-account AssumeRole: `OpsReadOnly` role in any account
 
 ---
 
@@ -509,7 +509,7 @@ output "backend_secrets_manager_arn" {
 ### KMS Keys Created by Terraform
 
 #### 1. **EKS Add-ons Module KMS Key**
-**Location:** `/Users/kolya/kolya-projects/openops/iac/modules/eks-addons/main.tf:133-144`
+**Location:** `/Users/kolya/kolya-projects/ops/iac/modules/eks-addons/main.tf:133-144`
 
 ```hcl
 resource "aws_kms_key" "secrets" {
@@ -534,7 +534,7 @@ resource "aws_kms_alias" "secrets" {
 - `aws_kms_key.secrets.arn` - Key ARN
 
 #### 2. **RDS Module KMS Key** (Separate)
-**Location:** `/Users/kolya/kolya-projects/openops/iac/modules/rds-aurora-postgresql/main.tf:46-56`
+**Location:** `/Users/kolya/kolya-projects/ops/iac/modules/rds-aurora-postgresql/main.tf:46-56`
 
 ```hcl
 resource "aws_kms_key" "secrets" {
@@ -577,7 +577,7 @@ The EBS CSI driver isn't explicitly configured in Terraform because:
 
 ## 5. VPC Module - Network & Security Group Details
 
-**File:** `/Users/kolya/kolya-projects/openops/iac/modules/vpc/main.tf`
+**File:** `/Users/kolya/kolya-projects/ops/iac/modules/vpc/main.tf`
 
 ### Subnets Configuration
 
@@ -744,7 +744,7 @@ security_group_ids = [module.vpc.rds_security_group_id]
 
 ## 7. EKS Cluster Configuration Details
 
-**File:** `/Users/kolya/kolya-projects/openops/iac/modules/eks-karpenter/eks.tf`
+**File:** `/Users/kolya/kolya-projects/ops/iac/modules/eks-karpenter/eks.tf`
 
 ### Core Node Group Configuration
 
@@ -866,7 +866,7 @@ ${project_name_alias}-${account_id}-${region}-${workspace}
 | Namespace | Service Account | Pod Identity Role | Purpose |
 |-----------|-----------------|-------------------|---------|
 | `kube-system` | `aws-load-balancer-controller` | `{prefix}-albc` | ALB/NLB management |
-| `openops` | `backend` | `{prefix}-backend` | Backend application access to Secrets Manager |
+| `ops` | `backend` | `{prefix}-backend` | Backend application access to Secrets Manager |
 | `external-secrets` | `external-secrets` | `{prefix}-eso` | External Secrets Operator |
 
 ---
@@ -944,13 +944,13 @@ ${project_name_alias}-${account_id}-${region}-${workspace}
 
 | Purpose | File Path |
 |---------|-----------|
-| Module Wiring | `/Users/kolya/kolya-projects/openops/iac/main.tf` |
-| Pod Identity (ALB, Backend, ESO) | `/Users/kolya/kolya-projects/openops/iac/modules/eks-addons/main.tf` |
-| KMS Key Setup | `/Users/kolya/kolya-projects/openops/iac/modules/eks-addons/main.tf:133-144` |
-| ALB Controller Policy | `/Users/kolya/kolya-projects/openops/iac/modules/eks-addons/policies/AWSLoadBalancerController.json` |
-| VPC & Subnets | `/Users/kolya/kolya-projects/openops/iac/modules/vpc/main.tf` |
-| Security Groups | `/Users/kolya/kolya-projects/openops/iac/modules/vpc/main.tf:137-204` |
-| EKS & Karpenter | `/Users/kolya/kolya-projects/openops/iac/modules/eks-karpenter/eks.tf` |
-| Karpenter Config | `/Users/kolya/kolya-projects/openops/iac/modules/eks-karpenter/karpenter.tf` |
-| RDS Aurora | `/Users/kolya/kolya-projects/openops/iac/modules/rds-aurora-postgresql/main.tf` |
+| Module Wiring | `/Users/kolya/kolya-projects/ops/iac/main.tf` |
+| Pod Identity (ALB, Backend, ESO) | `/Users/kolya/kolya-projects/ops/iac/modules/eks-addons/main.tf` |
+| KMS Key Setup | `/Users/kolya/kolya-projects/ops/iac/modules/eks-addons/main.tf:133-144` |
+| ALB Controller Policy | `/Users/kolya/kolya-projects/ops/iac/modules/eks-addons/policies/AWSLoadBalancerController.json` |
+| VPC & Subnets | `/Users/kolya/kolya-projects/ops/iac/modules/vpc/main.tf` |
+| Security Groups | `/Users/kolya/kolya-projects/ops/iac/modules/vpc/main.tf:137-204` |
+| EKS & Karpenter | `/Users/kolya/kolya-projects/ops/iac/modules/eks-karpenter/eks.tf` |
+| Karpenter Config | `/Users/kolya/kolya-projects/ops/iac/modules/eks-karpenter/karpenter.tf` |
+| RDS Aurora | `/Users/kolya/kolya-projects/ops/iac/modules/rds-aurora-postgresql/main.tf` |
 

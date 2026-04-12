@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
-  namespace: openops
+  namespace: ops
   labels:
     app: frontend
 spec:
@@ -19,7 +19,7 @@ spec:
         karpenter.sh/nodepool: common-nodepool
       containers:
       - name: frontend
-        image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/openops-frontend:latest
+        image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/ops-frontend:latest
         ports:
         - containerPort: 3000
           protocol: TCP

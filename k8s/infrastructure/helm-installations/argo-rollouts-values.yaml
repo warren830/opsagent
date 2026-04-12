@@ -7,5 +7,5 @@ controller:
   nodeSelector:
     karpenter.sh/nodepool: common-nodepool
 dashboard:
-  enabled: false              # OpenOps provides its own dashboard
+  enabled: false              # Ops provides its own dashboard
 installCRDs: true

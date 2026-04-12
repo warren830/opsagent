@@ -74,7 +74,7 @@ impl AppConfig {
     /// Load configuration from environment variables.
     /// Panics on missing required values in production.
     pub fn from_env() -> Self {
-        let env = Environment::from_str(&env::var("OPENOPS_ENV").unwrap_or_else(|_| "local".to_string()));
+        let env = Environment::from_str(&env::var("OPS_ENV").unwrap_or_else(|_| "local".to_string()));
 
         let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| {
             if env.is_prod() {
@@ -84,7 +84,7 @@ impl AppConfig {
         });
 
         let database_url = env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://openops:openops_dev@localhost:5432/openops".to_string());
+            .unwrap_or_else(|_| "postgresql://ops:ops_dev@localhost:5432/ops".to_string());
 
         let allowed_origins: Vec<String> = env::var("ALLOWED_ORIGINS")
             .unwrap_or_else(|_| "http://localhost:3000".to_string())

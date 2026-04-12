@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# OpenOps - Kubernetes Application Deployment Script
+# Ops - Kubernetes Application Deployment Script
 # Manages deployment, configuration, and lifecycle of the application on EKS
 #
 # Usage:
@@ -17,7 +17,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$SCRIPT_DIR/application"
 IAC_DIR="$SCRIPT_DIR/../iac"
-NAMESPACE="openops"
+NAMESPACE="ops"
 
 # Colors
 RED='\033[0;31m'
@@ -50,7 +50,7 @@ _read_tfvar() {
 
 # ── INIT: Generate configs from templates ────────────────────
 cmd_init() {
-    step "Initializing OpenOps K8s configuration"
+    step "Initializing Ops K8s configuration"
 
     # Check dependencies
     for cmd in kubectl envsubst; do
@@ -120,7 +120,7 @@ cmd_init() {
 
 # ── DEPLOY: Apply all K8s resources ──────────────────────────
 cmd_deploy() {
-    step "Deploying OpenOps to Kubernetes"
+    step "Deploying Ops to Kubernetes"
 
     # 1. Create namespace
     log "Creating namespace..."
@@ -195,7 +195,7 @@ cmd_deploy() {
 
 # ── STATUS: Show deployment status ───────────────────────────
 cmd_status() {
-    step "OpenOps Deployment Status"
+    step "Ops Deployment Status"
 
     echo ""
     log "Pods:"
@@ -223,7 +223,7 @@ cmd_logs() {
 
 # ── UPDATE: Refresh configs and restart ──────────────────────
 cmd_update() {
-    step "Updating OpenOps configuration"
+    step "Updating Ops configuration"
     cmd_init
     kubectl apply -f "$APP_DIR/backend-configmap.yaml"
     kubectl apply -f "$APP_DIR/frontend-configmap.yaml"
@@ -234,8 +234,8 @@ cmd_update() {
 
 # ── DELETE: Remove all resources ─────────────────────────────
 cmd_delete() {
-    step "Deleting OpenOps deployment"
-    echo -e "${RED}This will delete all OpenOps resources from the cluster.${NC}"
+    step "Deleting Ops deployment"
+    echo -e "${RED}This will delete all Ops resources from the cluster.${NC}"
     read -p "Are you sure? (yes/no): " confirm
     if [[ "$confirm" != "yes" ]]; then
         log "Cancelled."

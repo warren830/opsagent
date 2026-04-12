@@ -1,4 +1,4 @@
-# OpenOps
+# Ops
 
 AI-powered multi-cloud infrastructure operations platform. A modern, frontend-backend separated rebuild of OpsAgent with enterprise-grade security, multi-tenancy, and production-ready deployment.
 
@@ -50,16 +50,12 @@ cd frontend && npm install && npm run dev  # Nuxt on :3000
 ## Project Structure
 
 ```
-openops/
+ops/
 ├── frontend/            # Nuxt 3 + shadcn-vue + Tailwind CSS (TypeScript)
 ├── backend/             # Rust Axum + SQLx + PostgreSQL
 ├── iac/                 # Terraform (VPC, EKS+Karpenter, RDS Aurora, WAF)
 ├── k8s/                 # K8s manifests, Helm infra, deploy scripts
-├── scripts/             # Local dev utilities
-├── deploy-all.sh        # One-click full deployment (4 steps)
-├── build-and-push.sh    # Docker build & ECR push
-├── deploy-to-existing.sh # App-only deploy to existing cluster
-├── destroy.sh           # Tear down everything
+├── scripts/             # All scripts (deploy, build, dev utilities)
 ├── docker-compose.yml   # Local dev (PostgreSQL + Redis)
 └── .env.example         # Local dev environment template
 ```
@@ -94,19 +90,19 @@ uv run pre-commit run --all-files
 
 ```bash
 # Full deployment: Terraform → Helm → Docker → K8s
-./deploy-all.sh
+./scripts/deploy-all.sh
 
 # Individual steps
-./deploy-all.sh --step 1   # Terraform apply (VPC, EKS, RDS, Secrets)
-./deploy-all.sh --step 2   # Helm install (ALB Controller, Karpenter, ESO, Redis)
-./deploy-all.sh --step 3   # Build & push Docker images to ECR
-./deploy-all.sh --step 4   # Deploy application to EKS
+./scripts/deploy-all.sh --step 1   # Terraform apply (VPC, EKS, RDS, Secrets)
+./scripts/deploy-all.sh --step 2   # Helm install (ALB Controller, Karpenter, ESO, Redis)
+./scripts/deploy-all.sh --step 3   # Build & push Docker images to ECR
+./scripts/deploy-all.sh --step 4   # Deploy application to EKS
 
 # App-only update (skip infra)
-./deploy-to-existing.sh
+./scripts/deploy-to-existing.sh
 
 # Tear down
-./destroy.sh
+./scripts/destroy.sh
 ```
 
 ## License

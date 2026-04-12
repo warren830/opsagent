@@ -2,7 +2,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: frontend-hpa
-  namespace: openops
+  namespace: ops
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

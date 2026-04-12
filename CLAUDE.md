@@ -1,4 +1,4 @@
-You are working on OpenOps, a multi-cloud infrastructure operations platform.
+You are working on Ops, a multi-cloud infrastructure operations platform.
 
 ## Language Preference
 
@@ -12,16 +12,18 @@ Always communicate with the user in **Chinese (中文)**. Code, comments, and co
 ## Project Structure
 
 ```
-openops/
+ops/
 ├── frontend/          # Nuxt 3 + shadcn-vue + Tailwind CSS (TypeScript)
 ├── backend/           # Rust + Axum + SQLx + PostgreSQL
 ├── iac/               # Terraform modules (VPC, EKS+Karpenter, RDS, WAF)
 ├── k8s/               # Kubernetes manifests + Helm infra + deploy scripts
-├── scripts/           # Local dev utilities (local-dev.sh, create-user.sh)
-├── deploy-all.sh      # One-click full deployment (4 steps)
-├── build-and-push.sh  # Docker build & ECR push
-├── deploy-to-existing.sh  # Deploy to existing cluster
-├── destroy.sh         # Tear down everything
+├── scripts/           # All scripts (deploy, build, local dev)
+│   ├── deploy-all.sh      # One-click full deployment (4 steps)
+│   ├── build-and-push.sh  # Docker build & ECR push
+│   ├── deploy-to-existing.sh  # Deploy to existing cluster
+│   ├── destroy.sh         # Tear down everything
+│   ├── local-dev.sh       # Local dev startup
+│   └── create-user.sh     # Create user utility
 ├── docker-compose.yml # Local dev (PostgreSQL + Redis)
 ├── Dockerfile.backend # Multi-stage Rust build
 └── Dockerfile.frontend# Multi-stage Nuxt build
@@ -53,10 +55,10 @@ docker compose up -d      # Start PostgreSQL + Redis only
 
 ### Deployment
 ```bash
-./deploy-all.sh           # Full deployment (terraform → helm → docker → k8s)
-./deploy-all.sh --step 1  # Terraform only
-./deploy-to-existing.sh   # App-only deployment to existing cluster
-./destroy.sh              # Tear down everything
+./scripts/deploy-all.sh           # Full deployment (terraform → helm → docker → k8s)
+./scripts/deploy-all.sh --step 1  # Terraform only
+./scripts/deploy-to-existing.sh   # App-only deployment to existing cluster
+./scripts/destroy.sh              # Tear down everything
 ```
 
 ## Coding Standards
@@ -141,7 +143,7 @@ Every API endpoint and UI action must enforce the 3-tier access model:
 - Skills integration uses real `npx skills` CLI, not fake database CRUD
 - Chat integration uses real Claude CLI subprocess, not placeholder responses
 
-## OpenOps Internal APIs
+## Ops Internal APIs
 
 The AI agent discovers infrastructure context dynamically via internal APIs. **Never hardcode account IDs, cluster names, regions, or endpoints** — always query at runtime.
 

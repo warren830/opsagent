@@ -1,5 +1,5 @@
 [project]
-name = "openops"
+name = "ops"
 version = "0.1.0"
 description = "AI-powered multi-cloud infrastructure operations platform"
 readme = "README.md"

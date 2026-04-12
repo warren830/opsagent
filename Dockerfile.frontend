@@ -1,4 +1,4 @@
-# OpenOps Frontend - Multi-stage build (Nuxt SSR)
+# Ops Frontend - Multi-stage build (Nuxt SSR)
 
 # Stage 1: Build Nuxt
 FROM public.ecr.aws/docker/library/node:22-alpine AS builder
@@ -13,12 +13,12 @@ RUN npm run build
 # Stage 2: Serve with Nitro (SSR)
 FROM public.ecr.aws/docker/library/node:22-alpine
 
-RUN addgroup -S openops && adduser -S -G openops -s /sbin/nologin openops
+RUN addgroup -S ops && adduser -S -G ops -s /sbin/nologin ops
 
 WORKDIR /app
-COPY --from=builder --chown=openops:openops /app/.output .output
+COPY --from=builder --chown=ops:ops /app/.output .output
 
-USER openops
+USER ops
 
 EXPOSE 3000
 ENV NITRO_PORT=3000

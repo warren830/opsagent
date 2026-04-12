@@ -58,7 +58,7 @@ fn build_rca_prompt(issue: &Issue) -> String {
         .unwrap_or_else(|| "N/A".to_string());
 
     format!(
-        r#"You are OpenOps RCA (Root Cause Analysis) Analyst. Perform a thorough root cause analysis for the following infrastructure issue.
+        r#"You are Ops RCA (Root Cause Analysis) Analyst. Perform a thorough root cause analysis for the following infrastructure issue.
 
 ## Issue Details
 - **Title**: {title}

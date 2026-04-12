@@ -54,7 +54,7 @@ build/
 workspace/
 
 # Service Screener (cloned locally)
-.openops/
+.ops/
 
 # Temporary analysis/reference docs (not part of the project)
 FRONTEND_ANALYSIS.md
@@ -69,6 +69,6 @@ jira_integration_analysis.md
 jira_quick_ref.md
 
 # Large assets / archives
-openops-sre-zerotrust/
-openops-sre-zerotrust.zip
+ops-sre-zerotrust/
+ops-sre-zerotrust.zip
 *.zip

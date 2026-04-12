@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: api-ingress
-  namespace: openops
+  namespace: ops
   annotations:
     kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: internet-facing
@@ -10,7 +10,7 @@ metadata:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/certificate-arn: ""
-    alb.ingress.kubernetes.io/load-balancer-name: openops-api-alb
+    alb.ingress.kubernetes.io/load-balancer-name: ops-api-alb
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
@@ -19,7 +19,7 @@ metadata:
     # Streaming optimization: long idle timeout for Claude chat
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=3600,routing.http.desync_mitigation_mode=defensive
     alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=86400,deregistration_delay.timeout_seconds=30
-    alb.ingress.kubernetes.io/tags: Environment=kolya,Project=openops,Service=api
+    alb.ingress.kubernetes.io/tags: Environment=kolya,Project=ops,Service=api
 spec:
   ingressClassName: alb
   rules:
