@@ -98,7 +98,7 @@ async fn main() {
             interval.tick().await; // skip first immediate tick
             loop {
                 interval.tick().await;
-                match handlers::cloud_account::sync_org_accounts(&sync_pool, None).await {
+                match services::cloud_account::sync_org_accounts(&sync_pool, None).await {
                     Ok(r) => {
                         tracing::info!(
                             "Org sync completed: added={}, updated={}, removed={}",
