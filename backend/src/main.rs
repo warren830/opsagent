@@ -1,11 +1,3 @@
-mod config;
-mod db;
-mod error;
-mod handlers;
-mod middleware;
-mod models;
-mod services;
-
 use axum::{
     Router, middleware as axum_middleware,
     routing::{delete, get, post, put},
@@ -14,15 +6,7 @@ use std::net::SocketAddr;
 use tokio::signal;
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 
-use crate::config::AppConfig;
-
-/// Shared application state — accessible by all handlers via `State<AppState>`
-#[derive(Clone)]
-pub struct AppState {
-    pub pool: sqlx::PgPool,
-    pub config: AppConfig,
-    pub rca_registry: std::sync::Arc<services::rca::RcaRegistry>,
-}
+use openops::{AppState, config::AppConfig, db, handlers, middleware, services};
 
 #[tokio::main]
 async fn main() {

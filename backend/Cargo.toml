@@ -63,3 +63,7 @@ reqwest = { version = "0.12", features = ["json"] }
 
 # Cron scheduling
 croner = "2"
+
+[dev-dependencies]
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "migrate"] }
+tokio = { version = "1", features = ["full", "test-util"] }
