@@ -1,4 +1,5 @@
 pub mod account_access;
+pub mod agent;
 pub mod alerts;
 pub mod approval;
 pub mod channel;

@@ -9,7 +9,8 @@ use uuid::Uuid;
 
 use crate::config::AppConfig;
 use crate::models::issue::Issue;
-use crate::services::claude::{ClaudeService, StreamChunk};
+use crate::services::agent::{Agent, AgentEvent, AgentSessionConfig};
+use crate::services::claude::StreamChunk;
 
 /// In-memory registry of currently-running RCA analyses.
 /// Key = issue_id, Value = broadcast sender for streaming chunks.
@@ -132,41 +133,37 @@ pub async fn run_rca(pool: PgPool, config: Arc<AppConfig>, registry: Arc<RcaRegi
 
     let prompt = build_rca_prompt(&issue);
 
-    let svc = ClaudeService::new(
-        config.claude_bin.clone(),
-        PathBuf::from(&config.claude_work_dir),
-        Duration::from_millis(config.claude_timeout_ms),
-        config.claude_model.clone(),
-        10, // max_turns for RCA
-        pool.clone(),
-    );
+    let agent = crate::services::agent::claude::ClaudeAgent {
+        bin_path: config.claude_bin.clone(),
+        work_dir: PathBuf::from(&config.claude_work_dir),
+        timeout: Duration::from_millis(config.claude_timeout_ms),
+    };
 
-    let stream_result = svc.run(
-        &prompt,
-        None,                // no session
-        None,                // no system prompt override
-        vec![],              // no images
-        vec![],              // no extra env vars
-        super::claude::AgentPermission::Bypass.cli_flag(),
-        &[],                 // no disallowed tools
-        &[],                 // no allowed tools
-        None,                // no MCP config
-    );
+    let agent_config = AgentSessionConfig {
+        session_id: None,
+        message: prompt,
+        system_prompt: None,
+        model: config.claude_model.clone(),
+        max_turns: 10,
+        permission_mode: super::claude::AgentPermission::Bypass.cli_flag().to_string(),
+        allowed_tools: Vec::new(),
+        disallowed_tools: Vec::new(),
+        env_vars: Vec::new(),
+        mcp_config_path: None,
+        images: Vec::new(),
+    };
 
     let mut full_text = String::new();
 
-    match stream_result {
-        Ok(claude_stream) => {
-            use tokio_stream::StreamExt;
-            let mut stream = Box::pin(claude_stream);
-
-            while let Some(chunk) = stream.next().await {
+    match agent.run(agent_config) {
+        Ok(mut rx) => {
+            while let Some(event) = rx.recv().await {
                 // Accumulate text content
-                match &chunk {
-                    StreamChunk::Text { content } => {
+                match &event {
+                    AgentEvent::Text { content } => {
                         full_text.push_str(content);
                     }
-                    StreamChunk::Done { content, .. } => {
+                    AgentEvent::Done { content, .. } => {
                         if !content.is_empty() && full_text.is_empty() {
                             full_text = content.clone();
                         }
@@ -174,7 +171,8 @@ pub async fn run_rca(pool: PgPool, config: Arc<AppConfig>, registry: Arc<RcaRegi
                     _ => {}
                 }
 
-                // Broadcast to subscribers (ignore error = no subscribers)
+                // Broadcast to subscribers as StreamChunk (ignore error = no subscribers)
+                let chunk = StreamChunk::from_agent_event(&event);
                 let _ = tx.send(chunk);
             }
 
