@@ -1,4 +1,4 @@
-# OpenOps Frontend Rich Content Analysis - Documentation Index
+# Ops Frontend Rich Content Analysis - Documentation Index
 
 ## 📚 Available Documents
 

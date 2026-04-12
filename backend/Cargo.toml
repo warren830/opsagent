@@ -1,8 +1,8 @@
 [package]
-name = "openops"
+name = "ops"
 version = "0.1.0"
 edition = "2024"
-description = "OpenOps - AI-powered multi-cloud infrastructure operations platform"
+description = "Ops - AI-powered multi-cloud infrastructure operations platform"
 
 [dependencies]
 # Web framework

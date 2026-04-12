@@ -15,7 +15,7 @@ use crate::error::AppResult;
 /// The template is configured in argocd-values.yaml to send this shape.
 #[derive(Debug, Deserialize)]
 pub struct ArgocdWebhookPayload {
-    /// ArgoCD Application name (e.g. "openops-backend")
+    /// ArgoCD Application name (e.g. "ops-backend")
     pub app_name: String,
     /// ArgoCD project (e.g. "default")
     #[serde(default)]

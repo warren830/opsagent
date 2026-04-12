@@ -1,4 +1,4 @@
-# Destroy OpenOps
+# Destroy Ops
 
 Tear down all infrastructure. This is destructive and irreversible.
 
@@ -6,14 +6,14 @@ Tear down all infrastructure. This is destructive and irreversible.
 
 ```bash
 # Check what exists
-kubectl get all -n openops
+kubectl get all -n ops
 cd iac && terraform state list | head -30
 ```
 
 ## Destroy
 
 ```bash
-./destroy.sh
+./scripts/destroy.sh
 ```
 
 This removes:

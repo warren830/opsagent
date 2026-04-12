@@ -22,7 +22,7 @@ pub struct CreateIssueRequest {
 }
 
 fn default_description() -> String {
-    "Created via OpenOps".to_string()
+    "Created via Ops".to_string()
 }
 
 #[derive(Debug, Serialize)]

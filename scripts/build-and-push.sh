@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# OpenOps - Build Docker images and push to ECR
+# Ops - Build Docker images and push to ECR
 #
 # Usage:
 #   ./build-and-push.sh               # Build and push both
@@ -12,7 +12,8 @@ set -e
 export AWS_PAGER=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IAC_DIR="$SCRIPT_DIR/iac"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+IAC_DIR="$PROJECT_ROOT/iac"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -48,7 +49,7 @@ log "Logging into ECR..."
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_BASE"
 
 # Ensure ECR repositories exist
-for repo in openops-backend openops-frontend; do
+for repo in ops-backend ops-frontend; do
     aws ecr describe-repositories --repository-names "$repo" --region "$AWS_REGION" &>/dev/null || \
         aws ecr create-repository --repository-name "$repo" --region "$AWS_REGION" --image-scanning-configuration scanOnPush=true
 done
@@ -56,19 +57,19 @@ done
 # Build backend
 if [[ "$BUILD_BACKEND" == "true" ]]; then
     log "Building backend image..."
-    docker build -f "$SCRIPT_DIR/Dockerfile.backend" -t "$ECR_BASE/openops-backend:latest" -t "$ECR_BASE/openops-backend:$GIT_SHA" "$SCRIPT_DIR"
-    docker push "$ECR_BASE/openops-backend:latest"
-    docker push "$ECR_BASE/openops-backend:$GIT_SHA"
-    log "Backend pushed: $ECR_BASE/openops-backend:$GIT_SHA"
+    docker build -f "$PROJECT_ROOT/Dockerfile.backend" -t "$ECR_BASE/ops-backend:latest" -t "$ECR_BASE/ops-backend:$GIT_SHA" "$PROJECT_ROOT"
+    docker push "$ECR_BASE/ops-backend:latest"
+    docker push "$ECR_BASE/ops-backend:$GIT_SHA"
+    log "Backend pushed: $ECR_BASE/ops-backend:$GIT_SHA"
 fi
 
 # Build frontend
 if [[ "$BUILD_FRONTEND" == "true" ]]; then
     log "Building frontend image..."
-    docker build -f "$SCRIPT_DIR/Dockerfile.frontend" -t "$ECR_BASE/openops-frontend:latest" -t "$ECR_BASE/openops-frontend:$GIT_SHA" "$SCRIPT_DIR"
-    docker push "$ECR_BASE/openops-frontend:latest"
-    docker push "$ECR_BASE/openops-frontend:$GIT_SHA"
-    log "Frontend pushed: $ECR_BASE/openops-frontend:$GIT_SHA"
+    docker build -f "$PROJECT_ROOT/Dockerfile.frontend" -t "$ECR_BASE/ops-frontend:latest" -t "$ECR_BASE/ops-frontend:$GIT_SHA" "$PROJECT_ROOT"
+    docker push "$ECR_BASE/ops-frontend:latest"
+    docker push "$ECR_BASE/ops-frontend:$GIT_SHA"
+    log "Frontend pushed: $ECR_BASE/ops-frontend:$GIT_SHA"
 fi
 
 log "Build and push complete!"

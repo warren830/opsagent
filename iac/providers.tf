@@ -3,8 +3,8 @@ terraform {
 
   backend "s3" {
     region = "us-west-1"
-    bucket = "openops-tfstate-612674025488"
-    key    = "openops/tf.state"
+    bucket = "ops-tfstate-612674025488"
+    key    = "ops/tf.state"
   }
 
   required_providers {

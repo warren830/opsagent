@@ -1,6 +1,6 @@
 # EKS Add-ons Pod Identity Pattern - Complete Reference
 
-This document provides a detailed reference for the Pod Identity pattern used in the OpenOps infrastructure, specifically for the EKS Add-ons module.
+This document provides a detailed reference for the Pod Identity pattern used in the Ops infrastructure, specifically for the EKS Add-ons module.
 
 ## Overview
 
@@ -239,7 +239,7 @@ resource "aws_iam_policy" "backend" {
       {
         Effect = "Allow"
         Action = ["sts:AssumeRole"]
-        Resource = "arn:aws:iam::*:role/OpenOpsReadOnly"
+        Resource = "arn:aws:iam::*:role/OpsReadOnly"
       }
     ]
   })
@@ -256,14 +256,14 @@ resource "aws_iam_role_policy_attachment" "backend" {
 # Step 5: Pod identity association
 resource "aws_eks_pod_identity_association" "backend" {
   cluster_name    = var.cluster_name
-  namespace       = "openops"           # Application namespace
+  namespace       = "ops"           # Application namespace
   service_account = "backend"           # App-specific service account
   role_arn        = aws_iam_role.backend.arn
 }
 ```
 
 **Kubernetes Requirements:**
-- Namespace: `openops` (application namespace)
+- Namespace: `ops` (application namespace)
 - Service Account: `backend` (created by application deployment)
 
 ---
@@ -518,7 +518,7 @@ resource "aws_secretsmanager_secret_version" "backend_secrets" {
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │ Pod (backend)                                           │   │
 │  │ Service Account: backend                                │   │
-│  │ Namespace: openops                                      │   │
+│  │ Namespace: ops                                      │   │
 │  │                                                         │   │
 │  │ Makes call to:                                          │   │
 │  │   aws_client.get_secret_value(SecretId="oops-...")    │   │
@@ -623,7 +623,7 @@ aws iam get-role \
 ### Check Pod Logs for Auth Errors
 
 ```bash
-kubectl logs -n openops deployment/backend
+kubectl logs -n ops deployment/backend
 # Look for: "AccessDenied", "UnauthorizedOperation", "AssumeRoleUnauthorizedAccess"
 ```
 

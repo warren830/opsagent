@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: frontend-config
-  namespace: openops
+  namespace: ops
 data:
   NUXT_PUBLIC_API_BASE: "https://${API_DOMAIN}"
   NODE_ENV: "production"

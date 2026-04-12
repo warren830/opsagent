@@ -54,4 +54,4 @@ build/
 workspace/
 
 # Service Screener (cloned locally)
-.openops/
+.ops/

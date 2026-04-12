@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "OpenOps",
+    "name": "Ops",
     "description": "AI-powered multi-cloud operations platform"
   },
   "nav": {
@@ -42,7 +42,7 @@
     "logout": "Logout",
     "username": "Username",
     "password": "Password",
-    "loginTitle": "Sign in to OpenOps",
+    "loginTitle": "Sign in to Ops",
     "loginDescription": "Enter your credentials",
     "loginButton": "Sign in",
     "loginError": "Invalid username or password",
@@ -154,7 +154,7 @@
     "modeCloud": "Cloud",
     "roleArn": "Role ARN",
     "roleArnHint": "arn:aws:iam::ACCOUNT_ID:role/ROLE_NAME",
-    "roleArnDesc": "The IAM Role that OpenOps will assume to access this account",
+    "roleArnDesc": "The IAM Role that Ops will assume to access this account",
     "profile": "AWS Profile",
     "profileHint": "e.g. default, dev, prod",
     "profileDesc": "AWS CLI profile name from ~/.aws/credentials",
@@ -173,9 +173,9 @@
     "testFailed": "Connection failed",
     "setupGuide": "Setup Guide",
     "setupGuideTitle": "How to Configure AWS Role ARN",
-    "setupGuideDesc": "Create a cross-account IAM Role so OpenOps can securely access your AWS resources via AssumeRole.",
+    "setupGuideDesc": "Create a cross-account IAM Role so Ops can securely access your AWS resources via AssumeRole.",
     "guideStep1": "Create IAM Role",
-    "guideStep1Desc": "Run this command in the target account. Replace {'<'}OPENOPS_ACCOUNT{'>'} with the account ID where OpenOps is deployed.",
+    "guideStep1Desc": "Run this command in the target account. Replace {'<'}OPS_ACCOUNT{'>'} with the account ID where Ops is deployed.",
     "guideStep1Tip": "For tighter security, add an ExternalId condition to the trust policy to prevent confused deputy attacks.",
     "guideStep2": "Attach Permissions",
     "guideStep2Desc": "Grant the role read-only access. Add more policies as needed for your use case.",
@@ -183,7 +183,7 @@
     "guideStep3": "Copy Role ARN",
     "guideStep3Desc": "Paste the output into the Role ARN field above, e.g. ",
     "guideSecurityTitle": "Security Best Practices",
-    "guideSecurityTip1": "Use the least-privilege principle — only grant permissions OpenOps actually needs",
+    "guideSecurityTip1": "Use the least-privilege principle — only grant permissions Ops actually needs",
     "guideSecurityTip2": "Regularly audit the role's access with IAM Access Analyzer",
     "guideSecurityTip3": "Consider adding ExternalId and session duration limits for production environments",
     "guideAwsDocs": "AWS IAM Documentation",
@@ -308,7 +308,7 @@
     "jiraProjectKeyPlaceholder": "OPS",
     "jiraIssueType": "Default Issue Type",
     "jiraLabels": "Default Labels",
-    "jiraLabelsHint": "Comma separated, e.g. openops, infra",
+    "jiraLabelsHint": "Comma separated, e.g. ops, infra",
     "jiraHint": "AI agent will auto-create Jira issues when performing infrastructure changes"
   },
   "provider": {
@@ -337,8 +337,9 @@
     "modelHintGateway": "Model ID depends on your gateway",
     "permissionMode": "Permission Mode",
     "permissionDefault": "Read-only (Recommended)",
+    "permissionReadWrite": "Read-Write (CWD)",
     "permissionBypass": "Full Access",
-    "permissionHint": "Controls what the AI agent can do. Read-only disables file writes and dangerous commands."
+    "permissionHint": "Read-only: no file writes. Read-Write: can edit files in workspace. Full Access: unrestricted."
   },
   "glossary": {
     "title": "Glossary",

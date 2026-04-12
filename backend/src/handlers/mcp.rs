@@ -253,7 +253,7 @@ async fn test_http_server(req: &TestMcpServerRequest) -> AppResult<Json<serde_js
         "params": {
             "protocolVersion": "2025-03-26",
             "capabilities": {},
-            "clientInfo": { "name": "openops-test", "version": "0.1.0" }
+            "clientInfo": { "name": "ops-test", "version": "0.1.0" }
         }
     });
 
@@ -423,7 +423,7 @@ async fn discover_http_tools(server: &crate::models::mcp::McpServer) -> Result<V
         "params": {
             "protocolVersion": "2025-03-26",
             "capabilities": {},
-            "clientInfo": { "name": "openops", "version": "0.1.0" }
+            "clientInfo": { "name": "ops", "version": "0.1.0" }
         }
     });
 
@@ -549,7 +549,7 @@ async fn discover_stdio_tools(
 
     let config = serde_json::json!({ "mcpServers": { &server.name: serde_json::Value::Object(entry) } });
 
-    let tmp_dir = std::env::temp_dir().join(format!("openops-mcp-tools-{}", uuid::Uuid::new_v4()));
+    let tmp_dir = std::env::temp_dir().join(format!("ops-mcp-tools-{}", uuid::Uuid::new_v4()));
     tokio::fs::create_dir_all(&tmp_dir)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to create temp dir: {e}")))?;
@@ -632,7 +632,7 @@ async fn test_stdio_server(state: &AppState, req: &TestMcpServerRequest) -> AppR
     let config = serde_json::json!({ "mcpServers": { &req.name: serde_json::Value::Object(entry) } });
 
     // Write .mcp.json in a temp directory
-    let tmp_dir = std::env::temp_dir().join(format!("openops-mcp-test-{}", uuid::Uuid::new_v4()));
+    let tmp_dir = std::env::temp_dir().join(format!("ops-mcp-test-{}", uuid::Uuid::new_v4()));
     tokio::fs::create_dir_all(&tmp_dir)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to create temp dir: {e}")))?;

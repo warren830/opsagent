@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# OpenOps - Local Development Environment
+# Ops - Local Development Environment
 # Starts PostgreSQL via Docker and both backend/frontend dev servers.
 #
 set -euo pipefail
@@ -34,7 +34,7 @@ docker compose up -d postgres
 # Wait for database
 log "Waiting for database..."
 for i in {1..30}; do
-  if docker compose exec -T postgres pg_isready -U openops >/dev/null 2>&1; then
+  if docker compose exec -T postgres pg_isready -U ops >/dev/null 2>&1; then
     break
   fi
   sleep 1
@@ -42,7 +42,7 @@ done
 
 # Seed development data (idempotent — only fills empty tables)
 log "Seeding development data..."
-docker compose exec -T postgres psql -U openops -d openops -f /dev/stdin < "$SCRIPT_DIR/seed-dev-data.sql" 2>/dev/null || warn "Seed skipped (tables may not exist yet, will retry after backend starts)"
+docker compose exec -T postgres psql -U ops -d ops -f /dev/stdin < "$SCRIPT_DIR/seed-dev-data.sql" 2>/dev/null || warn "Seed skipped (tables may not exist yet, will retry after backend starts)"
 
 # Start backend (prefixed output so logs don't get lost)
 log "Starting Rust backend on :3080..."
@@ -59,7 +59,7 @@ for i in {1..30}; do
 done
 
 # Retry seed after migrations have run
-docker compose exec -T postgres psql -U openops -d openops -f /dev/stdin < "$SCRIPT_DIR/seed-dev-data.sql" >/dev/null 2>&1 && log "Development data seeded" || true
+docker compose exec -T postgres psql -U ops -d ops -f /dev/stdin < "$SCRIPT_DIR/seed-dev-data.sql" >/dev/null 2>&1 && log "Development data seeded" || true
 
 # Start frontend (prefixed output)
 log "Starting Nuxt frontend on :3000..."
@@ -77,7 +77,7 @@ if [ "${ENABLE_TUNNEL:-false}" = "true" ] && command -v cloudflared >/dev/null; 
   log "💡 Copy the tunnel URL from [tunnel] output → Grafana Alerting → Contact Points → Webhook"
 fi
 
-log "🚀 OpenOps is running!"
+log "🚀 Ops is running!"
 log "   Frontend: http://localhost:3000"
 log "   Backend:  http://localhost:3080"
 log "   Login:    admin / admin123"

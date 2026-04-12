@@ -156,7 +156,7 @@ pub async fn handle(
                 "protocolVersion": "2024-11-05",
                 "capabilities": { "tools": {} },
                 "serverInfo": {
-                    "name": "openops-rollouts",
+                    "name": "ops-rollouts",
                     "version": "1.0.0"
                 }
             }),

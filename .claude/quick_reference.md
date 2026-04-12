@@ -1,4 +1,4 @@
-# OpenOps Rich Content Rendering - Quick Reference
+# Ops Rich Content Rendering - Quick Reference
 
 ## 🎯 Key Files & Patterns
 

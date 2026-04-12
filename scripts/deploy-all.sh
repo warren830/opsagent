@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# OpenOps - Unified Deployment Script
+# Ops - Unified Deployment Script
 # One-click deployment of the complete application stack
 #
 # Deployment flow:
@@ -35,10 +35,11 @@ NC='\033[0m' # No Color
 
 # Directory definitions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IAC_DIR="$SCRIPT_DIR/iac"
-K8S_DIR="$SCRIPT_DIR/k8s"
-BACKEND_DIR="$SCRIPT_DIR/backend"
-FRONTEND_DIR="$SCRIPT_DIR/frontend"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+IAC_DIR="$PROJECT_ROOT/iac"
+K8S_DIR="$PROJECT_ROOT/k8s"
+BACKEND_DIR="$PROJECT_ROOT/backend"
+FRONTEND_DIR="$PROJECT_ROOT/frontend"
 
 # Auto-select AWS profile if not set and no default profile exists
 if [[ -z "$AWS_PROFILE" ]]; then
@@ -55,11 +56,11 @@ fi
 SKIP_CONFIRMATION=false
 SPECIFIC_STEP=""
 # Prefer region from terraform.tfvars (single source of truth) over aws configure default
-_TFVARS_REGION=$(awk '$1=="region" && $2=="=" { gsub(/"/, "", $3); print $3; exit }' "$SCRIPT_DIR/iac/terraform.tfvars" 2>/dev/null || echo "")
+_TFVARS_REGION=$(awk '$1=="region" && $2=="=" { gsub(/"/, "", $3); print $3; exit }' "$PROJECT_ROOT/iac/terraform.tfvars" 2>/dev/null || echo "")
 AWS_REGION="${AWS_REGION:-${_TFVARS_REGION:-$(aws configure get region 2>/dev/null || echo "")}}"
 unset _TFVARS_REGION
 AWS_ACCOUNT_ID=""
-ECR_NAMESPACE="openops"
+ECR_NAMESPACE="ops"
 DEPLOY_ENV=""  # Auto-derived from Terraform workspace: prod or non-prod
 
 # Path to terraform.tfvars
@@ -199,7 +200,7 @@ print_banner() {
     echo ""
     echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║                                                               ║${NC}"
-    echo -e "${CYAN}║            OpenOps - Unified Deployment Script                ║${NC}"
+    echo -e "${CYAN}║            Ops - Unified Deployment Script                ║${NC}"
     echo -e "${CYAN}║            Complete Deployment Automation                     ║${NC}"
     echo -e "${CYAN}║                                                               ║${NC}"
     echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
@@ -242,7 +243,7 @@ print_info() {
 
 show_help() {
     cat << EOF
-OpenOps - Unified Deployment Script
+Ops - Unified Deployment Script
 
 Usage: ./deploy-all.sh [options]
 
@@ -563,7 +564,7 @@ configure_tfvars() {
         input_fe_domain="${input_fe_domain:-$existing_fe_domain}"
     else
         while [[ -z "$input_fe_domain" ]]; do
-            read -p "Frontend domain (e.g. openops.example.com): " input_fe_domain
+            read -p "Frontend domain (e.g. ops.example.com): " input_fe_domain
             if [[ -z "$input_fe_domain" ]]; then
                 print_warning "Frontend domain is required"
             fi
@@ -577,7 +578,7 @@ configure_tfvars() {
         input_api_domain="${input_api_domain:-$existing_api_domain}"
     else
         while [[ -z "$input_api_domain" ]]; do
-            read -p "API domain (e.g. api.openops.example.com): " input_api_domain
+            read -p "API domain (e.g. api.ops.example.com): " input_api_domain
             if [[ -z "$input_api_domain" ]]; then
                 print_warning "API domain is required"
             fi
@@ -626,7 +627,7 @@ configure_tfvars() {
         print_warning "Entering the wrong value will cause resource conflicts!"
         local input_name=""
         while [[ -z "$input_name" ]]; do
-            read -p "Project name (e.g. openops): " input_name
+            read -p "Project name (e.g. ops): " input_name
             if [[ -z "$input_name" ]]; then
                 print_warning "This field is required."
             fi
@@ -915,7 +916,7 @@ configure_secrets() {
     fi
     cfg_database_url=""
     if [[ -n "$cfg_rds_endpoint" && -n "$cfg_db_password" && -n "$cfg_rds_database" ]]; then
-        cfg_database_url="postgresql://openops:${cfg_db_password}@${cfg_rds_endpoint}:${cfg_rds_port}/${cfg_rds_database}"
+        cfg_database_url="postgresql://ops:${cfg_db_password}@${cfg_rds_endpoint}:${cfg_rds_port}/${cfg_rds_database}"
     fi
 
     # JWT secret — reuse existing or generate
@@ -1179,7 +1180,7 @@ configure_secrets() {
       --no-cli-pager
 
     print_success "Secrets pushed to: $secret_name"
-    print_info "ESO will sync to K8s within 1h (or force: kubectl annotate es backend-secrets -n openops force-sync=$(date +%s) --overwrite)"
+    print_info "ESO will sync to K8s within 1h (or force: kubectl annotate es backend-secrets -n ops force-sync=$(date +%s) --overwrite)"
 }
 
 # ─── Create Cognito admin user (first-time deploy) ─────────
@@ -1285,8 +1286,8 @@ verify_terraform_state() {
             exit 1
         fi
 
-        # Default bucket name: openops-tfstate-{account_id}
-        local default_bucket="openops-tfstate-${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")}"
+        # Default bucket name: ops-tfstate-{account_id}
+        local default_bucket="ops-tfstate-${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")}"
         local tf_state_bucket=""
         while [[ -z "$tf_state_bucket" ]]; do
             read -p "S3 bucket name for Terraform state [$default_bucket]: " tf_state_bucket
@@ -1294,7 +1295,7 @@ verify_terraform_state() {
         done
 
         local tf_state_region="$AWS_REGION"
-        local tf_state_key="openops/tf.state"
+        local tf_state_key="ops/tf.state"
 
         # Auto-create bucket if it doesn't exist
         ensure_s3_bucket "$tf_state_bucket" "$tf_state_region"
@@ -1376,8 +1377,8 @@ deploy_terraform() {
             exit 1
         fi
 
-        # Default bucket name: openops-tfstate-{account_id}
-        local default_bucket="openops-tfstate-${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")}"
+        # Default bucket name: ops-tfstate-{account_id}
+        local default_bucket="ops-tfstate-${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")}"
         local tf_state_bucket=""
         while [[ -z "$tf_state_bucket" ]]; do
             read -p "S3 bucket name for Terraform state [$default_bucket]: " tf_state_bucket
@@ -1385,7 +1386,7 @@ deploy_terraform() {
         done
 
         local tf_state_region="$AWS_REGION"
-        local tf_state_key="openops/tf.state"
+        local tf_state_key="ops/tf.state"
 
         # Auto-create bucket if it doesn't exist
         ensure_s3_bucket "$tf_state_bucket" "$tf_state_region"
@@ -1640,7 +1641,7 @@ build_and_push_images() {
     print_success "ECR login successful"
 
     # Create ECR repositories (if not exist)
-    local repositories=("openops-backend" "openops-frontend")
+    local repositories=("ops-backend" "ops-frontend")
     for repo in "${repositories[@]}"; do
         print_substep "Checking ECR repository: $repo"
         if ! aws ecr describe-repositories --repository-names "$repo" --region "$AWS_REGION" &> /dev/null; then
@@ -1662,12 +1663,12 @@ build_and_push_images() {
 
     # Build Backend image
     print_substep "Building Backend Docker image (platform: linux/arm64)..."
-    local backend_image="$ecr_base/openops-backend:latest"
-    local backend_tag="$ecr_base/openops-backend:$timestamp"
+    local backend_image="$ecr_base/ops-backend:latest"
+    local backend_tag="$ecr_base/ops-backend:$timestamp"
 
     if ! docker build --network host --platform linux/arm64 \
-        -f "$SCRIPT_DIR/Dockerfile.backend" \
-        -t "$backend_image" -t "$backend_tag" "$SCRIPT_DIR"; then
+        -f "$PROJECT_ROOT/Dockerfile.backend" \
+        -t "$backend_image" -t "$backend_tag" "$PROJECT_ROOT"; then
         print_error "Backend image build failed"
         exit 1
     fi
@@ -1680,24 +1681,24 @@ build_and_push_images() {
 
     # Build Frontend image
     print_substep "Building Frontend Docker image (platform: linux/arm64)..."
-    local frontend_image="$ecr_base/openops-frontend:latest"
-    local frontend_tag="$ecr_base/openops-frontend:$timestamp"
+    local frontend_image="$ecr_base/ops-frontend:latest"
+    local frontend_tag="$ecr_base/ops-frontend:$timestamp"
 
     # Collect domain names for frontend build args
     local fe_domain="${FRONTEND_DOMAIN:-$(_read_tfvar "frontend_domain")}"
     local api_domain="${API_DOMAIN:-$(_read_tfvar "api_domain")}"
     if [[ -z "$fe_domain" || -z "$api_domain" ]]; then
-        print_error "frontend_domain or api_domain not set. Run './deploy-all.sh --step 0' first."
+        print_error "frontend_domain or api_domain not set. Run './scripts/deploy-all.sh --step 0' first."
         exit 1
     fi
     print_info "Frontend build args: API=https://$api_domain, Frontend=$fe_domain"
 
     if ! docker build --network host --platform linux/arm64 \
-        -f "$SCRIPT_DIR/Dockerfile.frontend" \
+        -f "$PROJECT_ROOT/Dockerfile.frontend" \
         --build-arg VITE_API_BASE_URL="https://$api_domain" \
         --build-arg VITE_MICROSOFT_REDIRECT_URI="https://$fe_domain/auth/microsoft/callback" \
         --build-arg VITE_COGNITO_REDIRECT_URI="https://$fe_domain/auth/cognito/callback" \
-        -t "$frontend_image" -t "$frontend_tag" "$SCRIPT_DIR"; then
+        -t "$frontend_image" -t "$frontend_tag" "$PROJECT_ROOT"; then
         print_error "Frontend image build failed"
         exit 1
     fi
@@ -1746,7 +1747,7 @@ deploy_application() {
             configure_secrets
         else
             print_success "Secrets already present in Secrets Manager"
-            print_info "To reconfigure: ./deploy-all.sh --step secrets"
+            print_info "To reconfigure: ./scripts/deploy-all.sh --step secrets"
         fi
     fi
 
@@ -1797,11 +1798,11 @@ deploy_application() {
     sleep 15
 
     print_substep "Getting ALB addresses..."
-    local namespace="openops"
+    local namespace="ops"
     local frontend_alb
-    frontend_alb=$(kubectl get ingress openops-frontend -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "creating...")
+    frontend_alb=$(kubectl get ingress ops-frontend -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "creating...")
     local api_alb
-    api_alb=$(kubectl get ingress openops-api -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "creating...")
+    api_alb=$(kubectl get ingress ops-api -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "creating...")
 
     # Wait for ALB to be ready
     local max_wait=180
@@ -1809,8 +1810,8 @@ deploy_application() {
     while [[ "$frontend_alb" == "creating..." || "$api_alb" == "creating..." ]] && [[ $waited -lt $max_wait ]]; do
         sleep 10
         waited=$((waited + 10))
-        frontend_alb=$(kubectl get ingress openops-frontend -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "creating...")
-        api_alb=$(kubectl get ingress openops-api -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "creating...")
+        frontend_alb=$(kubectl get ingress ops-frontend -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "creating...")
+        api_alb=$(kubectl get ingress ops-api -n "$namespace" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "creating...")
         print_info "Waiting for ALB... ($waited/$max_wait seconds)"
     done
 
@@ -1949,9 +1950,9 @@ _read_configmap_env_vars() {
     export FRONTEND_DOMAIN=$(_read_tfvar "frontend_domain")
     export API_DOMAIN=$(_read_tfvar "api_domain")
 
-    export DEPLOY_ENV=$(kubectl get configmap backend-config -n openops -o jsonpath='{.data.DEPLOY_ENV}' 2>/dev/null)
-    export AWS_REGION="${AWS_REGION:-$(kubectl get configmap backend-config -n openops -o jsonpath='{.data.AWS_REGION}' 2>/dev/null)}"
-    export COGNITO_DOMAIN=$(kubectl get configmap backend-config -n openops -o jsonpath='{.data.COGNITO_DOMAIN}' 2>/dev/null)
+    export DEPLOY_ENV=$(kubectl get configmap backend-config -n ops -o jsonpath='{.data.DEPLOY_ENV}' 2>/dev/null)
+    export AWS_REGION="${AWS_REGION:-$(kubectl get configmap backend-config -n ops -o jsonpath='{.data.AWS_REGION}' 2>/dev/null)}"
+    export COGNITO_DOMAIN=$(kubectl get configmap backend-config -n ops -o jsonpath='{.data.COGNITO_DOMAIN}' 2>/dev/null)
 
     if [[ -z "$FRONTEND_DOMAIN" || -z "$API_DOMAIN" ]]; then
         return 1
@@ -1983,10 +1984,10 @@ _regenerate_and_apply_configmaps() {
     fi
 
     kubectl apply -f "$app_dir/backend-configmap.yaml" -f "$app_dir/frontend-configmap.yaml"
-    kubectl rollout restart deployment/backend deployment/frontend -n openops
+    kubectl rollout restart deployment/backend deployment/frontend -n ops
     print_info "Waiting for pods to restart..."
-    kubectl rollout status deployment/backend -n openops --timeout=120s || true
-    kubectl rollout status deployment/frontend -n openops --timeout=120s || true
+    kubectl rollout status deployment/backend -n ops --timeout=120s || true
+    kubectl rollout status deployment/frontend -n ops --timeout=120s || true
     print_success "Pods restarted with updated configmaps"
 }
 
@@ -2059,8 +2060,8 @@ deploy_global_accelerator() {
 
         # Show DNS instructions
         echo ""
-        local frontend_alb=$(kubectl get ingress openops-frontend -n openops -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "<frontend-alb>")
-        local api_alb=$(kubectl get ingress openops-api -n openops -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "<api-alb>")
+        local frontend_alb=$(kubectl get ingress ops-frontend -n ops -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "<frontend-alb>")
+        local api_alb=$(kubectl get ingress ops-api -n ops -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "<api-alb>")
 
         local frontend_domain
         frontend_domain=$(_read_tfvar "frontend_domain")
@@ -2079,8 +2080,8 @@ deploy_global_accelerator() {
 
         # Verify ALBs exist
         print_substep "Verifying ALBs exist..."
-        local ga_frontend_alb_name=$(_tf_output ga_frontend_alb_name || echo "openops-frontend-alb")
-        local ga_api_alb_name=$(_tf_output ga_api_alb_name || echo "openops-api-alb")
+        local ga_frontend_alb_name=$(_tf_output ga_frontend_alb_name || echo "ops-frontend-alb")
+        local ga_api_alb_name=$(_tf_output ga_api_alb_name || echo "ops-api-alb")
         local ga_region=$(_tf_output region || echo "$AWS_REGION")
         local frontend_alb_arn=$(aws elbv2 describe-load-balancers \
             --names "$ga_frontend_alb_name" \

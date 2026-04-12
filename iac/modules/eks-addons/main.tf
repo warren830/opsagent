@@ -110,7 +110,7 @@ resource "aws_iam_policy" "backend" {
         Effect   = "Allow"
         Action   = ["sts:AssumeRole", "sts:TagSession"]
         Resource = [
-          "arn:aws:iam::*:role/OpenOpsRole",
+          "arn:aws:iam::*:role/OpsRole",
           "arn:aws:iam::*:role/OrganizationAccountAccessRole"
         ]
       }
@@ -127,7 +127,7 @@ resource "aws_iam_role_policy_attachment" "backend" {
 
 resource "aws_eks_pod_identity_association" "backend" {
   cluster_name    = var.cluster_name
-  namespace       = "openops"
+  namespace       = "ops"
   service_account = "backend"
   role_arn        = aws_iam_role.backend.arn
 }

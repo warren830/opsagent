@@ -64,8 +64,8 @@ fi
 read -p "S3 bucket region [${DEFAULT_REGION}]: " TF_STATE_REGION
 TF_STATE_REGION="${TF_STATE_REGION:-$DEFAULT_REGION}"
 
-read -p "State key [openops/tf.state]: " TF_STATE_KEY
-TF_STATE_KEY="${TF_STATE_KEY:-openops/tf.state}"
+read -p "State key [ops/tf.state]: " TF_STATE_KEY
+TF_STATE_KEY="${TF_STATE_KEY:-ops/tf.state}"
 
 # Generate providers.tf
 export TF_STATE_BUCKET TF_STATE_REGION TF_STATE_KEY

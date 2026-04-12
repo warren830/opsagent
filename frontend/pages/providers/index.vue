@@ -287,9 +287,9 @@ async function deleteProvider() {
           <div class="flex items-center gap-3 text-[10px] text-muted-foreground/60">
             <span v-if="p.config.region">{{ p.config.region }}</span>
             <Badge
-              :variant="p.config.permission_mode === 'bypassPermissions' ? 'destructive' : 'outline'"
+              :variant="p.config.permission_mode === 'bypassPermissions' ? 'destructive' : p.config.permission_mode === 'readwrite' ? 'secondary' : 'outline'"
               class="text-[9px] px-1.5 py-0"
-            >{{ p.config.permission_mode === 'bypassPermissions' ? t('provider.permissionBypass') : t('provider.permissionDefault') }}</Badge>
+            >{{ p.config.permission_mode === 'bypassPermissions' ? t('provider.permissionBypass') : p.config.permission_mode === 'readwrite' ? t('provider.permissionReadWrite') : t('provider.permissionDefault') }}</Badge>
             <span v-if="p.is_default" class="text-primary/80 font-medium">{{ t('provider.default') }}</span>
           </div>
           <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -404,6 +404,7 @@ async function deleteProvider() {
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="readonly">{{ t('provider.permissionDefault') }}</SelectItem>
+                <SelectItem value="readwrite">{{ t('provider.permissionReadWrite') }}</SelectItem>
                 <SelectItem value="bypassPermissions">{{ t('provider.permissionBypass') }}</SelectItem>
               </SelectContent>
             </Select>

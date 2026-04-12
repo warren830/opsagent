@@ -29,19 +29,19 @@ dex:
 
 notifications:
   enabled: true
-  argocdUrl: https://argocd.openops.internal
+  argocdUrl: https://argocd.ops.internal
 
   notifiers:
-    service.webhook.openops: |
-      url: http://openops-backend.openops.svc.cluster.local:3080/api/webhooks/argocd
+    service.webhook.ops: |
+      url: http://ops-backend.ops.svc.cluster.local:3080/api/webhooks/argocd
       headers:
         - name: Content-Type
           value: application/json
 
   templates:
-    template.openops-sync: |
+    template.ops-sync: |
       webhook:
-        openops:
+        ops:
           method: POST
           body: |
             {
@@ -58,18 +58,18 @@ notifications:
   triggers:
     trigger.on-sync-succeeded: |
       - when: app.status.operationState.phase in ['Succeeded']
-        send: [openops-sync]
+        send: [ops-sync]
     trigger.on-sync-failed: |
       - when: app.status.operationState.phase in ['Error', 'Failed']
-        send: [openops-sync]
+        send: [ops-sync]
     trigger.on-health-degraded: |
       - when: app.status.health.status == 'Degraded'
-        send: [openops-sync]
+        send: [ops-sync]
 
   # Subscribe all apps by default
   subscriptions:
     - recipients:
-        - openops
+        - ops
       triggers:
         - on-sync-succeeded
         - on-sync-failed

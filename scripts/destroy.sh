@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# OpenOps - Destroy all infrastructure
+# Ops - Destroy all infrastructure
 # Reverse order: Application → Helm → Terraform
 #
 set -e
@@ -8,8 +8,9 @@ set -e
 export AWS_PAGER=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IAC_DIR="$SCRIPT_DIR/iac"
-K8S_DIR="$SCRIPT_DIR/k8s"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+IAC_DIR="$PROJECT_ROOT/iac"
+K8S_DIR="$PROJECT_ROOT/k8s"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -29,7 +30,7 @@ print_header() {
     echo ""
 }
 
-print_header "DESTROY OpenOps Infrastructure"
+print_header "DESTROY Ops Infrastructure"
 echo -e "${RED}WARNING: This will permanently destroy ALL infrastructure.${NC}"
 echo ""
 read -p "Type 'destroy' to confirm: " confirm
@@ -40,7 +41,7 @@ fi
 
 # Step 1: Delete K8s application
 log "Step 1: Deleting K8s application..."
-if kubectl get namespace openops &>/dev/null; then
+if kubectl get namespace ops &>/dev/null; then
     "$K8S_DIR/deploy.sh" delete <<< "yes
 yes" 2>/dev/null || warn "K8s app deletion had errors (continuing)"
 fi
@@ -49,7 +50,7 @@ fi
 log "Step 2: Deleting Helm releases..."
 for release in redis external-secrets metrics-server karpenter aws-load-balancer-controller; do
     local ns="kube-system"
-    [[ "$release" == "redis" ]] && ns="openops"
+    [[ "$release" == "redis" ]] && ns="ops"
     [[ "$release" == "external-secrets" ]] && ns="external-secrets"
     helm uninstall "$release" -n "$ns" 2>/dev/null || true
 done

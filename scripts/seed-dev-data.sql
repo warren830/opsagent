@@ -1,5 +1,5 @@
--- OpenOps Local Development Seed Data
--- Run via: psql -U openops -d openops -f seed-dev-data.sql
+-- Ops Local Development Seed Data
+-- Run via: psql -U ops -d ops -f seed-dev-data.sql
 -- Idempotent: only inserts into empty tables.
 
 -- Glossary: application-level terms only

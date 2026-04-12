@@ -216,7 +216,7 @@ async function openPdfFromCitation(n: number) {
   // Reuse cached data
   if (cite.page && cite.filePath) {
     try {
-      const contextId = 'openops'
+      const contextId = 'ops'
       const pdfResp = await api.post<{ url: string }>('/api/graphrag/pdf-url', {
         context_id: contextId,
         file_path: cite.filePath,
@@ -239,7 +239,7 @@ async function openPdfFromCitation(n: number) {
   }
 
   try {
-    const contextId = 'openops'
+    const contextId = 'ops'
     const bboxResp = await api.post<{
       bboxes: Array<{ page: number; bbox: { x0: number; y0: number; x1: number; y1: number }; file_path: string }>
     }>('/api/graphrag/bbox', {
@@ -284,7 +284,7 @@ async function openPdfFromGraphRag(imgFile: string, imgUrl?: string) {
   // 3. Final fallback: use GraphRAG proxy to list documents
 
   try {
-    const contextId = 'openops' // TODO: make configurable per MCP server
+    const contextId = 'ops' // TODO: make configurable per MCP server
 
     // Helper: given bbox response, open PDF viewer
     const openFromBbox = async (bboxInfo: { page: number; bbox: { x0: number; y0: number; x1: number; y1: number }; file_path: string }) => {

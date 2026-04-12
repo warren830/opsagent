@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: openops
+  namespace: ops
   labels:
     app: backend
 spec:
@@ -20,7 +20,7 @@ spec:
         karpenter.sh/nodepool: common-nodepool
       containers:
       - name: backend
-        image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/openops-backend:latest
+        image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/ops-backend:latest
         ports:
         - containerPort: 3080
           protocol: TCP

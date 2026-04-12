@@ -34,7 +34,7 @@ pub async fn build_account_env(
             "--role-arn",
             role_arn,
             "--role-session-name",
-            "openops-k8s",
+            "ops-k8s",
             "--duration-seconds",
             "900",
             "--output",

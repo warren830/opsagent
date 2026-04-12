@@ -1,4 +1,4 @@
-# OpenOps Backend - Multi-stage build
+# Ops Backend - Multi-stage build
 # Supports linux/amd64 and linux/arm64 (Graviton)
 # Requires: DOCKER_BUILDKIT=1
 
@@ -25,7 +25,7 @@ COPY backend/ .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo build --release \
-    && cp target/release/openops /app/openops
+    && cp target/release/ops /app/ops
 
 # Stage 2: Prepare screener
 FROM public.ecr.aws/docker/library/debian:bookworm-slim AS screener
@@ -33,9 +33,9 @@ FROM public.ecr.aws/docker/library/debian:bookworm-slim AS screener
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY .openops/screener* /tmp/screener-check/
+COPY .ops/screener* /tmp/screener-check/
 RUN if [ -d /tmp/screener-check/global ] && [ -f /tmp/screener-check/global/main.py ]; then \
-        echo "Using existing .openops/screener from build context" && \
+        echo "Using existing .ops/screener from build context" && \
         mkdir -p /opt/screener && \
         cp -r /tmp/screener-check/* /opt/screener/; \
     else \
@@ -76,26 +76,26 @@ RUN case "${TARGETARCH}" in \
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
 # Copy screener & install Python deps (remove any local venvs first, then recreate)
-COPY --from=screener /opt/screener /app/.openops/screener
-RUN cd /app/.openops/screener/global && rm -rf .venv && uv venv \
+COPY --from=screener /opt/screener /app/.ops/screener
+RUN cd /app/.ops/screener/global && rm -rf .venv && uv venv \
     && uv pip install --python .venv/bin/python -r requirements.txt || true \
-    && cd /app/.openops/screener/china && rm -rf .venv && uv venv \
+    && cd /app/.ops/screener/china && rm -rf .venv && uv venv \
     && uv pip install --python .venv/bin/python -r requirements.txt || true
 
 # Copy binary (from explicit path, not from cache mount)
-COPY --from=builder /app/openops /usr/local/bin/openops
+COPY --from=builder /app/ops /usr/local/bin/ops
 
 # Non-root user
-RUN groupadd -r openops && useradd -r -g openops -s /sbin/nologin -d /app openops \
-    && mkdir -p /app/workspace && chown -R openops:openops /app
+RUN groupadd -r ops && useradd -r -g ops -s /sbin/nologin -d /app ops \
+    && mkdir -p /app/workspace && chown -R ops:ops /app
 
-USER openops
+USER ops
 WORKDIR /app
 
 EXPOSE 3080
-ENV RUST_LOG=openops=info,tower_http=info
+ENV RUST_LOG=ops=info,tower_http=info
 
 HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
     CMD curl -sf http://localhost:3080/health || exit 1
 
-CMD ["openops"]
+CMD ["ops"]

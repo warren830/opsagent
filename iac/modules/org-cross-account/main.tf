@@ -20,7 +20,7 @@ locals {
 
 # EKS Pod Identity requires sts:TagSession, but OrganizationAccountAccessRole
 # (auto-created by AWS Organizations) only allows sts:AssumeRole by default.
-# This also bootstraps an OpenOpsRole (ReadOnlyAccess + targeted ops write) for
+# This also bootstraps an OpsRole (ReadOnlyAccess + targeted ops write) for
 # least-privilege access. OrganizationAccountAccessRole is kept as bootstrap/emergency only.
 resource "null_resource" "configure_child_account" {
   for_each = toset(local.child_accounts)
@@ -84,32 +84,32 @@ resource "null_resource" "configure_child_account" {
         --policy-document "$TRUST_POLICY"
       echo "  OK: OrganizationAccountAccessRole trust updated"
 
-      # Create OpenOpsRole or update its trust policy (idempotent)
+      # Create OpsRole or update its trust policy (idempotent)
       if aws iam create-role \
-           --role-name OpenOpsRole \
+           --role-name OpsRole \
            --assume-role-policy-document "$TRUST_POLICY" \
-           --tags Key=ManagedBy,Value=terraform Key=Project,Value=openops${join("", [for k, v in var.default_tags : " Key=${k},Value=${v}"])} \
+           --tags Key=ManagedBy,Value=terraform Key=Project,Value=ops${join("", [for k, v in var.default_tags : " Key=${k},Value=${v}"])} \
            2>/dev/null; then
-        echo "  OK: OpenOpsRole created"
+        echo "  OK: OpsRole created"
       else
         aws iam update-assume-role-policy \
-          --role-name OpenOpsRole \
+          --role-name OpsRole \
           --policy-document "$TRUST_POLICY"
-        echo "  OK: OpenOpsRole trust updated"
+        echo "  OK: OpsRole trust updated"
       fi
 
       # Attach managed ReadOnlyAccess
       aws iam attach-role-policy \
-        --role-name OpenOpsRole \
+        --role-name OpsRole \
         --policy-arn "arn:${var.partition}:iam::aws:policy/ReadOnlyAccess" \
         2>/dev/null || true
 
       # Attach inline ops-write policy (idempotent put)
       aws iam put-role-policy \
-        --role-name OpenOpsRole \
-        --policy-name OpenOpsWrite \
+        --role-name OpsRole \
+        --policy-name OpsWrite \
         --policy-document "$OPS_WRITE_POLICY"
-      echo "  OK: OpenOpsWrite inline policy attached"
+      echo "  OK: OpsWrite inline policy attached"
 
       echo "==> Account $ACCT done"
     EOT

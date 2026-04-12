@@ -3,24 +3,24 @@ version: "3.8"
 services:
   postgres:
     image: postgres:16
-    container_name: openops-postgres
+    container_name: ops-postgres
     environment:
-      POSTGRES_DB: openops
-      POSTGRES_USER: openops
-      POSTGRES_PASSWORD: openops_dev
+      POSTGRES_DB: ops
+      POSTGRES_USER: ops
+      POSTGRES_PASSWORD: ops_dev
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openops"]
+      test: ["CMD-SHELL", "pg_isready -U ops"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: openops-redis
+    container_name: ops-redis
     ports:
       - "6379:6379"
     healthcheck:

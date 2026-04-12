@@ -1,4 +1,4 @@
-# Quick Reference Guide - OpenOps Terraform Infrastructure
+# Quick Reference Guide - Ops Terraform Infrastructure
 
 ## Module Dependency Diagram
 
@@ -93,7 +93,7 @@ Breaking down:
 | Service | Namespace | Service Account | IAM Role |
 |---------|-----------|-----------------|----------|
 | AWS Load Balancer Controller | kube-system | aws-load-balancer-controller | `{prefix}-albc` |
-| Backend Application | openops | backend | `{prefix}-backend` |
+| Backend Application | ops | backend | `{prefix}-backend` |
 | External Secrets Operator | external-secrets | external-secrets | `{prefix}-eso` |
 | EBS CSI Driver | kube-system | ebs-csi-controller-sa | Node role |
 
@@ -116,7 +116,7 @@ Breaking down:
 | Component | Value |
 |-----------|-------|
 | Engine | Aurora PostgreSQL |
-| Database Name | openops |
+| Database Name | ops |
 | Master Username | postgres |
 | Master Password | Stored in Secrets Manager |
 | Instance Class (dev) | db.r6g.large |
@@ -161,12 +161,12 @@ Breaking down:
 ```hcl
 backend "s3" {
   region = "us-west-1"
-  bucket = "openops-tfstate-612674025488"
-  key    = "openops/tf.state"
+  bucket = "ops-tfstate-612674025488"
+  key    = "ops/tf.state"
 }
 ```
 
-**State File Location:** `s3://openops-tfstate-612674025488/openops/tf.state`
+**State File Location:** `s3://ops-tfstate-612674025488/ops/tf.state`
 
 ---
 
@@ -178,7 +178,7 @@ provider "aws" {
   
   default_tags {
     tags = {
-      Project     = "openops"
+      Project     = "ops"
       Environment = terraform.workspace
       ManagedBy   = "terraform"
     }
@@ -191,7 +191,7 @@ provider "aws" {
 ## Important File Locations
 
 ```
-/Users/kolya/kolya-projects/openops/iac/
+/Users/kolya/kolya-projects/ops/iac/
 ├── main.tf                              # Module composition
 ├── variables.tf                         # Root variable definitions
 ├── outputs.tf                           # Root outputs

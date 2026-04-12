@@ -152,7 +152,7 @@ wheels = [
 ]
 
 [[package]]
-name = "openops"
+name = "ops"
 version = "0.1.0"
 source = { virtual = "." }
 
