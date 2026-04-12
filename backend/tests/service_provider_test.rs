@@ -3,7 +3,7 @@ mod helpers;
 use sqlx::PgPool;
 use openops::middleware::auth::AuthUser;
 use openops::services::provider;
-use openops::models::provider::CreateProviderRequest;
+use openops::models::provider::{CreateProviderRequest, UpdateProviderRequest};
 use openops::error::AppError;
 use uuid::Uuid;
 
@@ -118,11 +118,7 @@ async fn test_create_non_admin_forbidden(pool: PgPool) {
     let m = member(tid);
 
     let result = provider::create(&pool, &m, make_req("Nope", false)).await;
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        AppError::Forbidden(_) => {}
-        other => panic!("Expected Forbidden, got {:?}", other),
-    }
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[sqlx::test(migrations = "src/migrations")]
@@ -159,4 +155,83 @@ fn test_available_types_non_local() {
     let types = provider::available_types(false);
     assert_eq!(types.len(), 1);
     assert_eq!(types[0].value, "gateway");
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_success(pool: PgPool) {
+    let tid = seed_tenant(&pool).await;
+    let admin = admin_with_tenant(tid);
+
+    let p = provider::create(&pool, &admin, make_req("Original", false)).await.unwrap();
+    assert_eq!(p.name, "Original");
+
+    let updated = provider::update(
+        &pool,
+        &admin,
+        p.id,
+        UpdateProviderRequest {
+            name: Some("Renamed".to_string()),
+            provider_type: None,
+            config: None,
+            is_default: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(updated.name, "Renamed");
+    assert_eq!(updated.id, p.id);
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_not_found(pool: PgPool) {
+    let tid = seed_tenant(&pool).await;
+    let admin = admin_with_tenant(tid);
+
+    let result = provider::update(
+        &pool,
+        &admin,
+        Uuid::new_v4(),
+        UpdateProviderRequest {
+            name: Some("Ghost".to_string()),
+            provider_type: None,
+            config: None,
+            is_default: None,
+        },
+    )
+    .await;
+
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_other_tenant_forbidden(pool: PgPool) {
+    let tid1 = seed_tenant(&pool).await;
+    let admin1 = admin_with_tenant(tid1);
+
+    let p = provider::create(&pool, &admin1, make_req("Owned", false)).await.unwrap();
+
+    // Different tenant admin
+    let tid2: Uuid = sqlx::query_scalar(
+        "INSERT INTO tenants (name, slug) VALUES ('t2', 't2') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let admin2 = admin_with_tenant(tid2);
+
+    let result = provider::update(
+        &pool,
+        &admin2,
+        p.id,
+        UpdateProviderRequest {
+            name: Some("Hacked".to_string()),
+            provider_type: None,
+            config: None,
+            is_default: None,
+        },
+    )
+    .await;
+
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }

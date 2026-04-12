@@ -236,3 +236,47 @@ async fn test_reject_success(pool: PgPool) {
     assert_eq!(result.reviewed_by, Some(admin.user_id));
     assert!(result.reviewed_at.is_some());
 }
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_reject_already_processed(pool: PgPool) {
+    let t1 = seed_tenant(&pool).await;
+    let u1 = seed_user_record(&pool, "requester", Some(t1)).await;
+    let approval_id = seed_approval(&pool, Some(t1), u1).await;
+
+    let admin = seed_super_admin_auth(&pool, "rejector_admin").await;
+    // Reject once — should succeed
+    approval::reject(&pool, &admin, approval_id).await.unwrap();
+
+    // Reject again — should fail because status is no longer 'pending'
+    let result = approval::reject(&pool, &admin, approval_id).await;
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        AppError::NotFound(msg) => {
+            assert!(
+                msg.contains("already processed") || msg.contains("not found"),
+                "Expected already-processed message, got: {}",
+                msg
+            );
+        }
+        other => panic!("Expected NotFound, got {:?}", other),
+    }
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_reject_other_tenant_forbidden(pool: PgPool) {
+    let t1 = seed_tenant_named(&pool, "Tenant A", "ta").await;
+    let t2 = seed_tenant_named(&pool, "Tenant B", "tb").await;
+
+    let u1 = seed_user_record(&pool, "requester_t1", Some(t1)).await;
+    let approval_id = seed_approval(&pool, Some(t1), u1).await;
+
+    // Member from t2 tries to reject t1's approval
+    let m_t2 = member(t2);
+    let result = approval::reject(&pool, &m_t2, approval_id).await;
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        AppError::Forbidden(_) => {}
+        other => panic!("Expected Forbidden, got {:?}", other),
+    }
+}
