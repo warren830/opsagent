@@ -898,12 +898,14 @@ async fn setup_user_skill_symlinks(
         return;
     }
 
-    // Query authorized skills (same WHERE clause as list handler)
-    // Use IS NOT DISTINCT FROM for tenant_id because both sides can be NULL
+    // Query authorized skills with layer override: private (user_id) takes priority
+    // over public (user_id IS NULL) for same name. DISTINCT ON + ORDER BY ensures
+    // the private version wins when both exist.
     let authorized: Vec<(String, Option<String>)> = sqlx::query_as(
-        r#"SELECT name, repo_path FROM skills
+        r#"SELECT DISTINCT ON (name) name, repo_path FROM skills
            WHERE enabled = true AND repo_path IS NOT NULL
-             AND ((user_id = $1) OR (user_id IS NULL AND tenant_id IS NOT DISTINCT FROM $2))"#,
+             AND ((user_id = $1) OR (user_id IS NULL AND tenant_id IS NOT DISTINCT FROM $2))
+           ORDER BY name, user_id NULLS LAST"#,
     )
     .bind(user_id)
     .bind(tenant_id)

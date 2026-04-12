@@ -305,6 +305,155 @@ pub async fn create(
     Ok(installed)
 }
 
+// ─── Inline (no git) ───────────────────────────────────────────────────────
+
+/// Request for creating an inline skill
+#[derive(Debug)]
+pub struct CreateInlineSkillRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub instructions: String,
+    pub visibility: String,
+}
+
+/// Create a skill from inline content (no git clone).
+/// Writes SKILL.md to workspace and sets repo_path.
+pub async fn create_inline(
+    pool: &PgPool,
+    auth_user: &AuthUser,
+    req: CreateInlineSkillRequest,
+    work_dir: &str,
+) -> AppResult<Skill> {
+    use crate::services::common::require_non_empty;
+    require_non_empty(&req.name, "Name")?;
+    require_non_empty(&req.instructions, "Instructions")?;
+
+    let visibility = match req.visibility.as_str() {
+        "public" | "private" => req.visibility.clone(),
+        _ => "private".to_string(),
+    };
+
+    let tenant_id = auth_user.tenant_id;
+    let user_id = if visibility == "private" {
+        Some(auth_user.user_id)
+    } else {
+        None
+    };
+
+    let tenant_dir = tenant_id
+        .map(|t| t.to_string())
+        .unwrap_or_else(|| "global".to_string());
+
+    // Sanitize name for directory
+    let dir_name = req
+        .name
+        .to_lowercase()
+        .replace(
+            |c: char| !c.is_alphanumeric() && c != '-' && c != '_',
+            "-",
+        )
+        .trim_matches('-')
+        .to_string();
+    let dir_name = if dir_name.is_empty() {
+        uuid::Uuid::new_v4().to_string()
+    } else {
+        dir_name
+    };
+
+    // Build path and create directory
+    let skills_base = std::path::PathBuf::from(work_dir)
+        .join(&tenant_dir)
+        .join("skills");
+    tokio::fs::create_dir_all(&skills_base)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to create skills directory: {}", e)))?;
+    let dest = skills_base.join(&dir_name);
+    tokio::fs::create_dir_all(&dest)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to create skill directory: {}", e)))?;
+
+    // Write SKILL.md with frontmatter
+    let skill_md = format!(
+        "---\nname: {}\ndescription: {}\n---\n\n{}",
+        req.name,
+        req.description.as_deref().unwrap_or(""),
+        req.instructions
+    );
+    tokio::fs::write(dest.join("SKILL.md"), &skill_md)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to write SKILL.md: {}", e)))?;
+
+    let repo_path = dest.to_string_lossy().to_string();
+
+    // Insert into DB
+    let skill = sqlx::query_as::<_, Skill>(
+        r#"INSERT INTO skills (name, description, instructions, repo_path, visibility, enabled, tenant_id, user_id, created_by)
+           VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8)
+           RETURNING id, name, description, instructions, git_url, repo_path,
+                     visibility, enabled, tenant_id, user_id, created_by, created_at, updated_at"#,
+    )
+    .bind(&req.name)
+    .bind(&req.description)
+    .bind(&req.instructions)
+    .bind(&repo_path)
+    .bind(&visibility)
+    .bind(tenant_id)
+    .bind(user_id)
+    .bind(auth_user.user_id)
+    .fetch_one(pool)
+    .await?;
+
+    tracing::info!("Created inline skill '{}' at {:?}", req.name, dest);
+    Ok(skill)
+}
+
+/// Update a skill's instructions (hot reload — rewrites SKILL.md).
+pub async fn update_inline(
+    pool: &PgPool,
+    auth_user: &AuthUser,
+    id: Uuid,
+    name: Option<&str>,
+    description: Option<&str>,
+    instructions: Option<&str>,
+) -> AppResult<Skill> {
+    let _skill = get_skill_with_access(pool, id, auth_user).await?;
+
+    let updated = sqlx::query_as::<_, Skill>(
+        r#"UPDATE skills SET
+           name = COALESCE($2, name),
+           description = COALESCE($3, description),
+           instructions = COALESCE($4, instructions),
+           updated_at = NOW()
+           WHERE id = $1
+           RETURNING id, name, description, instructions, git_url, repo_path,
+                     visibility, enabled, tenant_id, user_id, created_by, created_at, updated_at"#,
+    )
+    .bind(id)
+    .bind(name)
+    .bind(description)
+    .bind(instructions)
+    .fetch_one(pool)
+    .await?;
+
+    // Hot reload: rewrite SKILL.md if repo_path exists and instructions changed
+    if let (Some(path), Some(new_instructions)) = (&updated.repo_path, instructions) {
+        let skill_md = format!(
+            "---\nname: {}\ndescription: {}\n---\n\n{}",
+            updated.name,
+            updated.description.as_deref().unwrap_or(""),
+            new_instructions
+        );
+        let md_path = std::path::Path::new(path).join("SKILL.md");
+        if let Err(e) = tokio::fs::write(&md_path, &skill_md).await {
+            tracing::warn!("Failed to hot-reload SKILL.md at {:?}: {}", md_path, e);
+        } else {
+            tracing::info!("Hot-reloaded SKILL.md for skill '{}'", updated.name);
+        }
+    }
+
+    Ok(updated)
+}
+
 // ─── Update ─────────────────────────────────────────────────────────────────
 
 /// Re-download a skill from its git_url and update name/description.

@@ -244,6 +244,8 @@ fn build_router(state: AppState) -> Router {
         // Skills (DB + git clone)
         .route("/api/skills", get(handlers::skill::list).post(handlers::skill::create))
         .route("/api/skills/discover", post(handlers::skill::discover))
+        .route("/api/skills/inline", post(handlers::skill::create_inline))
+        .route("/api/skills/{id}/inline", put(handlers::skill::update_inline))
         .route(
             "/api/skills/{id}",
             put(handlers::skill::update).delete(handlers::skill::delete),
