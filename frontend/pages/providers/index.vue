@@ -61,6 +61,18 @@ const form = ref({
   permission_mode: 'readonly',
 })
 
+function permBadgeVariant(mode: unknown): string {
+  if (mode === 'bypassPermissions') return 'destructive'
+  if (mode === 'readwrite') return 'secondary'
+  return 'outline'
+}
+
+function permBadgeLabel(mode: unknown): string {
+  if (mode === 'bypassPermissions') return t('provider.permissionBypass')
+  if (mode === 'readwrite') return t('provider.permissionReadWrite')
+  return t('provider.permissionDefault')
+}
+
 // Model presets per provider type
 const bedrockModels = [
   { id: 'us.anthropic.claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
@@ -287,9 +299,9 @@ async function deleteProvider() {
           <div class="flex items-center gap-3 text-[10px] text-muted-foreground/60">
             <span v-if="p.config.region">{{ p.config.region }}</span>
             <Badge
-              :variant="p.config.permission_mode === 'bypassPermissions' ? 'destructive' : p.config.permission_mode === 'readwrite' ? 'secondary' : 'outline'"
+              :variant="permBadgeVariant(p.config.permission_mode)"
               class="text-[9px] px-1.5 py-0"
-            >{{ p.config.permission_mode === 'bypassPermissions' ? t('provider.permissionBypass') : p.config.permission_mode === 'readwrite' ? t('provider.permissionReadWrite') : t('provider.permissionDefault') }}</Badge>
+            >{{ permBadgeLabel(p.config.permission_mode) }}</Badge>
             <span v-if="p.is_default" class="text-primary/80 font-medium">{{ t('provider.default') }}</span>
           </div>
           <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
