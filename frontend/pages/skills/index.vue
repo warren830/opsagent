@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Trash2, RefreshCw, GitBranch, Download, Search, Loader2, Check } from 'lucide-vue-next'
+import { Plus, Trash2, RefreshCw, GitBranch, Download, Search, Loader2, Check, Pencil, FileText } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
 import DataTable from '@/components/shared/DataTable.vue'
 import ConfirmDialog from '@/components/shared/ConfirmDialog.vue'
 
@@ -26,6 +27,7 @@ interface Skill {
   id: string
   name: string
   description: string | null
+  instructions: string | null
   git_url: string | null
   repo_path: string | null
   visibility: string
@@ -229,6 +231,73 @@ function truncateDesc(desc: string | null, len: number): string {
   if (!desc) return ''
   return desc.length > len ? desc.slice(0, len) + '...' : desc
 }
+
+// ─── Inline (manual) skill creation/editing ────────────────────────────────
+
+const showInlineDialog = ref(false)
+const inlineMode = ref<'create' | 'edit'>('create')
+const inlineSubmitting = ref(false)
+const inlineEditId = ref<string | null>(null)
+const inlineName = ref('')
+const inlineDescription = ref('')
+const inlineVisibility = ref('private')
+const inlineInstructions = ref('')
+
+function openInlineCreate() {
+  inlineMode.value = 'create'
+  inlineEditId.value = null
+  inlineName.value = ''
+  inlineDescription.value = ''
+  inlineVisibility.value = 'private'
+  inlineInstructions.value = ''
+  showInlineDialog.value = true
+}
+
+function openInlineEdit(skill: Skill) {
+  inlineMode.value = 'edit'
+  inlineEditId.value = skill.id
+  inlineName.value = skill.name
+  inlineDescription.value = skill.description || ''
+  inlineVisibility.value = skill.visibility
+  inlineInstructions.value = skill.instructions || ''
+  showInlineDialog.value = true
+}
+
+function closeInline() {
+  showInlineDialog.value = false
+  inlineSubmitting.value = false
+}
+
+async function submitInline() {
+  if (!inlineName.value.trim() || !inlineInstructions.value.trim()) return
+  inlineSubmitting.value = true
+  try {
+    if (inlineMode.value === 'create') {
+      await api.post('/api/skills/inline', {
+        name: inlineName.value.trim(),
+        description: inlineDescription.value.trim() || null,
+        instructions: inlineInstructions.value,
+        visibility: inlineVisibility.value,
+      })
+      toast.success(t('skill.inlineCreated'))
+    } else if (inlineEditId.value) {
+      await api.put(`/api/skills/${inlineEditId.value}/inline`, {
+        name: inlineName.value.trim(),
+        description: inlineDescription.value.trim() || null,
+        instructions: inlineInstructions.value,
+      })
+      toast.success(t('skill.inlineUpdated'))
+    }
+    closeInline()
+    await fetchSkills()
+    skillsVersion.value++
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : t('common.error')
+    toast.error(msg)
+  } finally {
+    inlineSubmitting.value = false
+  }
+}
 </script>
 
 <template>
@@ -240,6 +309,10 @@ function truncateDesc(desc: string | null, len: number): string {
         <Badge variant="secondary" class="text-[10px]">{{ skills.length }}</Badge>
       </div>
       <div class="flex items-center gap-1.5">
+        <Button size="sm" variant="outline" @click="openInlineCreate">
+          <FileText class="h-3.5 w-3.5" />
+          {{ t('skill.createManually') }}
+        </Button>
         <Button size="sm" @click="openAdd">
           <Plus class="h-3.5 w-3.5" />
           {{ t('skill.addFromGit') }}
@@ -285,9 +358,13 @@ function truncateDesc(desc: string | null, len: number): string {
       </template>
 
       <template #cell-source="{ row }">
-        <span class="text-[11px] font-mono text-muted-foreground/70 truncate max-w-[200px] inline-block">
-          {{ (row as Skill).git_url || '-' }}
+        <span v-if="(row as Skill).git_url" class="text-[11px] font-mono text-muted-foreground/70 truncate max-w-[200px] inline-block">
+          {{ (row as Skill).git_url }}
         </span>
+        <Badge v-else-if="(row as Skill).instructions" variant="secondary" class="text-[10px]">
+          {{ t('skill.inline') }}
+        </Badge>
+        <span v-else class="text-[11px] text-muted-foreground/40">-</span>
       </template>
 
       <template #cell-updated_at="{ row }">
@@ -297,6 +374,15 @@ function truncateDesc(desc: string | null, len: number): string {
       </template>
 
       <template #actions="{ row }">
+        <Button
+          v-if="(row as Skill).instructions"
+          variant="ghost"
+          size="icon-sm"
+          :title="t('skill.editInline')"
+          @click="openInlineEdit(row as Skill)"
+        >
+          <Pencil class="h-3 w-3" />
+        </Button>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -438,5 +524,87 @@ class="mt-0.5 h-4 w-4 rounded border flex items-center justify-center shrink-0 t
       @confirm="deleteSkill"
       @cancel="showDeleteDialog = false; deletingSkill = null"
     />
+
+    <!-- Inline Skill Dialog (Create / Edit) -->
+    <Dialog :open="showInlineDialog" @update:open="(val) => { if (!val) closeInline() }">
+      <DialogContent class="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{{ inlineMode === 'create' ? t('skill.createManually') : t('skill.editInline') }}</DialogTitle>
+          <DialogDescription>{{ inlineMode === 'create' ? t('skill.createManuallyDesc') : t('skill.editInlineDesc') }}</DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-3">
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">{{ t('skill.name') }} *</label>
+            <Input
+              v-model="inlineName"
+              :placeholder="t('skill.name')"
+              required
+              class="h-8"
+            />
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">{{ t('skill.description') }}</label>
+            <Input
+              v-model="inlineDescription"
+              :placeholder="t('skill.description')"
+              class="h-8"
+            />
+          </div>
+
+          <div v-if="inlineMode === 'create'" class="space-y-1.5">
+            <label class="text-xs font-medium">{{ t('skill.visibility') }}</label>
+            <div class="flex gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                :variant="inlineVisibility === 'private' ? 'default' : 'outline'"
+                @click="inlineVisibility = 'private'"
+              >
+                {{ t('skill.private') }}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                :variant="inlineVisibility === 'public' ? 'default' : 'outline'"
+                @click="inlineVisibility = 'public'"
+              >
+                {{ t('skill.public') }}
+              </Button>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">{{ t('skill.instructions') }} *</label>
+            <Textarea
+              v-model="inlineInstructions"
+              :placeholder="t('skill.instructionsHint')"
+              required
+              class="min-h-[200px] font-mono text-[11px] resize-y"
+            />
+          </div>
+        </div>
+
+        <DialogFooter class="gap-1.5 pt-1">
+          <Button type="button" variant="outline" size="sm" @click="closeInline">
+            {{ t('common.cancel') }}
+          </Button>
+          <Button
+            size="sm"
+            :disabled="inlineSubmitting || !inlineName.trim() || !inlineInstructions.trim()"
+            @click="submitInline"
+          >
+            <Loader2 v-if="inlineSubmitting" class="h-3 w-3 animate-spin" />
+            <Plus v-else-if="inlineMode === 'create'" class="h-3 w-3" />
+            <Check v-else class="h-3 w-3" />
+            {{ inlineSubmitting
+              ? (inlineMode === 'create' ? t('skill.creating') : t('skill.saving'))
+              : (inlineMode === 'create' ? t('skill.createManually') : t('common.save'))
+            }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
