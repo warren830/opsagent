@@ -1,10 +1,14 @@
 pub mod account_access;
 pub mod approval;
 pub mod channel;
+pub mod cluster;
 pub mod common;
 pub mod dashboard;
 pub mod glossary;
+pub mod knowledge;
+pub mod pipeline;
 pub mod provider;
+pub mod scheduled_job;
 pub mod telemetry;
 pub mod tenant;
 pub mod user;
