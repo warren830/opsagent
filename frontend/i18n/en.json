@@ -394,7 +394,18 @@
     "addSuccess": "Skills installed successfully",
     "updateSuccess": "Skill updated successfully",
     "confirmRemove": "Are you sure you want to remove this skill?",
-    "cliInfo": "Skills extend AI capabilities. Private skills are visible only to you; public skills are shared within the tenant."
+    "cliInfo": "Skills extend AI capabilities. Private skills are visible only to you; public skills are shared within the tenant.",
+    "createManually": "Create Manually",
+    "createManuallyDesc": "Create a skill by writing instructions directly.",
+    "editInline": "Edit",
+    "editInlineDesc": "Edit skill name, description, and instructions.",
+    "instructions": "Instructions",
+    "instructionsHint": "Markdown instructions that define what this skill does. Supports SKILL.md format.",
+    "inlineCreated": "Skill created successfully",
+    "inlineUpdated": "Skill updated successfully",
+    "creating": "Creating...",
+    "saving": "Saving...",
+    "inline": "Inline"
   },
   "mcp": {
     "title": "MCP Servers",
