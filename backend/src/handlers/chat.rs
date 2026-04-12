@@ -980,24 +980,16 @@ async fn load_provider_config(
             .unwrap_or("readonly")
             .to_string();
 
-        // Map config value to CLI --permission-mode flag
-        // readonly → "default": blocks reads outside workspace (CWD), no interactive terminal
-        // readwrite → "default": same sandbox, but Write/Edit/Bash allowed
-        // bypassPermissions → "bypassPermissions": full access
         let cli_permission_mode = if permission_mode == "bypassPermissions" {
             "bypassPermissions".to_string()
         } else {
+            // readonly & readwrite both use "default" sandbox (CWD-scoped)
             "default".to_string()
         };
 
-        let (disallowed_tools, allowed_tools) = if permission_mode == "bypassPermissions" {
-            // Full access — no restrictions
-            (Vec::new(), Vec::new())
-        } else if permission_mode == "readwrite" {
-            // Read-write in CWD: allow Write/Edit/Bash, but still sandboxed to workspace
+        let (disallowed_tools, allowed_tools) = if permission_mode == "bypassPermissions" || permission_mode == "readwrite" {
             (Vec::new(), Vec::new())
         } else {
-            // readonly: block write tools, restrict Bash to read-only
             let disallowed = config
                 .get("disallowed_tools")
                 .and_then(|v| v.as_array())
