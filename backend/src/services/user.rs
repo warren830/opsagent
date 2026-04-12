@@ -50,7 +50,7 @@ pub async fn create(
 
     if req.role == "member" && req.tenant_id.is_none() {
         return Err(AppError::BadRequest(
-            "tenant_id is required for tenant_admin role".to_string(),
+            "tenant_id is required for member role".to_string(),
         ));
     }
 

@@ -3,7 +3,7 @@ mod helpers;
 use sqlx::PgPool;
 use openops::middleware::auth::AuthUser;
 use openops::services::glossary;
-use openops::models::glossary::CreateGlossaryRequest;
+use openops::models::glossary::{CreateGlossaryRequest, UpdateGlossaryRequest};
 use openops::error::AppError;
 use uuid::Uuid;
 
@@ -157,4 +157,56 @@ async fn test_delete_non_admin_no_account_forbidden(pool: PgPool) {
         AppError::Forbidden(_) => {}
         other => panic!("Expected Forbidden, got {:?}", other),
     }
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_success(pool: PgPool) {
+    let admin = super_admin();
+
+    let created = glossary::create(&pool, &admin, CreateGlossaryRequest {
+        term: "API".to_string(),
+        full_name: Some("Application Programming Interface".to_string()),
+        description: None,
+        aliases: vec![],
+        aws_accounts: vec![],
+        services: vec![],
+        account_id: None,
+    }).await.unwrap();
+
+    let updated = glossary::update(&pool, &admin, created.id, UpdateGlossaryRequest {
+        term: Some("REST API".to_string()),
+        full_name: None,
+        description: Some("RESTful API endpoint".to_string()),
+        aliases: None,
+        aws_accounts: None,
+        services: None,
+        account_id: None,
+    }).await.unwrap();
+
+    assert_eq!(updated.id, created.id);
+    assert_eq!(updated.term, "REST API");
+    assert_eq!(updated.full_name, Some("Application Programming Interface".to_string())); // unchanged
+    assert_eq!(updated.description, Some("RESTful API endpoint".to_string()));
+
+    // Verify persisted by re-listing
+    let entries = glossary::list(&pool, &admin, None).await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].term, "REST API");
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_not_found(pool: PgPool) {
+    let admin = super_admin();
+
+    let result = glossary::update(&pool, &admin, Uuid::new_v4(), UpdateGlossaryRequest {
+        term: Some("Ghost".to_string()),
+        full_name: None,
+        description: None,
+        aliases: None,
+        aws_accounts: None,
+        services: None,
+        account_id: None,
+    }).await;
+
+    assert!(matches!(result, Err(AppError::NotFound(_))));
 }
