@@ -89,7 +89,7 @@ pub async fn receive(
 
     // Record event — cluster_id may be null if we couldn't match the server URL
     if let Some(cid) = cluster_id {
-        super::rollout::record_event(
+        crate::services::rollout::record_event(
             &state.pool,
             cid,
             namespace,

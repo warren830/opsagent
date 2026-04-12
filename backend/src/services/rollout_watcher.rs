@@ -9,7 +9,7 @@ use uuid::Uuid;
 use kube::api::{Api, DynamicObject};
 use sqlx::PgPool;
 
-use crate::handlers::rollout::{record_event, rollout_api_resource};
+use crate::services::rollout::{record_event, rollout_api_resource};
 use crate::models::cluster::Cluster;
 use crate::services::k8s::build_k8s_client;
 
