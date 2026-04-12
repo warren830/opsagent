@@ -393,7 +393,18 @@
     "addSuccess": "技能安装成功",
     "updateSuccess": "技能更新成功",
     "confirmRemove": "确定要移除此技能吗？",
-    "cliInfo": "技能扩展 AI 能力。私有技能仅自己可见，公开技能在租户内共享。"
+    "cliInfo": "技能扩展 AI 能力。私有技能仅自己可见，公开技能在租户内共享。",
+    "createManually": "手动创建",
+    "createManuallyDesc": "直接编写指令来创建技能。",
+    "editInline": "编辑",
+    "editInlineDesc": "编辑技能名称、描述和指令。",
+    "instructions": "指令",
+    "instructionsHint": "定义技能功能的 Markdown 指令，支持 SKILL.md 格式。",
+    "inlineCreated": "技能创建成功",
+    "inlineUpdated": "技能更新成功",
+    "creating": "创建中...",
+    "saving": "保存中...",
+    "inline": "内置"
   },
   "mcp": {
     "title": "MCP 服务器",

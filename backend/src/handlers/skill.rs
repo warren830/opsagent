@@ -30,6 +30,22 @@ fn default_visibility() -> String {
     "private".to_string()
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreateInlineRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub instructions: String,
+    #[serde(default = "default_visibility")]
+    pub visibility: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateInlineRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub instructions: Option<String>,
+}
+
 // ─── Handlers ───────────────────────────────────────────────────────────────
 
 /// GET /api/skills
@@ -86,4 +102,45 @@ pub async fn delete(
 ) -> AppResult<Json<serde_json::Value>> {
     services::skill::delete(&state.pool, &auth_user, id).await?;
     Ok(Json(serde_json::json!({ "message": "Skill removed" })))
+}
+
+/// POST /api/skills/inline — create a skill from inline instructions
+pub async fn create_inline(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Json(req): Json<CreateInlineRequest>,
+) -> AppResult<Json<Skill>> {
+    let svc_req = services::skill::CreateInlineSkillRequest {
+        name: req.name,
+        description: req.description,
+        instructions: req.instructions,
+        visibility: req.visibility,
+    };
+    let skill = services::skill::create_inline(
+        &state.pool,
+        &auth_user,
+        svc_req,
+        &state.config.claude_work_dir,
+    )
+    .await?;
+    Ok(Json(skill))
+}
+
+/// PUT /api/skills/{id}/inline — update skill instructions (hot reload)
+pub async fn update_inline(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateInlineRequest>,
+) -> AppResult<Json<Skill>> {
+    let skill = services::skill::update_inline(
+        &state.pool,
+        &auth_user,
+        id,
+        req.name.as_deref(),
+        req.description.as_deref(),
+        req.instructions.as_deref(),
+    )
+    .await?;
+    Ok(Json(skill))
 }
