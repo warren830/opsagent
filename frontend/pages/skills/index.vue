@@ -76,7 +76,7 @@ const filteredSkills = computed(() => {
 const columns = computed(() => [
   { key: 'name', label: t('skill.name') },
   { key: 'description', label: t('skill.description') },
-  { key: 'visibility', label: t('skill.visibility') },
+  { key: 'scope', label: t('skill.scope') },
   { key: 'source', label: t('skill.source') },
   { key: 'updated_at', label: t('skill.updatedAt') },
 ])
@@ -348,12 +348,27 @@ async function submitInline() {
         </span>
       </template>
 
-      <template #cell-visibility="{ row }">
+      <template #cell-scope="{ row }">
         <Badge
-          :variant="(row as Skill).visibility === 'public' ? 'default' : 'secondary'"
-          class="text-[10px]"
+          v-if="(row as Skill).user_id"
+          variant="secondary"
+          class="text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/20"
         >
-          {{ (row as Skill).visibility === 'public' ? t('skill.public') : t('skill.private') }}
+          {{ t('skill.scopeUser') }}
+        </Badge>
+        <Badge
+          v-else-if="(row as Skill).tenant_id"
+          variant="secondary"
+          class="text-[10px] bg-orange-500/10 text-orange-400 border-orange-500/20"
+        >
+          {{ t('skill.scopeTenant') }}
+        </Badge>
+        <Badge
+          v-else
+          variant="secondary"
+          class="text-[10px] bg-green-500/10 text-green-400 border-green-500/20"
+        >
+          {{ t('skill.scopeGlobal') }}
         </Badge>
       </template>
 
