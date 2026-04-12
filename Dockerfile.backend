@@ -75,11 +75,11 @@ RUN case "${TARGETARCH}" in \
 # uv (Python package manager) — install to /usr/local so non-root can use
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
-# Copy screener & install Python deps
+# Copy screener & install Python deps (remove any local venvs first, then recreate)
 COPY --from=screener /opt/screener /app/.openops/screener
-RUN cd /app/.openops/screener/global && uv venv \
+RUN cd /app/.openops/screener/global && rm -rf .venv && uv venv \
     && uv pip install --python .venv/bin/python -r requirements.txt || true \
-    && cd /app/.openops/screener/china && uv venv \
+    && cd /app/.openops/screener/china && rm -rf .venv && uv venv \
     && uv pip install --python .venv/bin/python -r requirements.txt || true
 
 # Copy binary (from explicit path, not from cache mount)
