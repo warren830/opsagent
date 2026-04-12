@@ -65,6 +65,13 @@ variable "ga_api_alb_name" {
   default     = "openops-api-alb"
 }
 
+# Observability configuration
+variable "enable_self_hosted_observability" {
+  description = "Deploy self-hosted observability stack (Grafana, Mimir, Loki, Tempo) instead of Grafana Cloud"
+  type        = bool
+  default     = false
+}
+
 # Cognito configuration
 variable "enable_cognito" {
   description = "Enable AWS Cognito for user authentication (cloud deployments only)"

@@ -108,8 +108,11 @@ resource "aws_iam_policy" "backend" {
       },
       {
         Effect   = "Allow"
-        Action   = ["sts:AssumeRole"]
-        Resource = "arn:aws:iam::*:role/OpenOpsReadOnly"
+        Action   = ["sts:AssumeRole", "sts:TagSession"]
+        Resource = [
+          "arn:aws:iam::*:role/OpenOpsRole",
+          "arn:aws:iam::*:role/OrganizationAccountAccessRole"
+        ]
       }
     ]
   })
@@ -127,6 +130,22 @@ resource "aws_eks_pod_identity_association" "backend" {
   namespace       = "openops"
   service_account = "backend"
   role_arn        = aws_iam_role.backend.arn
+}
+
+resource "aws_eks_access_entry" "backend" {
+  cluster_name  = var.cluster_name
+  principal_arn = aws_iam_role.backend.arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "backend" {
+  cluster_name  = var.cluster_name
+  principal_arn = aws_iam_role.backend.arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminViewPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
 }
 
 # ── KMS CMK for Secrets Manager encryption ───────────────────

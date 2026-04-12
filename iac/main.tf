@@ -192,3 +192,11 @@ module "waf" {
   # Tags
   default_tags = local.default_tags
 }
+
+# ── Org Cross-Account Setup ─────────────────────────────────
+# Updates trust policies + creates OpenOpsRole on all child accounts
+module "org_cross_account" {
+  source                = "./modules/org-cross-account"
+  management_account_id = local.account
+  default_tags          = local.default_tags
+}
