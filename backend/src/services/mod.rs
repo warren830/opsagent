@@ -27,3 +27,4 @@ pub mod refresh_token;
 pub mod rollout_guard;
 pub mod rollout_watcher;
 pub mod scheduler;
+pub mod skill;
