@@ -3,8 +3,8 @@ mod helpers;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use openops::middleware::auth::AuthUser;
-use openops::services::rollout;
+use ops::middleware::auth::AuthUser;
+use ops::services::rollout;
 
 async fn seed_tenant(pool: &PgPool) -> Uuid {
     sqlx::query_scalar("INSERT INTO tenants (name, slug) VALUES ('t', 't') RETURNING id")

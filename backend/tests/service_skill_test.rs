@@ -1,8 +1,8 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use openops::middleware::auth::AuthUser;
-use openops::services::skill;
+use ops::middleware::auth::AuthUser;
+use ops::services::skill;
 
 fn super_admin() -> AuthUser {
     AuthUser {

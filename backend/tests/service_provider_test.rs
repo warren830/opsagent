@@ -1,10 +1,10 @@
 mod helpers;
 
 use sqlx::PgPool;
-use openops::middleware::auth::AuthUser;
-use openops::services::provider;
-use openops::models::provider::{CreateProviderRequest, UpdateProviderRequest};
-use openops::error::AppError;
+use ops::middleware::auth::AuthUser;
+use ops::services::provider;
+use ops::models::provider::{CreateProviderRequest, UpdateProviderRequest};
+use ops::error::AppError;
 use uuid::Uuid;
 
 fn super_admin() -> AuthUser {

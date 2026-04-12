@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use tokio::signal;
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 
-use openops::{AppState, config::AppConfig, db, handlers, middleware, services};
+use ops::{AppState, config::AppConfig, db, handlers, middleware, services};
 
 #[tokio::main]
 async fn main() {

@@ -3,9 +3,9 @@ mod helpers;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use openops::middleware::auth::AuthUser;
-use openops::models::account_access::GrantAccessRequest;
-use openops::services::account_access;
+use ops::middleware::auth::AuthUser;
+use ops::models::account_access::GrantAccessRequest;
+use ops::services::account_access;
 
 // ── Auth helpers ────────────────────────────────────────────────────
 

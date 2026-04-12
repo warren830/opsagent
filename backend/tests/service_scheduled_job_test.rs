@@ -1,10 +1,10 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use openops::error::AppError;
-use openops::middleware::auth::AuthUser;
-use openops::models::scheduled_job::{CreateScheduledJobRequest, UpdateScheduledJobRequest};
-use openops::services::scheduled_job;
+use ops::error::AppError;
+use ops::middleware::auth::AuthUser;
+use ops::models::scheduled_job::{CreateScheduledJobRequest, UpdateScheduledJobRequest};
+use ops::services::scheduled_job;
 
 fn member_with_id(user_id: Uuid, tenant_id: Uuid) -> AuthUser {
     AuthUser {

@@ -1,10 +1,10 @@
 mod helpers;
 
 use sqlx::PgPool;
-use openops::middleware::auth::AuthUser;
-use openops::services::telemetry;
-use openops::models::telemetry::{CreateTelemetryRequest, UpdateTelemetryRequest};
-use openops::error::AppError;
+use ops::middleware::auth::AuthUser;
+use ops::services::telemetry;
+use ops::models::telemetry::{CreateTelemetryRequest, UpdateTelemetryRequest};
+use ops::error::AppError;
 use uuid::Uuid;
 
 fn super_admin() -> AuthUser {

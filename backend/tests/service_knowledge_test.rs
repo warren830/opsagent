@@ -1,10 +1,10 @@
 mod helpers;
 
 use sqlx::PgPool;
-use openops::middleware::auth::AuthUser;
-use openops::services::knowledge;
-use openops::models::knowledge::{CreateKnowledgeRequest, UpdateKnowledgeRequest};
-use openops::error::AppError;
+use ops::middleware::auth::AuthUser;
+use ops::services::knowledge;
+use ops::models::knowledge::{CreateKnowledgeRequest, UpdateKnowledgeRequest};
+use ops::error::AppError;
 use uuid::Uuid;
 
 /// Seed a user in the DB and return an AuthUser with the real user_id.
