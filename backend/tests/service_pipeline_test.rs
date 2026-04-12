@@ -85,11 +85,7 @@ async fn test_create_empty_name_rejected(pool: PgPool) {
     )
     .await;
 
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        AppError::BadRequest(_) => {}
-        other => panic!("Expected BadRequest, got {:?}", other),
-    }
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
 }
 
 #[sqlx::test(migrations = "src/migrations")]
@@ -111,11 +107,7 @@ async fn test_create_empty_repository_rejected(pool: PgPool) {
     )
     .await;
 
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        AppError::BadRequest(_) => {}
-        other => panic!("Expected BadRequest, got {:?}", other),
-    }
+    assert!(matches!(result, Err(AppError::BadRequest(_))));
 }
 
 #[sqlx::test(migrations = "src/migrations")]
@@ -230,4 +222,34 @@ async fn test_delete_success(pool: PgPool) {
 
     let repos = pipeline::list(&pool, &user).await.unwrap();
     assert!(repos.is_empty());
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_not_found(pool: PgPool) {
+    let admin = super_admin();
+
+    let result = pipeline::update(
+        &pool,
+        &admin,
+        Uuid::new_v4(),
+        openops::models::pipeline::UpdatePipelineRepoRequest {
+            name: Some("Ghost".to_string()),
+            repository: None,
+            token_secret_arn: None,
+            description: None,
+            enabled: None,
+        },
+    )
+    .await;
+
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_delete_not_found(pool: PgPool) {
+    let admin = super_admin();
+
+    let result = pipeline::delete(&pool, &admin, Uuid::new_v4()).await;
+
+    assert!(matches!(result, Err(AppError::NotFound(_))));
 }

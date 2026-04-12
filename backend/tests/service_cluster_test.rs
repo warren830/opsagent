@@ -195,6 +195,14 @@ async fn test_update_other_tenant_forbidden(pool: PgPool) {
         AppError::Forbidden(_) => {}
         other => panic!("Expected Forbidden, got {:?}", other),
     }
+
+    // Verify the cluster name was NOT changed
+    let unchanged = sqlx::query_scalar::<_, String>("SELECT name FROM clusters WHERE id = $1")
+        .bind(c.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(unchanged, "my-cluster");
 }
 
 #[sqlx::test(migrations = "src/migrations")]
@@ -223,4 +231,13 @@ async fn test_delete_success(pool: PgPool) {
 
     let clusters = cluster::list(&pool, &user).await.unwrap();
     assert!(clusters.is_empty());
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_delete_not_found(pool: PgPool) {
+    let admin = super_admin();
+
+    let result = cluster::delete(&pool, &admin, Uuid::new_v4()).await;
+
+    assert!(matches!(result, Err(AppError::NotFound(_))));
 }
