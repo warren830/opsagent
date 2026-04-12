@@ -1,7 +1,7 @@
 mod helpers;
 
 use sqlx::PgPool;
-use openops::services::alerts;
+use ops::services::alerts;
 
 #[sqlx::test(migrations = "src/migrations")]
 async fn test_upsert_creates_issue(pool: PgPool) {

@@ -1,10 +1,10 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use openops::error::AppError;
-use openops::middleware::auth::AuthUser;
-use openops::models::cloud_account::{CreateCloudAccountRequest, UpdateCloudAccountRequest};
-use openops::services::cloud_account;
+use ops::error::AppError;
+use ops::middleware::auth::AuthUser;
+use ops::models::cloud_account::{CreateCloudAccountRequest, UpdateCloudAccountRequest};
+use ops::services::cloud_account;
 
 fn super_admin() -> AuthUser {
     AuthUser {
