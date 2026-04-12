@@ -25,6 +25,7 @@ pub mod oauth_state;
 pub mod prediction;
 pub mod rca;
 pub mod refresh_token;
+pub mod rollout;
 pub mod rollout_guard;
 pub mod rollout_watcher;
 pub mod scheduler;
