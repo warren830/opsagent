@@ -165,6 +165,31 @@ async fn test_update_other_tenant_forbidden(pool: PgPool) {
         AppError::Forbidden(_) => {}
         other => panic!("Expected Forbidden, got {:?}", other),
     }
+
+    // Verify data unchanged in DB
+    let unchanged = sqlx::query_as::<_, openops::models::channel::Channel>(
+        "SELECT * FROM channels WHERE id = $1",
+    )
+    .bind(channel_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(unchanged.name, "Private");
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_not_found(pool: PgPool) {
+    let admin = super_admin();
+
+    let result = channel::update(&pool, &admin, Uuid::new_v4(), UpdateChannelRequest {
+        platform: None,
+        name: Some("Ghost".to_string()),
+        credentials: None,
+        settings: None,
+        enabled: None,
+    }).await;
+
+    assert!(matches!(result, Err(AppError::NotFound(_))));
 }
 
 #[sqlx::test(migrations = "src/migrations")]

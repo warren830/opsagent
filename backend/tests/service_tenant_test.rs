@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use openops::middleware::auth::AuthUser;
 use openops::services::tenant;
 use openops::error::AppError;
-use openops::models::tenant::CreateTenantRequest;
+use openops::models::tenant::{CreateTenantRequest, UpdateTenantRequest};
 use uuid::Uuid;
 
 // helper to create a test super_admin AuthUser
@@ -178,8 +178,13 @@ async fn test_get_access_denied(pool: PgPool) {
         settings: serde_json::Value::Null,
     }).await.unwrap();
 
-    // Member of tenant1 tries to access tenant2
+    // Member of tenant1 CAN access their own tenant
     let member_of_t1 = member(t1.id);
+    let own = tenant::get(&pool, &member_of_t1, t1.id).await.unwrap();
+    assert_eq!(own.id, t1.id);
+    assert_eq!(own.name, "Tenant A");
+
+    // Member of tenant1 tries to access tenant2 — should be denied
     let result = tenant::get(&pool, &member_of_t1, t2.id).await;
 
     assert!(result.is_err());
@@ -230,4 +235,45 @@ async fn test_delete_forbidden_for_member(pool: PgPool) {
         AppError::Forbidden(_) => {}
         other => panic!("Expected Forbidden, got {:?}", other),
     }
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_success(pool: PgPool) {
+    let admin = super_admin();
+
+    let created = tenant::create(&pool, &admin, CreateTenantRequest {
+        name: "Original Name".to_string(),
+        slug: "original".to_string(),
+        aws_account_ids: vec![],
+        settings: serde_json::Value::Null,
+    }).await.unwrap();
+
+    let updated = tenant::update(&pool, &admin, created.id, UpdateTenantRequest {
+        name: Some("Updated Name".to_string()),
+        slug: None,
+        aws_account_ids: None,
+        settings: None,
+    }).await.unwrap();
+
+    assert_eq!(updated.id, created.id);
+    assert_eq!(updated.name, "Updated Name");
+    assert_eq!(updated.slug, "original"); // unchanged
+
+    // Verify persisted by re-fetching
+    let fetched = tenant::get(&pool, &admin, created.id).await.unwrap();
+    assert_eq!(fetched.name, "Updated Name");
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_not_found(pool: PgPool) {
+    let admin = super_admin();
+
+    let result = tenant::update(&pool, &admin, Uuid::new_v4(), UpdateTenantRequest {
+        name: Some("Ghost".to_string()),
+        slug: None,
+        aws_account_ids: None,
+        settings: None,
+    }).await;
+
+    assert!(matches!(result, Err(AppError::NotFound(_))));
 }

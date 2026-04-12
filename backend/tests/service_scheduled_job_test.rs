@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use openops::error::AppError;
 use openops::middleware::auth::AuthUser;
-use openops::models::scheduled_job::CreateScheduledJobRequest;
+use openops::models::scheduled_job::{CreateScheduledJobRequest, UpdateScheduledJobRequest};
 use openops::services::scheduled_job;
 
 fn member_with_id(user_id: Uuid, tenant_id: Uuid) -> AuthUser {
@@ -66,6 +66,9 @@ async fn test_create_and_list(pool: PgPool) {
     let jobs = scheduled_job::list(&pool, &user).await.unwrap();
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0].id, job.id);
+    assert_eq!(jobs[0].name, "daily-check");
+    assert_eq!(jobs[0].cron_expression, "0 0 * * *");
+    assert_eq!(jobs[0].job_type, "agent");
 }
 
 #[sqlx::test(migrations = "src/migrations")]
@@ -175,4 +178,81 @@ async fn test_trigger_run_creates_pending_record(pool: PgPool) {
     assert_eq!(run.status, "pending");
     assert_eq!(run.trigger, "manual");
     assert_eq!(returned_job.id, job.id);
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_success(pool: PgPool) {
+    let tid = seed_tenant(&pool).await;
+    let user = seed_member(&pool, tid, "u_upd").await;
+
+    let job = scheduled_job::create(&pool, &user, make_req("original-name", "0 0 * * *"))
+        .await
+        .unwrap();
+    assert_eq!(job.name, "original-name");
+
+    let updated = scheduled_job::update(
+        &pool,
+        &user,
+        job.id,
+        UpdateScheduledJobRequest {
+            name: Some("updated-name".to_string()),
+            cron_expression: None,
+            timezone: None,
+            query: None,
+            enabled: None,
+            auto_jira: None,
+            targets: None,
+            job_type: None,
+            skill_path: None,
+            skill_params: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(updated.name, "updated-name");
+    assert_eq!(updated.id, job.id);
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_list_runs_empty(pool: PgPool) {
+    let tid = seed_tenant(&pool).await;
+    let user = seed_member(&pool, tid, "u_lr").await;
+
+    let job = scheduled_job::create(&pool, &user, make_req("run-test", "0 0 * * *"))
+        .await
+        .unwrap();
+
+    // trigger_run creates a run, list_runs returns it
+    let (run, _) = scheduled_job::trigger_run(&pool, &user, job.id)
+        .await
+        .unwrap();
+
+    let runs = scheduled_job::list_runs(&pool, &user, job.id, 10)
+        .await
+        .unwrap();
+
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].id, run.id);
+    assert_eq!(runs[0].job_id, job.id);
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_get_run_success(pool: PgPool) {
+    let tid = seed_tenant(&pool).await;
+    let user = seed_member(&pool, tid, "u_gr").await;
+
+    let job = scheduled_job::create(&pool, &user, make_req("get-run-test", "0 0 * * *"))
+        .await
+        .unwrap();
+
+    let (run, _) = scheduled_job::trigger_run(&pool, &user, job.id)
+        .await
+        .unwrap();
+
+    let fetched = scheduled_job::get_run(&pool, run.id).await.unwrap();
+
+    assert_eq!(fetched.id, run.id);
+    assert_eq!(fetched.job_id, job.id);
+    assert_eq!(fetched.status, "pending");
 }

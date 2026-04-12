@@ -3,7 +3,7 @@ mod helpers;
 use sqlx::PgPool;
 use openops::middleware::auth::AuthUser;
 use openops::services::knowledge;
-use openops::models::knowledge::CreateKnowledgeRequest;
+use openops::models::knowledge::{CreateKnowledgeRequest, UpdateKnowledgeRequest};
 use openops::error::AppError;
 use uuid::Uuid;
 
@@ -97,6 +97,7 @@ async fn test_create_and_list(pool: PgPool) {
     let all = knowledge::list(&pool, &admin).await.unwrap();
     assert_eq!(all.len(), 1);
     assert_eq!(all[0].id, created.id);
+    assert_eq!(all[0].filename, "runbook.md");
 }
 
 #[sqlx::test(migrations = "src/migrations")]
@@ -157,4 +158,47 @@ async fn test_create_with_account_id(pool: PgPool) {
     assert_eq!(created.account_id, Some(account_id));
     // tenant_id should be derived from the account
     assert_eq!(created.tenant_id, Some(tid));
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_success(pool: PgPool) {
+    let admin = seed_super_admin(&pool).await;
+
+    let created = knowledge::create(&pool, &admin, CreateKnowledgeRequest {
+        filename: "old-name.md".to_string(),
+        content: "some content".to_string(),
+        mime_type: None,
+        account_id: None,
+    }).await.unwrap();
+
+    assert_eq!(created.filename, "old-name.md");
+
+    let updated = knowledge::update(&pool, &admin, created.id, UpdateKnowledgeRequest {
+        filename: Some("new-name.md".to_string()),
+        content: None,
+        mime_type: None,
+        account_id: None,
+    }).await.unwrap();
+
+    assert_eq!(updated.filename, "new-name.md");
+    assert_eq!(updated.id, created.id);
+
+    // Verify persistence via list
+    let all = knowledge::list(&pool, &admin).await.unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].filename, "new-name.md");
+}
+
+#[sqlx::test(migrations = "src/migrations")]
+async fn test_update_not_found(pool: PgPool) {
+    let admin = seed_super_admin(&pool).await;
+
+    let result = knowledge::update(&pool, &admin, Uuid::new_v4(), UpdateKnowledgeRequest {
+        filename: Some("ghost.md".to_string()),
+        content: None,
+        mime_type: None,
+        account_id: None,
+    }).await;
+
+    assert!(matches!(result, Err(AppError::NotFound(_))));
 }
