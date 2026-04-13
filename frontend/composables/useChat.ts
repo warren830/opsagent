@@ -264,8 +264,14 @@ export function useChat() {
         break
 
       case 'thinking': {
-        const msg = findOrCreateAssistantMessage('thinking')
-        msg.content = chunk.content || ''
+        // Reuse existing thinking message instead of creating new ones
+        const existing = messages.value.find(m => m.type === 'thinking' && m.role === 'assistant')
+        if (existing) {
+          existing.content = chunk.content || ''
+        } else {
+          const msg = findOrCreateAssistantMessage('thinking')
+          msg.content = chunk.content || ''
+        }
         break
       }
 
@@ -284,9 +290,14 @@ export function useChat() {
       }
 
       case 'tool_result': {
-        const msg = findOrCreateAssistantMessage('tool_result', chunk.tool_name)
-        msg.content = chunk.content || ''
-        msg.toolName = chunk.tool_name
+        // Merge into last tool_use message instead of creating new one
+        const lastToolUse = [...messages.value].reverse().find(m => m.type === 'tool_use')
+        if (lastToolUse) {
+          const result = (chunk.content || '').slice(0, 200)
+          if (result) {
+            lastToolUse.content += '\n--- Result ---\n' + result
+          }
+        }
         break
       }
 

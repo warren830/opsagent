@@ -1060,7 +1060,7 @@ fn build_provider_env_vars(provider_type: &str, config: &serde_json::Value) -> V
 }
 
 const DEFAULT_DISALLOWED_TOOLS: &[&str] = &["Write", "Edit", "NotebookEdit"];
-const DEFAULT_ALLOWED_TOOLS: &[&str] = &["Bash(read-only:*)"];
+const DEFAULT_ALLOWED_TOOLS: &[&str] = &["Bash"];
 
 /// Provider configuration extracted from DB
 struct ProviderSettings {

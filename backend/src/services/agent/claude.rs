@@ -373,16 +373,23 @@ pub fn parse_stream_line(line: &str) -> Vec<AgentEvent> {
         }
         "assistant" => {
             if let Some(msg) = event.message {
+                // Reorder: thinking → text → tool_use → tool_result
+                // This ensures text appears before tool calls in the chat UI
+                let mut thinking_events = Vec::new();
+                let mut text_events = Vec::new();
+                let mut tool_events = Vec::new();
+
                 for block in msg.content {
                     match block.block_type.as_str() {
                         "thinking" => {
                             if let Some(thinking) = block.thinking {
-                                events.push(AgentEvent::Thinking { content: thinking });
+                                thinking_events
+                                    .push(AgentEvent::Thinking { content: thinking });
                             }
                         }
                         "text" => {
                             if let Some(text) = block.text {
-                                events.push(AgentEvent::Text { content: text });
+                                text_events.push(AgentEvent::Text { content: text });
                             }
                         }
                         "tool_use" => {
@@ -394,7 +401,7 @@ pub fn parse_stream_line(line: &str) -> Vec<AgentEvent> {
                                     serde_json::to_string_pretty(&v).unwrap_or_default()
                                 })
                                 .unwrap_or_default();
-                            events.push(AgentEvent::ToolUse {
+                            tool_events.push(AgentEvent::ToolUse {
                                 tool_name: name,
                                 content: input_str,
                             });
@@ -403,7 +410,7 @@ pub fn parse_stream_line(line: &str) -> Vec<AgentEvent> {
                             let content = block.text.unwrap_or_default();
                             let name =
                                 block.name.unwrap_or_else(|| "tool".to_string());
-                            events.push(AgentEvent::ToolResult {
+                            tool_events.push(AgentEvent::ToolResult {
                                 tool_name: name,
                                 content,
                             });
@@ -411,6 +418,10 @@ pub fn parse_stream_line(line: &str) -> Vec<AgentEvent> {
                         _ => {}
                     }
                 }
+
+                events.extend(thinking_events);
+                events.extend(text_events);
+                events.extend(tool_events);
             }
         }
         "result" => {

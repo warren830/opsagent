@@ -5,6 +5,7 @@ module "karpenter" {
   cluster_name = module.eks.cluster_name
 
   create_pod_identity_association = true
+  enable_inline_policy            = true
 
   # Node IAM role is self-managed in karpenter-node-iam.tf to ensure
   # create_before_destroy lifecycle on policy attachments.
