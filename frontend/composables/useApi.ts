@@ -5,16 +5,39 @@
  */
 export function useApi() {
   const config = useRuntimeConfig()
-  const baseURL = config.public.apiBase || ''
+  const clientBase = config.public.apiBase || ''
+
+  // SSR: call the backend directly via K8s service DNS (bypasses CloudFront)
+  // Client: use relative URL (goes through CloudFront)
+  const baseURL = import.meta.server ? (config.backendUrl || clientBase) : clientBase
 
   async function $fetch<T>(url: string, options?: RequestInit): Promise<T> {
+    // Build headers with SSR cookie forwarding
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+
+    // SSR: forward cookies from the incoming browser request to the backend
+    if (import.meta.server) {
+      try {
+        const requestHeaders = useRequestHeaders(['cookie'])
+        if (requestHeaders.cookie) {
+          headers['Cookie'] = requestHeaders.cookie
+        }
+      } catch {
+        // useRequestHeaders may fail outside of Nuxt context — ignore
+      }
+    }
+
+    // Merge with caller-provided headers
+    if (options?.headers) {
+      Object.assign(headers, options.headers)
+    }
+
     const response = await fetch(`${baseURL}${url}`, {
-      credentials: 'include', // send HttpOnly cookies
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
+      credentials: 'include',
       ...options,
+      headers,
     })
 
     // Auto-refresh on 401 (skip for auth endpoints to avoid loops)
@@ -22,14 +45,11 @@ export function useApi() {
       const authStore = useAuthStore()
       const refreshed = await authStore.refreshAccessToken()
       if (refreshed) {
-        // Retry the original request once
+        // Retry the original request once (reuse SSR cookie headers)
         const retryResponse = await fetch(`${baseURL}${url}`, {
           credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            ...options?.headers,
-          },
           ...options,
+          headers,
         })
 
         if (!retryResponse.ok) {
@@ -50,8 +70,22 @@ export function useApi() {
   }
 
   async function fetchBlob(url: string): Promise<Blob> {
+    // Build headers with SSR cookie forwarding
+    const blobHeaders: Record<string, string> = {}
+    if (import.meta.server) {
+      try {
+        const requestHeaders = useRequestHeaders(['cookie'])
+        if (requestHeaders.cookie) {
+          blobHeaders['Cookie'] = requestHeaders.cookie
+        }
+      } catch {
+        // useRequestHeaders may fail outside of Nuxt context — ignore
+      }
+    }
+
     const response = await fetch(`${baseURL}${url}`, {
       credentials: 'include',
+      headers: blobHeaders,
     })
     if (!response.ok) {
       throw new ApiError(response.status, response.statusText)

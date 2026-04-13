@@ -20,6 +20,12 @@ const authStore = useAuthStore()
 const { issueCount, startPolling } = useIssueCount()
 onMounted(() => { startPolling() })
 
+const mobileSidebarOpen = useState('mobileSidebarOpen', () => false)
+
+function closeMobileSidebar() {
+  mobileSidebarOpen.value = false
+}
+
 const collapsed = useState('sidebarCollapsed', () => false)
 function toggleSidebar() {
   collapsed.value = !collapsed.value
@@ -145,8 +151,13 @@ function toggleChat() {
 
 <template>
   <aside
-    class="hidden md:flex flex-col border-r border-border/60 bg-card/50 transition-all duration-200 shrink-0"
-    :class="collapsed ? 'w-12' : 'w-52'"
+    class="flex-col border-r border-border/60 bg-card/50 transition-all duration-200 shrink-0"
+    :class="[
+      collapsed ? 'w-12' : 'w-52',
+      mobileSidebarOpen
+        ? 'fixed inset-y-0 left-0 z-40 flex h-screen pt-12'
+        : 'hidden md:flex'
+    ]"
   >
     <!-- Collapse toggle -->
     <div class="flex items-center px-2 py-1.5 shrink-0" :class="collapsed ? 'justify-center' : 'justify-end'">
@@ -171,6 +182,7 @@ function toggleChat() {
                 to="/"
                 class="flex items-center justify-center rounded h-8 w-8 mx-auto transition-colors"
                 :class="isActive('/') && route.path === '/' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+                @click="closeMobileSidebar"
               >
                 <LayoutDashboard class="h-4 w-4" />
               </NuxtLink>
@@ -184,7 +196,7 @@ function toggleChat() {
                 variant="ghost" size="sm"
                 class="h-8 w-8 p-0 mx-auto"
                 :class="chatOpen ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
-                @click="toggleChat"
+                @click="toggleChat(); closeMobileSidebar()"
               >
                 <MessageSquare class="h-4 w-4" />
               </Button>
@@ -201,6 +213,7 @@ function toggleChat() {
                   :to="item.to"
                   class="flex items-center justify-center rounded h-8 w-8 mx-auto transition-colors"
                   :class="isActive(item.to) ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+                  @click="closeMobileSidebar"
                 >
                   <component :is="item.icon" class="h-4 w-4" />
                 </NuxtLink>
@@ -217,6 +230,7 @@ function toggleChat() {
                 to="/settings"
                 class="flex items-center justify-center rounded h-8 w-8 mx-auto transition-colors"
                 :class="isActive('/settings') ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+                @click="closeMobileSidebar"
               >
                 <Settings class="h-4 w-4" />
               </NuxtLink>
@@ -231,6 +245,7 @@ function toggleChat() {
             to="/"
             class="flex items-center gap-2.5 rounded px-2.5 py-1.5 text-[13px] transition-all duration-150"
             :class="isActive('/') && route.path === '/' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+            @click="closeMobileSidebar"
           >
             <LayoutDashboard class="h-4 w-4 shrink-0" />
             <span>{{ t('nav.dashboard') }}</span>
@@ -288,6 +303,7 @@ function toggleChat() {
                 :to="item.to"
                 class="flex items-center gap-2 rounded-md ml-2 px-2.5 py-1.5 text-[12px] transition-all duration-150 border-l-2"
                 :class="isActive(item.to) ? 'bg-primary/15 text-primary font-medium border-primary' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground border-transparent'"
+                @click="closeMobileSidebar"
               >
                 <component :is="item.icon" class="h-4 w-4 shrink-0" />
                 <span class="flex-1">{{ item.label }}</span>
@@ -304,6 +320,7 @@ function toggleChat() {
             to="/settings"
             class="flex items-center gap-2.5 rounded px-2.5 py-1.5 text-[13px] transition-all duration-150"
             :class="isActive('/settings') ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent hover:text-foreground'"
+            @click="closeMobileSidebar"
           >
             <Settings class="h-4 w-4 shrink-0" />
             <span>{{ t('nav.settings') }}</span>

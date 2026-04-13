@@ -238,19 +238,11 @@ pub async fn refresh(
     let user_info: crate::models::user::UserInfo = user.into();
 
     // Set cookies
-    let access_cookie = if state.config.env.is_prod() {
-        format!(
-            "token={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={}",
-            access_jwt,
-            state.config.jwt_access_token_expire_minutes * 60
-        )
-    } else {
-        format!(
-            "token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}",
-            access_jwt,
-            state.config.jwt_access_token_expire_minutes * 60
-        )
-    };
+    let access_cookie = format!(
+        "token={}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age={}",
+        access_jwt,
+        state.config.jwt_access_token_expire_minutes * 60
+    );
     let refresh_cookie = auth_common::refresh_token_cookie(&state.config, &new_refresh_jwt);
 
     let body = Json(serde_json::json!({
@@ -315,19 +307,11 @@ async fn issue_token_response(
     let user_info: crate::models::user::UserInfo = user.clone().into();
 
     // Set cookies
-    let access_cookie = if state.config.env.is_prod() {
-        format!(
-            "token={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={}",
-            access_jwt,
-            state.config.jwt_access_token_expire_minutes * 60
-        )
-    } else {
-        format!(
-            "token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}",
-            access_jwt,
-            state.config.jwt_access_token_expire_minutes * 60
-        )
-    };
+    let access_cookie = format!(
+        "token={}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age={}",
+        access_jwt,
+        state.config.jwt_access_token_expire_minutes * 60
+    );
     let refresh_cookie = auth_common::refresh_token_cookie(&state.config, &refresh_jwt);
 
     let body = Json(serde_json::json!({

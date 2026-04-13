@@ -55,29 +55,18 @@ pub fn create_refresh_token_jwt(config: &AppConfig, user_id: Uuid) -> AppResult<
     Ok(token)
 }
 
-/// Build a Set-Cookie header value for the refresh token (HttpOnly, Secure in prod)
+/// Build a Set-Cookie header value for the refresh token (HttpOnly, Secure, SameSite=Lax)
 pub fn refresh_token_cookie(config: &AppConfig, token: &str) -> String {
     let max_age = config.jwt_refresh_token_expire_days * 86400;
-    if config.env.is_prod() {
-        format!(
-            "refresh_token={}; HttpOnly; Secure; SameSite=Strict; Path=/api/auth; Max-Age={}",
-            token, max_age
-        )
-    } else {
-        format!(
-            "refresh_token={}; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age={}",
-            token, max_age
-        )
-    }
+    format!(
+        "refresh_token={}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth; Max-Age={}",
+        token, max_age
+    )
 }
 
 /// Build a Set-Cookie header value to clear the refresh token cookie
-pub fn clear_refresh_token_cookie(config: &AppConfig) -> String {
-    if config.env.is_prod() {
-        "refresh_token=; HttpOnly; Secure; SameSite=Strict; Path=/api/auth; Max-Age=0".to_string()
-    } else {
-        "refresh_token=; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=0".to_string()
-    }
+pub fn clear_refresh_token_cookie(_config: &AppConfig) -> String {
+    "refresh_token=; HttpOnly; Secure; SameSite=Lax; Path=/api/auth; Max-Age=0".to_string()
 }
 
 /// Extract refresh_token from Cookie header

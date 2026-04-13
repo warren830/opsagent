@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { LogOut } from 'lucide-vue-next'
+import { LogOut, Menu } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Avatar } from '@/components/ui/avatar'
 
 const authStore = useAuthStore()
 const { t } = useI18n()
+const mobileSidebarOpen = useState('mobileSidebarOpen', () => false)
 
 async function handleLogout() {
   await authStore.logout()
@@ -20,6 +21,16 @@ async function handleLogout() {
         <img src="/logo-icon.png" alt="Ops" class="h-7 w-7" />
         <span class="text-foreground">{{ t('app.name') }}</span>
       </NuxtLink>
+
+      <!-- Mobile menu toggle -->
+      <Button
+        variant="ghost"
+        size="sm"
+        class="md:hidden h-8 w-8 p-0 text-muted-foreground"
+        @click="mobileSidebarOpen = !mobileSidebarOpen"
+      >
+        <Menu class="h-4 w-4" />
+      </Button>
 
       <!-- Spacer -->
       <div class="flex-1" />

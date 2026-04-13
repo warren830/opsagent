@@ -42,13 +42,15 @@ export default defineNuxtConfig({
     },
   },
 
-  // API proxy for local development (forward /api/* to Rust backend)
+  // API proxy — forwards /api/* to the Rust backend.
+  // In local dev, the backend runs on localhost:3080.
+  // In production (EKS), set NUXT_BACKEND_URL=http://ops-backend:3080.
   routeRules: {
     '/api/**': {
-      proxy: { to: 'http://localhost:3080/api/**' },
+      proxy: { to: `${process.env.NUXT_BACKEND_URL || 'http://localhost:3080'}/api/**` },
     },
     '/health': {
-      proxy: { to: 'http://localhost:3080/health' },
+      proxy: { to: `${process.env.NUXT_BACKEND_URL || 'http://localhost:3080'}/health` },
     },
   },
 
@@ -60,6 +62,8 @@ export default defineNuxtConfig({
 
   // Runtime config
   runtimeConfig: {
+    // Server-only: internal backend URL for SSR API calls
+    backendUrl: process.env.NUXT_BACKEND_URL || 'http://localhost:3080',
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE || '',
     },
