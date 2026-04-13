@@ -8,6 +8,12 @@ COPY frontend/package*.json ./
 RUN npm ci --force
 
 COPY frontend/ .
+
+# Set backend URL for Nuxt build — routeRules proxy target is compiled at build time.
+# In EKS, the backend is reachable at http://ops-backend:3080 via K8s service DNS.
+ARG NUXT_BACKEND_URL=http://backend:3080
+ENV NUXT_BACKEND_URL=${NUXT_BACKEND_URL}
+
 RUN npm run build
 
 # Stage 2: Serve with Nitro (SSR)

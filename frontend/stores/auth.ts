@@ -35,7 +35,18 @@ export const useAuthStore = defineStore('auth', {
       try {
         const config = useRuntimeConfig()
         const baseURL = config.public.apiBase || ''
-        const resp = await fetch(`${baseURL}/api/auth/providers`)
+        const headers: Record<string, string> = {}
+        if (import.meta.server) {
+          try {
+            const requestHeaders = useRequestHeaders(['cookie'])
+            if (requestHeaders.cookie) {
+              headers['Cookie'] = requestHeaders.cookie
+            }
+          } catch {
+            // useRequestHeaders may fail outside of Nuxt context — ignore
+          }
+        }
+        const resp = await fetch(`${baseURL}/api/auth/providers`, { headers, credentials: 'include' })
         if (resp.ok) {
           this.providers = await resp.json()
         }

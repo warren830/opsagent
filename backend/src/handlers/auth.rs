@@ -61,17 +61,10 @@ pub async fn login(
 
     // Set HttpOnly cookies (access + refresh)
     let access_max_age = state.config.jwt_access_token_expire_minutes * 60;
-    let access_cookie = if state.config.env.is_prod() {
-        format!(
-            "token={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={}",
-            token, access_max_age
-        )
-    } else {
-        format!(
-            "token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}",
-            token, access_max_age
-        )
-    };
+    let access_cookie = format!(
+        "token={}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age={}",
+        token, access_max_age
+    );
     let refresh_cookie = auth_common::refresh_token_cookie(&state.config, &refresh_jwt);
 
     let body = Json(LoginResponse {
@@ -101,7 +94,7 @@ pub async fn logout(State(state): State<AppState>, headers: axum::http::HeaderMa
     }
 
     // Clear both cookies
-    let clear_access = "token=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0";
+    let clear_access = "token=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0";
     let clear_refresh = auth_common::clear_refresh_token_cookie(&state.config);
 
     let mut response = Json(serde_json::json!({"message": "Logged out"})).into_response();
