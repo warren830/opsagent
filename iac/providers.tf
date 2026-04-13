@@ -2,8 +2,8 @@ terraform {
   required_version = ">= 1.0"
 
   backend "s3" {
-    region = "us-west-1"
-    bucket = "ops-tfstate-612674025488"
+    region = "ap-southeast-1"
+    bucket = "ops-tfstate-034362076319"
     key    = "ops/tf.state"
   }
 

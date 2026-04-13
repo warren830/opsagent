@@ -115,6 +115,32 @@ variable "cognito_allowed_email_domains" {
   default     = []
 }
 
+# CloudFront configuration
+variable "enable_cloudfront" {
+  description = "Enable CloudFront distribution fronting internal ALBs"
+  type        = bool
+  default     = false
+}
+
+variable "cloudfront_frontend_alb_dns" {
+  description = "DNS name of the frontend ALB (set after K8s Ingress creates it)"
+  type        = string
+  default     = ""
+}
+
+variable "cloudfront_api_alb_dns" {
+  description = "DNS name of the API ALB (set after K8s Ingress creates it)"
+  type        = string
+  default     = ""
+}
+
+variable "cloudfront_secret_header" {
+  description = "Secret header to verify CloudFront origin requests"
+  type        = string
+  default     = "ops-cf-secret-2026"
+  sensitive   = true
+}
+
 # WAF configuration
 variable "enable_waf" {
   description = "Enable AWS WAF for rate limiting and security protection on ALBs"

@@ -5,11 +5,9 @@ metadata:
   namespace: ops
   annotations:
     kubernetes.io/ingress.class: alb
-    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/scheme: internal
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: "443"
-    alb.ingress.kubernetes.io/certificate-arn: "${FRONTEND_ACM_CERT}"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
     alb.ingress.kubernetes.io/load-balancer-name: ops-frontend-alb
     alb.ingress.kubernetes.io/healthcheck-path: /
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
@@ -22,8 +20,7 @@ metadata:
 spec:
   ingressClassName: alb
   rules:
-  - host: ${FRONTEND_DOMAIN}
-    http:
+  - http:
       paths:
       - path: /
         pathType: Prefix

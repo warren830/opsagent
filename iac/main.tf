@@ -193,6 +193,24 @@ module "waf" {
   default_tags = local.default_tags
 }
 
+# ── CloudFront (Optional) ───────────────────────────────────
+# NOTE: Enable after Step 4 — ALB DNS names must exist first.
+# 1. Deploy Steps 0-4 (creates internal ALBs via K8s Ingress)
+# 2. Get ALB DNS: kubectl get ingress -n ops
+# 3. Set cloudfront_frontend_alb_dns and cloudfront_api_alb_dns in terraform.tfvars
+# 4. terraform apply (creates CloudFront distribution)
+module "cloudfront" {
+  count  = var.enable_cloudfront && var.cloudfront_frontend_alb_dns != "" ? 1 : 0
+  source = "./modules/cloudfront"
+
+  project_name_alias = var.project_name_alias
+  workspace          = local.workspace
+  frontend_alb_dns   = var.cloudfront_frontend_alb_dns
+  api_alb_dns        = var.cloudfront_api_alb_dns
+  cf_secret_header   = var.cloudfront_secret_header
+  default_tags       = local.default_tags
+}
+
 # ── Org Cross-Account Setup ─────────────────────────────────
 # Updates trust policies + creates OpsRole on all child accounts
 module "org_cross_account" {
