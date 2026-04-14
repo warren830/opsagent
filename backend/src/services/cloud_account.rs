@@ -84,6 +84,13 @@ pub async fn create(
     auth_user: &AuthUser,
     req: CreateCloudAccountRequest,
 ) -> AppResult<CloudAccount> {
+    // Only admins (super_admin or tenant_admin) can create accounts
+    if !auth_user.is_admin() {
+        return Err(AppError::Forbidden(
+            "Only admins can create cloud accounts".to_string(),
+        ));
+    }
+
     if req.name.trim().is_empty() {
         return Err(AppError::BadRequest("Name is required".to_string()));
     }
@@ -167,19 +174,15 @@ pub async fn discover_org_background(pool: &PgPool, profile: Option<&str>, tenan
     }
 }
 
-/// Update a cloud account (with access check).
+/// Update a cloud account (with write permission check).
 pub async fn update(
     pool: &PgPool,
     auth_user: &AuthUser,
     id: Uuid,
     req: UpdateCloudAccountRequest,
 ) -> AppResult<CloudAccount> {
-    if !auth_user.is_super_admin() {
-        let accessible =
-            crate::services::account_access::get_accessible_account_ids(pool, auth_user).await;
-        if !accessible.contains(&id) {
-            return Err(AppError::Forbidden("Access denied".to_string()));
-        }
+    if !crate::services::account_access::can_write_account(pool, auth_user, id).await {
+        return Err(AppError::Forbidden("Access denied".to_string()));
     }
 
     let account = sqlx::query_as::<_, CloudAccount>(
@@ -216,14 +219,10 @@ pub async fn update(
     Ok(account)
 }
 
-/// Delete a cloud account (with access check).
+/// Delete a cloud account (with write permission check).
 pub async fn delete(pool: &PgPool, auth_user: &AuthUser, id: Uuid) -> AppResult<()> {
-    if !auth_user.is_super_admin() {
-        let accessible =
-            crate::services::account_access::get_accessible_account_ids(pool, auth_user).await;
-        if !accessible.contains(&id) {
-            return Err(AppError::Forbidden("Access denied".to_string()));
-        }
+    if !crate::services::account_access::can_write_account(pool, auth_user, id).await {
+        return Err(AppError::Forbidden("Access denied".to_string()));
     }
 
     let result = sqlx::query("DELETE FROM cloud_accounts WHERE id = $1")
