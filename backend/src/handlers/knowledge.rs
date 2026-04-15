@@ -59,9 +59,12 @@ pub async fn delete(
 #[derive(Debug, Deserialize)]
 pub struct SyncRequest {
     pub source: String,             // "jira" | "confluence"
-    pub channel_id: Option<Uuid>,   // specific channel, or find default for tenant
     pub filter: String,             // JQL for jira, space key for confluence
     pub max_results: Option<usize>, // default 50
+    // Inline Atlassian credentials (no channel dependency)
+    pub base_url: String,           // e.g. "https://yoursite.atlassian.net"
+    pub email: String,
+    pub api_token: String,
 }
 
 /// POST /api/knowledge/sync
@@ -77,30 +80,13 @@ pub async fn sync(
         ));
     }
 
-    // Find the Jira/Confluence channel (both use platform='jira' since they share Atlassian credentials)
-    let channel = if let Some(channel_id) = req.channel_id {
-        sqlx::query_as::<_, Channel>(
-            "SELECT * FROM channels WHERE id = $1 AND platform = 'jira' AND enabled = true",
-        )
-        .bind(channel_id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Channel not found or not enabled".into()))?
-    } else {
-        sqlx::query_as::<_, Channel>(
-            "SELECT * FROM channels WHERE platform = 'jira' AND enabled = true AND tenant_id = $1 LIMIT 1",
-        )
-        .bind(auth_user.tenant_id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| {
-            AppError::NotFound(
-                "No Jira integration configured. Add one in Settings -> Channels.".into(),
-            )
-        })?
-    };
-
-    let client = JiraClient::from_credentials(&channel.credentials)?;
+    // Build JiraClient from inline credentials
+    let creds = serde_json::json!({
+        "base_url": req.base_url,
+        "email": req.email,
+        "api_token": req.api_token,
+    });
+    let client = JiraClient::from_credentials(&creds)?;
     let max_results = req.max_results.unwrap_or(50);
 
     let result = match req.source.as_str() {

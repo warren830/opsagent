@@ -74,6 +74,9 @@ const syncForm = ref({
   source: 'jira' as 'jira' | 'confluence',
   filter: '',
   max_results: 50,
+  base_url: '',
+  email: '',
+  api_token: '',
 })
 const syncResult = ref<{ source: string; added: number; updated: number; unchanged: number; errors: string[] } | null>(null)
 
@@ -84,7 +87,7 @@ const syncFilterPlaceholder = computed(() =>
 )
 
 function openSyncDialog() {
-  syncForm.value = { source: 'jira', filter: '', max_results: 50 }
+  syncForm.value = { source: 'jira', filter: '', max_results: 50, base_url: syncForm.value.base_url, email: syncForm.value.email, api_token: syncForm.value.api_token }
   syncResult.value = null
   showSyncDialog.value = true
 }
@@ -99,6 +102,9 @@ async function runSync() {
         source: syncForm.value.source,
         filter: syncForm.value.filter,
         max_results: syncForm.value.max_results,
+        base_url: syncForm.value.base_url,
+        email: syncForm.value.email,
+        api_token: syncForm.value.api_token,
       }
     )
     syncResult.value = result
@@ -417,6 +423,37 @@ async function deleteFile() {
         </DialogHeader>
 
         <div class="space-y-4">
+          <!-- Atlassian Connection -->
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">Atlassian URL</label>
+            <Input
+              v-model="syncForm.base_url"
+              placeholder="https://yoursite.atlassian.net"
+              :disabled="syncing"
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium">Email</label>
+              <Input
+                v-model="syncForm.email"
+                placeholder="user@example.com"
+                :disabled="syncing"
+              />
+            </div>
+            <div class="space-y-1.5">
+              <label class="text-xs font-medium">API Token</label>
+              <Input
+                v-model="syncForm.api_token"
+                type="password"
+                placeholder="••••••••"
+                :disabled="syncing"
+              />
+            </div>
+          </div>
+
+          <div class="border-t border-border/40 pt-3" />
+
           <!-- Source selector -->
           <div class="space-y-1.5">
             <label class="text-xs font-medium">{{ t('knowledge.syncSource') }}</label>
