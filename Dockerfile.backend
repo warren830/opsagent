@@ -72,6 +72,14 @@ RUN case "${TARGETARCH}" in \
     && npm install -g @anthropic-ai/claude-code \
     && claude --version
 
+# kubectl — for AI agent to inspect K8s clusters
+RUN case "${TARGETARCH}" in \
+      arm64) KUBE_ARCH="arm64" ;; \
+      *)     KUBE_ARCH="amd64" ;; \
+    esac && \
+    curl -fsSL "https://dl.k8s.io/release/v1.32.0/bin/linux/${KUBE_ARCH}/kubectl" -o /usr/local/bin/kubectl \
+    && chmod +x /usr/local/bin/kubectl
+
 # uv (Python package manager) — install to /usr/local so non-root can use
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 

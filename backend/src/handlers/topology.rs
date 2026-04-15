@@ -4,12 +4,18 @@ use k8s_openapi::api::core::v1::Service;
 use k8s_openapi::api::networking::v1::Ingress;
 use kube::api::{Api, ListParams};
 use serde::Serialize;
+use std::sync::OnceLock;
+use tokio::sync::RwLock;
 
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::cluster::Cluster;
 use crate::services::k8s::build_k8s_client;
+
+// ─── In-memory topology cache (persistent until manual refresh) ─────────────
+
+static TOPOLOGY_CACHE: OnceLock<RwLock<Option<TopologyResponse>>> = OnceLock::new();
 
 // ─── Response types ─────────────────────────────────────────────────────────
 
@@ -44,10 +50,39 @@ pub struct TopoEdge {
 
 /// Build a service topology graph from all accessible clusters.
 /// Discovers: Ingress → Service → Deployment/Rollout relationships.
+/// Results are cached in memory until the user explicitly refreshes (?refresh=true).
 pub async fn get_topology(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult<Json<TopologyResponse>> {
+    let cache = TOPOLOGY_CACHE.get_or_init(|| RwLock::new(None));
+    let force_refresh = params.get("refresh").is_some_and(|v| v == "true");
+
+    // Return cache if available and not forcing refresh
+    if !force_refresh {
+        let guard = cache.read().await;
+        if let Some(ref data) = *guard {
+            return Ok(Json(data.clone()));
+        }
+    }
+
+    // Fetch from K8s
+    let result = fetch_topology(&auth_user, &state).await?;
+
+    // Update cache
+    {
+        let mut guard = cache.write().await;
+        *guard = Some(result.clone());
+    }
+
+    Ok(Json(result))
+}
+
+async fn fetch_topology(
+    auth_user: &AuthUser,
+    state: &AppState,
+) -> AppResult<TopologyResponse> {
     // Get all clusters the user can access
     let clusters: Vec<Cluster> = if auth_user.is_super_admin() {
         sqlx::query_as("SELECT * FROM clusters WHERE UPPER(status) = 'ACTIVE'")
@@ -87,7 +122,7 @@ pub async fn get_topology(
         }
     }
 
-    Ok(Json(TopologyResponse { nodes, edges }))
+    Ok(TopologyResponse { nodes, edges })
 }
 
 /// Build topology nodes + edges for a single cluster.

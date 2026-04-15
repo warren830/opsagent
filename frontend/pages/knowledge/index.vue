@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, nextTick, watch } from 'vue'
-import { Plus, Pencil, Trash2, Eye } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Eye, RefreshCw, Loader2, ExternalLink, CheckCircle2 } from 'lucide-vue-next'
 import { marked } from 'marked'
 import mermaid from 'mermaid'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,8 @@ interface KnowledgeFile {
   mime_type: string
   account_id: string | null
   tenant_id: string | null
+  source?: string
+  source_url?: string
   updated_at: string
 }
 
@@ -63,6 +66,51 @@ const form = ref({
 
 const isEditing = computed(() => !!editingFile.value)
 const formTitle = computed(() => isEditing.value ? t('common.edit') : t('knowledge.newFile'))
+
+// Sync dialog state
+const showSyncDialog = ref(false)
+const syncing = ref(false)
+const syncForm = ref({
+  source: 'jira' as 'jira' | 'confluence',
+  filter: '',
+  max_results: 50,
+})
+const syncResult = ref<{ source: string; added: number; updated: number; unchanged: number; errors: string[] } | null>(null)
+
+const syncFilterPlaceholder = computed(() =>
+  syncForm.value.source === 'jira'
+    ? t('knowledge.syncFilterJiraPlaceholder')
+    : t('knowledge.syncFilterConfluencePlaceholder')
+)
+
+function openSyncDialog() {
+  syncForm.value = { source: 'jira', filter: '', max_results: 50 }
+  syncResult.value = null
+  showSyncDialog.value = true
+}
+
+async function runSync() {
+  syncing.value = true
+  syncResult.value = null
+  try {
+    const result = await api.post<{ source: string; added: number; updated: number; unchanged: number; errors: string[] }>(
+      '/api/knowledge/sync',
+      {
+        source: syncForm.value.source,
+        filter: syncForm.value.filter,
+        max_results: syncForm.value.max_results,
+      }
+    )
+    syncResult.value = result
+    toast.success(t('knowledge.syncSuccess'))
+    await fetchFiles()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : t('common.error')
+    toast.error(msg)
+  } finally {
+    syncing.value = false
+  }
+}
 
 const columns = computed(() => [
   { key: 'filename', label: t('knowledge.filename') },
@@ -217,21 +265,55 @@ async function deleteFile() {
     <!-- Page Header -->
     <div class="flex items-center justify-between">
       <h1 class="text-base font-semibold text-foreground">{{ t('knowledge.title') }}</h1>
-      <Button v-if="hasAnyWritable" size="sm" @click="openCreate">
-        <Plus class="h-3.5 w-3.5" />
-        {{ t('knowledge.newFile') }}
-      </Button>
+      <div class="flex items-center gap-2">
+        <Button v-if="hasAnyWritable" variant="outline" size="sm" @click="openSyncDialog">
+          <RefreshCw class="h-3.5 w-3.5" />
+          {{ t('knowledge.syncFrom') }}
+        </Button>
+        <Button v-if="hasAnyWritable" size="sm" @click="openCreate">
+          <Plus class="h-3.5 w-3.5" />
+          {{ t('knowledge.newFile') }}
+        </Button>
+      </div>
     </div>
 
     <!-- Data Table -->
     <DataTable :columns="columns" :data="files" :loading="loading">
       <template #cell-filename="{ row }">
-        <button
-          class="font-medium text-foreground hover:text-primary transition-colors cursor-pointer text-left"
-          @click="openPreview(row as KnowledgeFile)"
-        >
-          {{ (row as KnowledgeFile).filename }}
-        </button>
+        <div class="flex items-center gap-2">
+          <a
+            v-if="(row as KnowledgeFile).source_url"
+            :href="(row as KnowledgeFile).source_url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-medium text-foreground hover:text-primary transition-colors cursor-pointer text-left inline-flex items-center gap-1"
+            @click.stop
+          >
+            {{ (row as KnowledgeFile).filename }}
+            <ExternalLink class="h-3 w-3 text-muted-foreground" />
+          </a>
+          <button
+            v-else
+            class="font-medium text-foreground hover:text-primary transition-colors cursor-pointer text-left"
+            @click="openPreview(row as KnowledgeFile)"
+          >
+            {{ (row as KnowledgeFile).filename }}
+          </button>
+          <Badge
+            v-if="(row as KnowledgeFile).source === 'jira'"
+            variant="warning"
+            class="shrink-0"
+          >
+            {{ t('knowledge.sourceJira') }}
+          </Badge>
+          <Badge
+            v-else-if="(row as KnowledgeFile).source === 'confluence'"
+            variant="info"
+            class="shrink-0"
+          >
+            {{ t('knowledge.sourceConfluence') }}
+          </Badge>
+        </div>
       </template>
 
       <template #cell-size_bytes="{ row }">
@@ -320,6 +402,97 @@ async function deleteFile() {
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Sync Dialog -->
+    <Dialog :open="showSyncDialog" @update:open="(val) => { showSyncDialog = val }">
+      <DialogContent class="max-w-md">
+        <DialogHeader>
+          <DialogTitle class="flex items-center gap-2">
+            <RefreshCw class="h-4 w-4 text-muted-foreground" />
+            {{ t('knowledge.syncFrom') }}
+          </DialogTitle>
+          <DialogDescription class="sr-only">{{ t('knowledge.syncFrom') }}</DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-4">
+          <!-- Source selector -->
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">{{ t('knowledge.syncSource') }}</label>
+            <Select v-model="syncForm.source" :disabled="syncing">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="jira">{{ t('knowledge.syncSourceJira') }}</SelectItem>
+                <SelectItem value="confluence">{{ t('knowledge.syncSourceConfluence') }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <!-- Filter input -->
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">{{ t('knowledge.syncFilter') }}</label>
+            <Input
+              v-model="syncForm.filter"
+              :placeholder="syncFilterPlaceholder"
+              :disabled="syncing"
+            />
+          </div>
+
+          <!-- Max results -->
+          <div class="space-y-1.5">
+            <label class="text-xs font-medium">{{ t('knowledge.syncMaxResults') }}</label>
+            <Input
+              v-model.number="syncForm.max_results"
+              type="number"
+              :min="1"
+              :max="200"
+              :disabled="syncing"
+            />
+          </div>
+
+          <!-- Sync results -->
+          <div
+            v-if="syncResult"
+            class="rounded border border-border/60 bg-secondary/30 p-3 space-y-2"
+          >
+            <div class="flex items-center gap-1.5 text-xs font-medium text-foreground">
+              <CheckCircle2 class="h-3.5 w-3.5 text-success" />
+              {{ t('knowledge.syncResultTitle') }}
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-xs">
+              <div class="flex flex-col items-center rounded bg-success/10 px-2 py-1.5">
+                <span class="text-base font-semibold text-success">{{ syncResult.added }}</span>
+                <span class="text-[10px] text-muted-foreground">{{ t('knowledge.syncAdded') }}</span>
+              </div>
+              <div class="flex flex-col items-center rounded bg-info/10 px-2 py-1.5">
+                <span class="text-base font-semibold text-info">{{ syncResult.updated }}</span>
+                <span class="text-[10px] text-muted-foreground">{{ t('knowledge.syncUpdated') }}</span>
+              </div>
+              <div class="flex flex-col items-center rounded bg-secondary px-2 py-1.5">
+                <span class="text-base font-semibold text-muted-foreground">{{ syncResult.unchanged }}</span>
+                <span class="text-[10px] text-muted-foreground">{{ t('knowledge.syncUnchanged') }}</span>
+              </div>
+            </div>
+            <div v-if="syncResult.errors && syncResult.errors.length > 0" class="text-xs text-destructive space-y-0.5">
+              <div class="font-medium">{{ t('knowledge.syncErrors') }}:</div>
+              <div v-for="(err, i) in syncResult.errors" :key="i" class="text-[10px] opacity-80">{{ err }}</div>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter class="gap-1.5 pt-1">
+          <Button type="button" variant="outline" size="sm" @click="showSyncDialog = false">
+            {{ t('common.close') }}
+          </Button>
+          <Button size="sm" :disabled="syncing" @click="runSync">
+            <Loader2 v-if="syncing" class="h-3.5 w-3.5 animate-spin" />
+            <RefreshCw v-else class="h-3.5 w-3.5" />
+            {{ syncing ? t('knowledge.syncing') : t('knowledge.syncStart') }}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
 

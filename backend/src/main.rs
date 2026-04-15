@@ -373,6 +373,7 @@ fn build_router(state: AppState) -> Router {
             "/api/knowledge/{id}",
             put(handlers::knowledge::update).delete(handlers::knowledge::delete),
         )
+        .route("/api/knowledge/sync", post(handlers::knowledge::sync))
         // Scheduled Jobs
         .route(
             "/api/scheduled-jobs",
