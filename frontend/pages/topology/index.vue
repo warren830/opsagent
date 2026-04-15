@@ -191,10 +191,11 @@ function layoutGraph(apiNodes: TopoNode[], apiEdges: TopoEdge[]) {
 }
 
 // ─── API ────────────────────────────────────────────────────────
-async function fetchTopology() {
+async function fetchTopology(forceRefresh = false) {
   loading.value = true
   try {
-    const data = await api.get<TopologyResponse>('/api/topology')
+    const url = forceRefresh ? '/api/topology?refresh=true' : '/api/topology'
+    const data = await api.get<TopologyResponse>(url)
     const { nodes, edges } = layoutGraph(data.nodes, data.edges)
     flowNodes.value = nodes
     flowEdges.value = edges
@@ -209,7 +210,7 @@ async function fetchTopology() {
 
 async function refresh() {
   refreshing.value = true
-  await fetchTopology()
+  await fetchTopology(true)
   refreshing.value = false
 }
 

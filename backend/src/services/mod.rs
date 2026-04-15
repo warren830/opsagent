@@ -9,6 +9,7 @@ pub mod common;
 pub mod dashboard;
 pub mod glossary;
 pub mod knowledge;
+pub mod knowledge_sync;
 pub mod pipeline;
 pub mod provider;
 pub mod scheduled_job;

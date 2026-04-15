@@ -15,6 +15,18 @@ pub struct KnowledgeFile {
     pub created_by: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default = "default_source")]
+    pub source: String,
+    #[serde(default)]
+    pub source_id: Option<String>,
+    #[serde(default)]
+    pub source_url: Option<String>,
+    #[serde(default)]
+    pub source_updated_at: Option<DateTime<Utc>>,
+}
+
+fn default_source() -> String {
+    "manual".to_string()
 }
 
 #[derive(Debug, Deserialize)]
