@@ -27,10 +27,33 @@ impl Agent for ClaudeAgent {
 
         let has_images = !config.images.is_empty();
 
+        // Only pass --resume if the Claude CLI session file actually exists on disk.
+        // After pod restarts, DB may have session records but Claude CLI's local
+        // conversation files are gone — passing --resume would fail with
+        // "No conversation found with session ID".
+        let effective_session_id = config.session_id.as_deref().and_then(|sid| {
+            let session_file = self.work_dir.join(".claude").join("projects").join(sid);
+            if session_file.exists() {
+                Some(sid)
+            } else {
+                // Also check the standard Claude Code session storage path
+                let alt_path = self.work_dir.join(".claude").join("conversations").join(sid);
+                if alt_path.exists() {
+                    Some(sid)
+                } else {
+                    tracing::warn!(
+                        "Claude session {} not found on disk, starting fresh (DB session may be stale after pod restart)",
+                        sid
+                    );
+                    None
+                }
+            }
+        });
+
         // Build CLI args
         let args = build_args(
             &config.message,
-            config.session_id.as_deref(),
+            effective_session_id,
             config.system_prompt.as_deref(),
             has_images,
             &config.permission_mode,
