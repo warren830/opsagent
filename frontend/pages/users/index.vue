@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Pencil, Trash2, Mail } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Mail, RotateCw, Copy, Check } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -51,6 +51,10 @@ const showFormDialog = ref(false)
 const editingUser = ref<User | null>(null)
 const showDeleteDialog = ref(false)
 const deletingUser = ref<User | null>(null)
+const showInviteLinkDialog = ref(false)
+const inviteLink = ref('')
+const linkCopied = ref(false)
+const resending = ref<string | null>(null)
 
 const isCloud = computed(() => authStore.providers?.is_cloud === true)
 
@@ -152,7 +156,8 @@ async function saveUser() {
         role: form.value.role,
         tenant_id: form.value.role === 'super_admin' ? null : (form.value.tenant_id || null),
       }
-      await api.post('/api/users/invite', payload)
+      const result = await api.post<{ user: any; invite_link: string }>('/api/users/invite', payload)
+      handleInviteLinkResponse(result)
       toast.success(t('user.inviteSuccess'))
     } else {
       // Local: create with password
@@ -188,6 +193,32 @@ async function deleteUser() {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : t('common.error')
     toast.error(msg)
+  }
+}
+
+function handleInviteLinkResponse(result: { invite_link: string }) {
+  inviteLink.value = result.invite_link
+  linkCopied.value = false
+  showInviteLinkDialog.value = true
+}
+
+async function copyInviteLink() {
+  await navigator.clipboard.writeText(inviteLink.value)
+  linkCopied.value = true
+  toast.success(t('common.success'))
+}
+
+async function resendInvite(user: User) {
+  resending.value = user.id
+  try {
+    const result = await api.post<{ user: any; invite_link: string }>(`/api/users/${user.id}/resend-invite`, {})
+    handleInviteLinkResponse(result)
+    toast.success(t('user.inviteResent'))
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : t('common.error')
+    toast.error(msg)
+  } finally {
+    resending.value = null
   }
 }
 
@@ -244,6 +275,9 @@ function getRoleLabel(role: string): string {
       </template>
 
       <template #actions="{ row }">
+        <Button v-if="(row as User).auth_method === 'invited'" variant="ghost" size="icon-sm" :disabled="resending === (row as User).id" @click="resendInvite(row as User)">
+          <RotateCw class="h-3 w-3" :class="{ 'animate-spin': resending === (row as User).id }" />
+        </Button>
         <Button variant="ghost" size="icon-sm" @click="openEdit(row as User)">
           <Pencil class="h-3 w-3" />
         </Button>
@@ -336,5 +370,24 @@ function getRoleLabel(role: string): string {
       @confirm="deleteUser"
       @cancel="showDeleteDialog = false; deletingUser = null"
     />
+
+    <!-- Invite Link Dialog -->
+    <Dialog :open="showInviteLinkDialog" @update:open="(val) => { showInviteLinkDialog = val }">
+      <DialogContent class="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{{ t('user.inviteLinkTitle') }}</DialogTitle>
+          <DialogDescription>{{ t('user.inviteLinkDescription') }}</DialogDescription>
+        </DialogHeader>
+        <div class="flex items-center gap-2">
+          <Input :model-value="inviteLink" readonly class="text-xs font-mono" />
+          <Button size="icon-sm" variant="outline" @click="copyInviteLink">
+            <component :is="linkCopied ? Check : Copy" class="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" @click="showInviteLinkDialog = false">{{ t('common.close') }}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

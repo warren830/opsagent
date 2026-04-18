@@ -122,7 +122,22 @@
     "updateSuccess": "用户更新成功",
     "deleteSuccess": "用户删除成功",
     "confirmDelete": "确定要删除此用户吗？此操作不可撤销。",
-    "deleteTitle": "删除用户"
+    "deleteTitle": "删除用户",
+    "inviteLinkTitle": "邀请链接",
+    "inviteLinkDescription": "将此链接分享给用户以完成账号设置。",
+    "inviteResent": "邀请已重新发送"
+  },
+  "invite": {
+    "title": "设置密码",
+    "description": "设置您的密码以完成账号激活。",
+    "setPassword": "设置密码",
+    "confirmPassword": "确认密码",
+    "expired": "邀请链接已过期，请联系管理员重新发送。",
+    "invalidToken": "无效的邀请链接。",
+    "success": "密码设置成功！",
+    "redirecting": "正在跳转到登录页...",
+    "passwordMinLength": "密码至少需要 8 个字符。",
+    "passwordMismatch": "两次输入的密码不一致。"
   },
   "approval": {
     "title": "审批管理",

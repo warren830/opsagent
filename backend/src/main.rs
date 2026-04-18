@@ -207,6 +207,9 @@ fn build_router(state: AppState) -> Router {
         .route("/api/auth/cognito/callback", post(handlers::oauth::cognito_callback))
         .route("/api/auth/refresh", post(handlers::oauth::refresh))
         .route("/api/auth/revoke", post(handlers::oauth::revoke))
+        // Invite redemption (public — user has no account yet)
+        .route("/api/auth/invite/{token}", get(handlers::user::validate_invite))
+        .route("/api/auth/invite/{token}/redeem", post(handlers::user::redeem_invite))
         // Alerting webhooks (no auth — external services cannot send JWT)
         .route("/api/alerts", post(handlers::alerts::receive))
         .route("/api/alerts/datadog", post(handlers::alerts::receive_datadog))
@@ -232,6 +235,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/users/invite", post(handlers::user::invite_user))
         .route("/api/users/{id}", put(handlers::user::update_user))
         .route("/api/users/{id}", delete(handlers::user::delete_user))
+        .route("/api/users/{id}/resend-invite", post(handlers::user::resend_invite))
         // Glossary
         .route(
             "/api/glossary",

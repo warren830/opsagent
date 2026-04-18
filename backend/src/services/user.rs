@@ -1,9 +1,14 @@
+use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::config::AppConfig;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
-use crate::models::user::{CreateUserRequest, InviteUserRequest, UpdateUserRequest, User, UserInfo};
+use crate::models::user::{
+    CreateUserRequest, InviteResponse, InviteUserRequest, UpdateUserRequest, User, UserInfo,
+    ValidateInviteResponse,
+};
 use crate::services::common::{require_super_admin, tenant_filter};
 
 /// List users visible to the authenticated user.
@@ -155,13 +160,23 @@ pub async fn delete(pool: &PgPool, auth_user: &AuthUser, id: Uuid) -> AppResult<
     Ok(())
 }
 
+fn build_invite_link(config: &AppConfig, token: &Uuid) -> String {
+    let base = config
+        .allowed_origins
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "http://localhost:3000".to_string());
+    format!("{}/auth/invite?token={}", base, token)
+}
+
 /// Invite a user by email (super_admin only).
-/// Pre-creates a user record so OAuth login can match by email.
+/// Creates user record with invite token (72h expiry) and returns invite link.
 pub async fn invite(
     pool: &PgPool,
+    config: &AppConfig,
     auth_user: &AuthUser,
     req: InviteUserRequest,
-) -> AppResult<UserInfo> {
+) -> AppResult<InviteResponse> {
     require_super_admin(auth_user, "invite users")?;
 
     let email = req.email.trim().to_lowercase();
@@ -178,15 +193,20 @@ pub async fn invite(
         ));
     }
 
+    let invite_token = Uuid::new_v4();
+    let expires_at = Utc::now() + chrono::Duration::hours(72);
+
     let user = sqlx::query_as::<_, User>(
-        r#"INSERT INTO users (username, email, role, tenant_id, auth_method)
-           VALUES ($1, $2, $3, $4, 'invited')
+        r#"INSERT INTO users (username, email, role, tenant_id, auth_method, invite_token, invite_token_expires_at, must_change_password)
+           VALUES ($1, $2, $3, $4, 'invited', $5, $6, true)
            RETURNING *"#,
     )
     .bind(&email)
     .bind(&email)
     .bind(role)
     .bind(req.tenant_id)
+    .bind(invite_token)
+    .bind(expires_at)
     .fetch_one(pool)
     .await
     .map_err(|e| {
@@ -198,5 +218,120 @@ pub async fn invite(
         AppError::Database(e)
     })?;
 
-    Ok(UserInfo::from(user))
+    let invite_link = build_invite_link(config, &invite_token);
+
+    Ok(InviteResponse {
+        user: UserInfo::from(user),
+        invite_link,
+    })
+}
+
+/// Resend invite for a pending user (super_admin only).
+/// Generates a new token and extends expiry.
+pub async fn resend_invite(
+    pool: &PgPool,
+    config: &AppConfig,
+    auth_user: &AuthUser,
+    user_id: Uuid,
+) -> AppResult<InviteResponse> {
+    require_super_admin(auth_user, "resend invites")?;
+
+    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    if user.auth_method != "invited" {
+        return Err(AppError::BadRequest(
+            "Can only resend invite for pending users".to_string(),
+        ));
+    }
+
+    let invite_token = Uuid::new_v4();
+    let expires_at = Utc::now() + chrono::Duration::hours(72);
+
+    let updated = sqlx::query_as::<_, User>(
+        r#"UPDATE users SET invite_token = $2, invite_token_expires_at = $3, updated_at = NOW()
+           WHERE id = $1 RETURNING *"#,
+    )
+    .bind(user_id)
+    .bind(invite_token)
+    .bind(expires_at)
+    .fetch_one(pool)
+    .await?;
+
+    let invite_link = build_invite_link(config, &invite_token);
+
+    Ok(InviteResponse {
+        user: UserInfo::from(updated),
+        invite_link,
+    })
+}
+
+/// Validate an invite token (public endpoint).
+pub async fn validate_invite(pool: &PgPool, token: Uuid) -> AppResult<ValidateInviteResponse> {
+    let user = sqlx::query_as::<_, User>(
+        "SELECT * FROM users WHERE invite_token = $1",
+    )
+    .bind(token)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Invalid invite link".to_string()))?;
+
+    if let Some(expires_at) = user.invite_token_expires_at {
+        if Utc::now() > expires_at {
+            return Err(AppError::BadRequest("Invite link has expired".to_string()));
+        }
+    }
+
+    Ok(ValidateInviteResponse {
+        email: user.email.unwrap_or_default(),
+        username: user.username,
+    })
+}
+
+/// Redeem an invite token — set password and activate the account (public endpoint).
+pub async fn redeem_invite(pool: &PgPool, token: Uuid, password: String) -> AppResult<UserInfo> {
+    if password.len() < 8 {
+        return Err(AppError::BadRequest(
+            "Password must be at least 8 characters".to_string(),
+        ));
+    }
+
+    let user = sqlx::query_as::<_, User>(
+        "SELECT * FROM users WHERE invite_token = $1",
+    )
+    .bind(token)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Invalid invite link".to_string()))?;
+
+    if let Some(expires_at) = user.invite_token_expires_at {
+        if Utc::now() > expires_at {
+            return Err(AppError::BadRequest("Invite link has expired".to_string()));
+        }
+    }
+
+    let password_hash = tokio::task::spawn_blocking(move || bcrypt::hash(password, 10))
+        .await
+        .map_err(|_| AppError::Internal("Password hashing failed".to_string()))??;
+
+    let updated = sqlx::query_as::<_, User>(
+        r#"UPDATE users SET
+           password_hash = $2,
+           auth_method = 'local',
+           invite_token = NULL,
+           invite_token_expires_at = NULL,
+           must_change_password = false,
+           is_active = true,
+           updated_at = NOW()
+           WHERE id = $1 RETURNING *"#,
+    )
+    .bind(user.id)
+    .bind(&password_hash)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(UserInfo::from(updated))
 }
