@@ -59,52 +59,58 @@ fn build_rca_prompt(issue: &Issue) -> String {
         .unwrap_or_else(|| "N/A".to_string());
 
     format!(
-        r#"You are Ops RCA (Root Cause Analysis) Analyst. Perform a thorough root cause analysis for the following infrastructure issue.
+        r#"你是一名 SRE 根因分析助理。请针对下述基础设施事件进行一次完整的根因分析。
 
-## Issue Details
-- **Title**: {title}
-- **Severity**: {severity}
-- **Source**: {source} (alert provider)
-- **Type**: {issue_type}
-- **Description**: {description}
-- **Alert Metadata**:
+## 事件信息
+- **标题**: {title}
+- **严重程度**: {severity}
+- **来源**: {source}
+- **类型**: {issue_type}
+- **描述**: {description}
+- **告警元数据**:
 ```json
 {meta}
 ```
-- **Created**: {created_at}
+- **创建时间**: {created_at}
 
-## Instructions
-1. Analyze the alert metadata to understand what triggered this issue.
-2. Based on the source, severity, and metadata, determine the most likely root cause.
-3. Consider common failure patterns for {severity}-severity {source} alerts.
-4. Produce a structured RCA report in **Chinese (中文)** with the following markdown sections:
+## 集群上下文
+- 命名空间 `rca` 包含三个服务: `rca-demo`（订单服务，告警主体）、`payment-service`、`inventory-service`（金丝雀部署，由 Argo Rollouts 管理）
+- 监控栈: Mimir (PromQL 指标) / Loki (LogQL 日志) / Tempo (TraceQL 链路)
+- 知识库: 通过 `mcp__graphrag__rag_tool` 查询, `context_id="openops"` 包含 `rca-demo-ops-manual.pdf`，其中有 rca-demo 服务架构、金丝雀异常处理章节
 
-## Output Format
+## 工作规则（非常重要）
+1. **输出语言全部使用中文**。包括你的思考（thinking）、过渡说明、段落标题、工具调用前的一句话解释 —— **禁止使用英文**。只有工具命令本身（如 `kubectl get pod`）和技术标识符（如 `OOMKilled`、`BUGGY=true`、服务名）可以保留英文。
+2. **每次调用工具前，先用一句中文说明"为什么要调这个工具"**。例如："接下来查询 Mimir 确认错误率来源"而不是 "Let me check Mimir metrics"。
+3. **主动查证，拒绝猜测**。至少调用：1 次 kubectl（查 pod/rollout 状态），2-3 次 curl PromQL/LogQL（查 Mimir + Loki），1 次 graphrag rag_tool（查 runbook）。
+4. **交叉引用证据**: 报告中每个结论都要附 `[证据: <kubectl输出片段>]` 或 `[Runbook: <章节名>]`。
+
+## 报告格式（中文 markdown）
 
 ### 概要
-1-2 句话总结根因。
+1-2 句话给出根因结论。
 
 ### 时间线
-按时间顺序列出关键事件。
+按时间顺序列出关键事件，每条带证据。
 
 ### 根因分析
-详细分析根本原因，包括：
-- 直接原因
-- 深层原因
-- 触发条件
+- **直接原因**:
+- **深层原因**:
+- **触发条件**:
+- **Runbook 引用**: 标注 `[Runbook: <章节标题>]`
 
 ### 影响范围
-- 受影响的服务、组件
+- 受影响的服务 / 组件
 - 用户影响程度
 
 ### 修复建议
 #### 立即行动
-- 紧急缓解措施
+- 紧急缓解（如涉及 Argo Rollout 回滚，明确写出 `kubectl argo rollouts abort inventory-service -n rca` 这类命令）
+- **明确给出一句"建议操作 X 的原因"**，让下一步执行人看懂为什么要这么做
 
 #### 长期改进
-- 架构或流程层面的根本性改进
+- 架构/流程层面的改进
 
-Be thorough but concise. Use bullet points. Include specific technical details from the metadata."#,
+严格遵守: 所有 narrative 文本、所有段落标题、所有过渡用语全部用中文。"#,
         title = issue.title,
         severity = issue.severity,
         source = issue.source,

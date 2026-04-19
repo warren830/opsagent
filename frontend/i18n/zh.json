@@ -607,7 +607,9 @@
     "rcaElapsed": "已用时",
     "toolsCalled": "已调用工具",
     "toolsWaiting": "等待 AI 调用工具...",
-    "toolsNone": "未调用任何工具"
+    "toolsNone": "未调用任何工具",
+    "evidence": "证据摘录",
+    "timelineWaiting": "等待 AI 开始分析..."
   },
   "chat": {
     "title": "AI 对话",

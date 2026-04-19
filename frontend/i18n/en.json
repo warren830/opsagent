@@ -608,7 +608,9 @@
     "rcaElapsed": "Elapsed",
     "toolsCalled": "Tools Called",
     "toolsWaiting": "Waiting for AI to call tools...",
-    "toolsNone": "No tools called"
+    "toolsNone": "No tools called",
+    "evidence": "Evidence",
+    "timelineWaiting": "Waiting for AI to start..."
   },
   "chat": {
     "title": "AI Chat",

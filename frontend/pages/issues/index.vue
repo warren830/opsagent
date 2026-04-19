@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch, nextTick } from 'vue'
-import { Search, Play, Square, Loader2, Wrench, Check } from 'lucide-vue-next'
+import { Search, Play, Square, Loader2, Check, Brain, FileText, Activity } from 'lucide-vue-next'
 import { marked } from 'marked'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,7 @@ definePageMeta({ middleware: 'auth' })
 
 const { t } = useI18n()
 const api = useApi()
-const { rcaText, thinkingText, toolCalls, isStreaming, isComplete, error: rcaError, elapsedMs, startRca, abort, reset } = useRcaStream()
+const { rcaText, thinkingText, thinkingSteps, toolCalls, isStreaming, isComplete, error: rcaError, elapsedMs, startRca, abort, reset } = useRcaStream()
 
 interface Issue {
   id: string
@@ -150,6 +150,47 @@ function renderMarkdown(md: string): string {
   })
   return html
 }
+
+/** Emoji-like icon for a tool in the timeline/evidence panels. */
+function toolIcon(name: string): string {
+  const n = (name || '').toLowerCase()
+  if (n.includes('graphrag') || n.includes('rag_tool')) return '📖'
+  if (n === 'bash') return '⚡'
+  if (n === 'read') return '📄'
+  if (n === 'webfetch') return '🌐'
+  return '🔧'
+}
+
+/** Color class for the tool label badge by category. */
+function toolColor(label: string): string {
+  if (label.includes('kubectl')) return 'text-sky-400'
+  if (label.includes('Mimir')) return 'text-violet-400'
+  if (label.includes('Loki')) return 'text-amber-400'
+  if (label.includes('Tempo')) return 'text-rose-400'
+  if (label.includes('Runbook') || label.includes('知识库')) return 'text-emerald-400'
+  if (label.includes('Argo')) return 'text-orange-400'
+  return 'text-zinc-400'
+}
+
+/** Format absolute ms → "00:14" style for timeline entries. */
+function fmtRelative(startTs: number | null, ts: number): string {
+  if (!startTs) return ''
+  const s = Math.max(0, Math.floor((ts - startTs) / 1000))
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
+/** Merge thinking + tools into a unified chronological timeline. */
+const timelineEvents = computed(() => {
+  type Evt = { kind: 'think' | 'tool'; at: number; label: string; tc?: typeof toolCalls.value[number] }
+  const arr: Evt[] = []
+  for (const ts of thinkingSteps.value) arr.push({ kind: 'think', at: ts.at, label: ts.content })
+  for (const tc of toolCalls.value) arr.push({ kind: 'tool', at: tc.startedAt, label: tc.label, tc })
+  arr.sort((a, b) => a.at - b.at)
+  return arr
+})
+
+/** Absolute start timestamp for relative timeline rendering (first event). */
+const timelineStart = computed(() => timelineEvents.value[0]?.at ?? null)
 
 /** Extract RCA analysis text from the stored rca_result field */
 function getStoredRcaText(issue: Issue): string {
@@ -331,7 +372,7 @@ onMounted(() => { fetchIssues() })
 
     <!-- Detail Dialog -->
     <Dialog :open="showDetailDialog" @update:open="(val) => { showDetailDialog = val }">
-      <DialogContent class="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent class="max-w-6xl max-h-[88vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>{{ t('issue.detail') }}</DialogTitle>
           <DialogDescription class="truncate">{{ selectedIssue?.title }}</DialogDescription>
@@ -382,40 +423,87 @@ onMounted(() => { fetchIssues() })
                 {{ thinkingText }}
               </div>
 
-              <!-- Split view: markdown (left) + tools-called sidebar (right) -->
-              <div class="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-3">
-                <!-- Markdown output with typewriter -->
+              <!-- Three-column Incident Response view -->
+              <div class="grid grid-cols-1 lg:grid-cols-[220px_1fr_300px] gap-3">
+                <!-- LEFT: Timeline (thinking + tools interleaved) -->
+                <div class="rounded border border-border/60 bg-secondary/20 p-2 max-h-[440px] overflow-y-auto">
+                  <div class="flex items-center gap-1.5 px-1 pb-1.5 mb-1.5 border-b border-border/40">
+                    <Activity class="h-3 w-3 text-orange-400" />
+                    <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {{ t('issue.timeline') }}
+                    </span>
+                    <span class="ml-auto text-[10px] text-muted-foreground/60 tabular-nums">{{ timelineEvents.length }}</span>
+                  </div>
+                  <div v-if="timelineEvents.length === 0" class="text-[11px] text-muted-foreground/50 px-1 py-2 italic">
+                    {{ t('issue.timelineWaiting') }}
+                  </div>
+                  <ul class="space-y-1.5">
+                    <li
+                      v-for="(evt, idx) in timelineEvents"
+                      :key="`${evt.kind}-${idx}-${evt.at}`"
+                      class="tool-item flex items-start gap-1.5 text-[11px] leading-snug"
+                    >
+                      <span class="shrink-0 text-[9px] text-muted-foreground/60 tabular-nums pt-0.5 w-8">
+                        {{ fmtRelative(timelineStart, evt.at) }}
+                      </span>
+                      <template v-if="evt.kind === 'think'">
+                        <Brain class="h-3 w-3 text-violet-400 shrink-0 mt-0.5" />
+                        <span class="text-foreground/80 line-clamp-2">{{ evt.label }}</span>
+                      </template>
+                      <template v-else>
+                        <Loader2 v-if="!evt.tc?.done" class="h-3 w-3 animate-spin text-orange-400 shrink-0 mt-0.5" />
+                        <Check v-else class="h-3 w-3 text-emerald-400 shrink-0 mt-0.5" />
+                        <span :class="[toolColor(evt.label), 'font-medium truncate flex-1']">{{ evt.label }}</span>
+                        <span v-if="evt.tc?.done && evt.tc.durationMs > 0" class="text-[9px] text-muted-foreground/50 tabular-nums shrink-0">
+                          {{ (evt.tc.durationMs / 1000).toFixed(1) }}s
+                        </span>
+                      </template>
+                    </li>
+                  </ul>
+                </div>
+
+                <!-- MIDDLE: Markdown RCA report -->
                 <div
                   ref="rcaOutputRef"
-                  class="rca-markdown rounded border border-border/60 bg-secondary/20 p-3 max-h-[360px] overflow-y-auto text-xs text-foreground/90 will-change-transform"
+                  class="rca-markdown rounded border border-border/60 bg-secondary/20 p-3 max-h-[440px] overflow-y-auto text-xs text-foreground/90 will-change-transform"
                   v-html="renderMarkdown(rcaText)"
                 />
 
-                <!-- Tools Called sidebar -->
-                <div class="rounded border border-border/60 bg-secondary/20 p-2 max-h-[360px] overflow-y-auto">
+                <!-- RIGHT: Evidence panel (tool cards with command + output preview) -->
+                <div class="rounded border border-border/60 bg-secondary/20 p-2 max-h-[440px] overflow-y-auto">
                   <div class="flex items-center gap-1.5 px-1 pb-1.5 mb-1.5 border-b border-border/40">
-                    <Wrench class="h-3 w-3 text-orange-400" />
+                    <FileText class="h-3 w-3 text-orange-400" />
                     <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      {{ t('issue.toolsCalled') }}
+                      {{ t('issue.evidence') }}
                     </span>
                     <span class="ml-auto text-[10px] text-muted-foreground/60 tabular-nums">{{ toolCalls.length }}</span>
                   </div>
                   <div v-if="toolCalls.length === 0" class="text-[11px] text-muted-foreground/50 px-1 py-2 italic">
                     {{ isStreaming ? t('issue.toolsWaiting') : t('issue.toolsNone') }}
                   </div>
-                  <ul class="space-y-1">
+                  <ul class="space-y-2">
                     <li
                       v-for="tc in toolCalls"
                       :key="tc.id"
-                      class="tool-item flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px]"
-                      :class="tc.done ? 'text-foreground/90' : 'text-orange-400 bg-orange-500/5'"
+                      class="tool-item rounded border border-border/40 bg-background/40 p-1.5"
+                      :class="!tc.done && 'border-orange-500/40 bg-orange-500/5'"
                     >
-                      <Loader2 v-if="!tc.done" class="h-3 w-3 animate-spin shrink-0" />
-                      <Check v-else class="h-3 w-3 text-emerald-400 shrink-0" />
-                      <span class="truncate flex-1">{{ tc.label }}</span>
-                      <span v-if="tc.done && tc.durationMs > 0" class="text-[9px] text-muted-foreground/50 tabular-nums shrink-0">
-                        {{ (tc.durationMs / 1000).toFixed(1) }}s
-                      </span>
+                      <!-- Header: icon + label + duration -->
+                      <div class="flex items-center gap-1.5 text-[11px] mb-1">
+                        <span class="shrink-0">{{ toolIcon(tc.name) }}</span>
+                        <span :class="[toolColor(tc.label), 'font-medium truncate flex-1']">{{ tc.label }}</span>
+                        <span v-if="tc.done && tc.durationMs > 0" class="text-[9px] text-muted-foreground/50 tabular-nums shrink-0">
+                          {{ (tc.durationMs / 1000).toFixed(1) }}s
+                        </span>
+                        <Loader2 v-if="!tc.done" class="h-3 w-3 animate-spin text-orange-400 shrink-0" />
+                        <Check v-else class="h-3 w-3 text-emerald-400 shrink-0" />
+                      </div>
+                      <!-- Command / Input preview -->
+                      <div v-if="tc.inputPreview" class="text-[10px] text-muted-foreground/80 font-mono bg-secondary/40 rounded px-1.5 py-1 mb-1 break-all">
+                        $ {{ tc.inputPreview }}
+                      </div>
+                      <!-- Output preview -->
+                      <div v-if="tc.outputPreview" class="text-[10px] text-foreground/70 font-mono whitespace-pre-wrap leading-relaxed line-clamp-6">{{ tc.outputPreview }}</div>
                     </li>
                   </ul>
                 </div>
