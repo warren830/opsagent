@@ -51,13 +51,16 @@ function deriveLabel(name: string, input: string): string {
 
   if (n === 'bash') {
     // Inspect the command to derive a specific label
-    if (/kubectl[ \t].*argo[ \t]+rollouts/.test(lower) || /rollouts[ \t]+(?:abort|get|list|pause|promote)/.test(lower)) return '调用 Argo Rollouts'
+    // Note: "调用 Argo Rollouts" is reserved for the actual rollback/abort action
+    // (via the UI button in Deployments page), not for read-only queries here.
+    if (/rollouts?[ \t]+(?:abort|pause|promote|undo|restart|set)/.test(lower)) return '调用 Argo Rollouts'
+    if (/kubectl[ \t].*rollouts?\b/.test(lower) || /rollouts?[ \t]+(?:get|list|status)/.test(lower)) return '查询 Rollout 状态'
     if (/kubectl/.test(lower)) return '执行 kubectl'
     if (/curl.*mimir|promql|\/api\/v1\/query/.test(lower)) return '查询 Mimir 指标'
     if (/curl.*loki|logql|\/loki\/api/.test(lower)) return '查询 Loki 日志'
     if (/curl.*tempo|traceql/.test(lower)) return '查询 Tempo 链路'
     if (/curl/.test(lower)) return '调用 HTTP 接口'
-    if (/aws\s+/.test(lower)) return '执行 AWS CLI'
+    if (/aws[ \t]/.test(lower)) return '执行 AWS CLI'
     return '执行 Shell 命令'
   }
   return name || '工具调用'

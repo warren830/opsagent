@@ -168,6 +168,7 @@ function toolColor(label: string): string {
   if (label.includes('Loki')) return 'text-amber-400'
   if (label.includes('Tempo')) return 'text-rose-400'
   if (label.includes('Runbook') || label.includes('知识库')) return 'text-emerald-400'
+  if (label.includes('Rollout 状态')) return 'text-cyan-400'
   if (label.includes('Argo')) return 'text-orange-400'
   return 'text-zinc-400'
 }
