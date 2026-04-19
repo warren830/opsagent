@@ -605,7 +605,10 @@
     "rcaStreaming": "Analyzing...",
     "rcaAbort": "Stop Analysis",
     "rcaComplete": "Root Cause Analysis",
-    "rcaElapsed": "Elapsed"
+    "rcaElapsed": "Elapsed",
+    "toolsCalled": "Tools Called",
+    "toolsWaiting": "Waiting for AI to call tools...",
+    "toolsNone": "No tools called"
   },
   "chat": {
     "title": "AI Chat",
@@ -684,6 +687,7 @@
     "promoteFull": "Full Promotion",
     "rollback": "Rollback",
     "rollbackConfirm": "Are you sure you want to rollback this deployment?",
+    "rollingBack": "Rolling back...",
     "canarySteps": "Canary Steps",
     "containers": "Containers",
     "analysisRuns": "Analysis Runs",

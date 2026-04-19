@@ -101,6 +101,13 @@ const refreshing = ref(false)
 const pollTimer = ref<ReturnType<typeof setInterval> | null>(null)
 const clusterPopoverOpen = ref(false)
 
+// Track rollouts that were just rolled back, so we can show a visual progress bar
+// while Argo Rollouts terminates the canary pods. Keyed by rowKey(cr).
+const rollingBack = ref<Set<string>>(new Set())
+
+// Faster poll cadence for demo mode (VITE_DEMO_MODE) to surface rollback effects quickly.
+const POLL_INTERVAL_MS = (import.meta.env?.VITE_DEMO_MODE === 'true' || import.meta.env?.VITE_DEMO_MODE === '1') ? 2000 : 30000
+
 // Expanded row details
 const expandedRows = ref<Set<string>>(new Set())
 const rowDetails = ref<Map<string, { detail: RolloutDetail; analysis: AnalysisRunSummary[] }>>(new Map())
@@ -289,12 +296,21 @@ async function promoteRollout(cr: ClusterRollout, full: boolean) {
 
 function confirmRollback(cr: ClusterRollout) {
   const r = cr.rollout
+  const key = rowKey(cr)
   confirmTitle.value = t('deployment.rollback')
   confirmMessage.value = t('deployment.rollbackConfirm')
   confirmAction.value = async () => {
     try {
       await api.post(`/api/clusters/${cr.clusterId}/rollouts/${r.namespace}/${r.name}/rollback`, {})
       toast.success(`Rolled back: ${r.namespace}/${r.name}`)
+      // Flag this rollout as rolling back so the UI shows a live progress bar
+      // while Argo Rollouts terminates the bad revision's pods.
+      rollingBack.value.add(key)
+      rollingBack.value = new Set(rollingBack.value)
+      setTimeout(() => {
+        rollingBack.value.delete(key)
+        rollingBack.value = new Set(rollingBack.value)
+      }, 15000)
       await refreshRollouts()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Rollback failed'
@@ -391,7 +407,7 @@ onMounted(async () => {
   await fetchClusters()
   pollTimer.value = setInterval(() => {
     if (hasCluster.value) fetchRollouts()
-  }, 30000)
+  }, POLL_INTERVAL_MS)
 })
 
 onUnmounted(() => {
@@ -513,7 +529,12 @@ onUnmounted(() => {
         <Collapsible :open="expandedRows.has(rowKey(cr))" @update:open="toggleRow(cr)">
           <!-- Main row -->
           <CollapsibleTrigger as-child>
-            <div class="group flex items-center gap-3 px-4 py-2.5 rounded-lg bg-[#181b1f]/60 border border-zinc-800/50 hover:border-zinc-700/60 transition-colors cursor-pointer">
+            <div class="group relative flex items-center gap-3 px-4 py-2.5 rounded-lg bg-[#181b1f]/60 border border-zinc-800/50 hover:border-zinc-700/60 transition-colors cursor-pointer overflow-hidden">
+              <!-- Rollback progress bar (appears for ~15s after rollback is triggered) -->
+              <div
+                v-if="rollingBack.has(rowKey(cr))"
+                class="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-orange-500 via-red-500 to-orange-500 bg-[length:200%_100%] rollback-bar-anim"
+              />
               <!-- Expand icon -->
               <component
                 :is="expandedRows.has(rowKey(cr)) ? ChevronDown : ChevronRight"
@@ -530,6 +551,15 @@ onUnmounted(() => {
               <!-- Strategy -->
               <Badge variant="outline" class="text-xs px-2 py-0.5 border-zinc-700/50 text-zinc-400 shrink-0 hidden sm:inline-flex">
                 {{ cr.rollout.strategy }}
+              </Badge>
+
+              <!-- Rolling-back indicator -->
+              <Badge
+                v-if="rollingBack.has(rowKey(cr))"
+                class="text-[10px] px-2 py-0.5 bg-orange-500/15 text-orange-300 border border-orange-500/30 shrink-0"
+              >
+                <Loader2 class="h-3 w-3 mr-1 animate-spin" />
+                {{ t('deployment.rollingBack') }}
               </Badge>
 
               <!-- Status -->
@@ -822,3 +852,14 @@ onUnmounted(() => {
     </Dialog>
   </div>
 </template>
+
+<style scoped>
+/* Rollback progress bar — sweeping gradient to convey "work in progress" */
+.rollback-bar-anim {
+  animation: rollback-sweep 1.2s linear infinite;
+}
+@keyframes rollback-sweep {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+</style>

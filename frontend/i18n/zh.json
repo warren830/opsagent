@@ -604,7 +604,10 @@
     "rcaStreaming": "正在分析中...",
     "rcaAbort": "停止分析",
     "rcaComplete": "根因分析报告",
-    "rcaElapsed": "已用时"
+    "rcaElapsed": "已用时",
+    "toolsCalled": "已调用工具",
+    "toolsWaiting": "等待 AI 调用工具...",
+    "toolsNone": "未调用任何工具"
   },
   "chat": {
     "title": "AI 对话",
@@ -683,6 +686,7 @@
     "promoteFull": "全量推进",
     "rollback": "回滚",
     "rollbackConfirm": "确定要回滚该部署吗？",
+    "rollingBack": "正在回滚...",
     "canarySteps": "金丝雀步骤",
     "containers": "容器",
     "analysisRuns": "分析运行",

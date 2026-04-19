@@ -12,9 +12,40 @@ interface StreamChunk {
   duration_ms?: number
 }
 
+export interface ToolCall {
+  id: number
+  name: string        // raw tool name (e.g. 'Bash', 'mcp__graphrag__rag_tool')
+  label: string       // human-readable Chinese label
+  startedAt: number
+  durationMs: number
+  done: boolean
+}
+
+/**
+ * Translate a Claude tool name into a concise Chinese label + action verb
+ * so RCA demo clearly shows what the agent is doing.
+ */
+function toolLabel(name: string): string {
+  const n = (name || '').toLowerCase()
+  if (n === 'bash') return '执行 Shell 命令'
+  if (n === 'read') return '读取文件'
+  if (n === 'webfetch') return '抓取网页'
+  if (n === 'grep') return '搜索代码'
+  if (n === 'glob') return '查找文件'
+  if (n.includes('graphrag') && n.includes('rag_tool')) return '查询 Runbook 知识库'
+  if (n.includes('graphrag') && n.includes('list')) return '列出知识库'
+  if (n.includes('kubectl')) return '调用 kubectl'
+  if (n.includes('prometheus') || n.includes('mimir')) return '查询 Mimir 指标'
+  if (n.includes('loki')) return '查询 Loki 日志'
+  if (n.includes('tempo')) return '查询 Tempo 链路'
+  if (n.startsWith('mcp__')) return `MCP 工具 · ${name.replace(/^mcp__/, '').replace(/__/g, ' / ')}`
+  return name || '工具调用'
+}
+
 export function useRcaStream() {
   const rcaText = ref('')
   const thinkingText = ref('')
+  const toolCalls = ref<ToolCall[]>([])
   const isStreaming = ref(false)
   const isComplete = ref(false)
   const error = ref<string | null>(null)
@@ -23,6 +54,7 @@ export function useRcaStream() {
 
   let abortController: AbortController | null = null
   let elapsedTimer: ReturnType<typeof setInterval> | null = null
+  let nextToolId = 0
 
   function startElapsedTimer() {
     startedAt.value = Date.now()
@@ -43,6 +75,8 @@ export function useRcaStream() {
   async function startRca(issueId: string) {
     rcaText.value = ''
     thinkingText.value = ''
+    toolCalls.value = []
+    nextToolId = 0
     isStreaming.value = true
     isComplete.value = false
     error.value = null
@@ -93,7 +127,6 @@ export function useRcaStream() {
         }
       }
 
-      // Stream ended — mark complete if not already
       if (!isComplete.value && !error.value) {
         isComplete.value = true
       }
@@ -103,6 +136,8 @@ export function useRcaStream() {
       }
       error.value = err instanceof Error ? err.message : 'Unknown error'
     } finally {
+      // Mark any still-running tool calls as done
+      toolCalls.value = toolCalls.value.map((tc) => (tc.done ? tc : { ...tc, done: true }))
       isStreaming.value = false
       abortController = null
       stopElapsedTimer()
@@ -117,11 +152,36 @@ export function useRcaStream() {
       case 'text':
         rcaText.value += chunk.content || ''
         break
-      case 'tool_use':
-      case 'tool_result':
-        // Show tool activity in thinking area
-        thinkingText.value = chunk.tool_name ? `Using ${chunk.tool_name}...` : ''
+      case 'tool_use': {
+        const name = chunk.tool_name || 'tool'
+        const label = toolLabel(name)
+        toolCalls.value.push({
+          id: nextToolId++,
+          name,
+          label,
+          startedAt: Date.now(),
+          durationMs: 0,
+          done: false,
+        })
+        thinkingText.value = `正在 ${label}...`
         break
+      }
+      case 'tool_result': {
+        // Mark the most recent unfinished tool call as done
+        const list = toolCalls.value
+        for (let i = list.length - 1; i >= 0; i--) {
+          if (!list[i].done) {
+            list[i] = {
+              ...list[i],
+              done: true,
+              durationMs: chunk.duration_ms ?? (Date.now() - list[i].startedAt),
+            }
+            break
+          }
+        }
+        thinkingText.value = ''
+        break
+      }
       case 'done':
         isComplete.value = true
         if (!rcaText.value && chunk.content) {
@@ -143,6 +203,8 @@ export function useRcaStream() {
   function reset() {
     rcaText.value = ''
     thinkingText.value = ''
+    toolCalls.value = []
+    nextToolId = 0
     isStreaming.value = false
     isComplete.value = false
     error.value = null
@@ -154,6 +216,7 @@ export function useRcaStream() {
   return {
     rcaText,
     thinkingText,
+    toolCalls,
     isStreaming,
     isComplete,
     error,

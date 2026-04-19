@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch, nextTick } from 'vue'
-import { Search, Play, Square, Loader2 } from 'lucide-vue-next'
+import { Search, Play, Square, Loader2, Wrench, Check } from 'lucide-vue-next'
 import { marked } from 'marked'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,7 @@ definePageMeta({ middleware: 'auth' })
 
 const { t } = useI18n()
 const api = useApi()
-const { rcaText, thinkingText, isStreaming, isComplete, error: rcaError, elapsedMs, startRca, abort, reset } = useRcaStream()
+const { rcaText, thinkingText, toolCalls, isStreaming, isComplete, error: rcaError, elapsedMs, startRca, abort, reset } = useRcaStream()
 
 interface Issue {
   id: string
@@ -124,9 +124,31 @@ function formatElapsed(ms: number): string {
   return `${Math.floor(secs / 60)}m${secs % 60}s`
 }
 
+// Keywords to flash-highlight in the RCA markdown — draws the viewer's eye
+// to the "smoking gun" evidence as it streams in.
+const RCA_KEYWORDS = [
+  'OOMKilled', 'CrashLoopBackOff', 'ImagePullBackOff', 'Evicted',
+  'BUGGY=true', 'memory leak', '内存泄漏',
+  'Root Cause', '根因', '根本原因', '直接原因', '深层原因',
+  'v2-buggy', 'rollback', '回滚',
+  'canary', 'Paused', 'Degraded',
+]
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+const RCA_KEYWORD_RE = new RegExp(`(${RCA_KEYWORDS.map(escapeRegex).join('|')})`, 'gi')
+
 function renderMarkdown(md: string): string {
   if (!md) return ''
-  return marked.parse(md, { async: false }) as string
+  let html = marked.parse(md, { async: false }) as string
+  // Post-process: wrap keywords in <mark class="rca-flash"> for highlight.
+  // Protect tags + existing code/pre by only matching inside text segments.
+  html = html.replace(/>([^<]+)</g, (_, text) => {
+    return '>' + (text as string).replace(RCA_KEYWORD_RE, '<mark class="rca-flash">$1</mark>') + '<'
+  })
+  return html
 }
 
 /** Extract RCA analysis text from the stored rca_result field */
@@ -309,7 +331,7 @@ onMounted(() => { fetchIssues() })
 
     <!-- Detail Dialog -->
     <Dialog :open="showDetailDialog" @update:open="(val) => { showDetailDialog = val }">
-      <DialogContent class="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent class="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>{{ t('issue.detail') }}</DialogTitle>
           <DialogDescription class="truncate">{{ selectedIssue?.title }}</DialogDescription>
@@ -354,17 +376,50 @@ onMounted(() => { fetchIssues() })
                 </div>
               </div>
 
-              <!-- Thinking indicator -->
-              <div v-if="thinkingText && isStreaming" class="text-[10px] text-muted-foreground/50 italic px-2 truncate">
+              <!-- Thinking / tool-use indicator (enlarged + colored for demo visibility) -->
+              <div v-if="thinkingText && isStreaming" class="text-sm text-orange-400 font-medium px-2 truncate flex items-center gap-2">
+                <span class="inline-block h-1.5 w-1.5 rounded-full bg-orange-400 animate-pulse" />
                 {{ thinkingText }}
               </div>
 
-              <!-- Markdown output with typewriter -->
-              <div
-                ref="rcaOutputRef"
-                class="rca-markdown rounded border border-border/60 bg-secondary/20 p-3 max-h-[360px] overflow-y-auto text-xs text-foreground/90 will-change-transform"
-                v-html="renderMarkdown(rcaText)"
-              />
+              <!-- Split view: markdown (left) + tools-called sidebar (right) -->
+              <div class="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-3">
+                <!-- Markdown output with typewriter -->
+                <div
+                  ref="rcaOutputRef"
+                  class="rca-markdown rounded border border-border/60 bg-secondary/20 p-3 max-h-[360px] overflow-y-auto text-xs text-foreground/90 will-change-transform"
+                  v-html="renderMarkdown(rcaText)"
+                />
+
+                <!-- Tools Called sidebar -->
+                <div class="rounded border border-border/60 bg-secondary/20 p-2 max-h-[360px] overflow-y-auto">
+                  <div class="flex items-center gap-1.5 px-1 pb-1.5 mb-1.5 border-b border-border/40">
+                    <Wrench class="h-3 w-3 text-orange-400" />
+                    <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {{ t('issue.toolsCalled') }}
+                    </span>
+                    <span class="ml-auto text-[10px] text-muted-foreground/60 tabular-nums">{{ toolCalls.length }}</span>
+                  </div>
+                  <div v-if="toolCalls.length === 0" class="text-[11px] text-muted-foreground/50 px-1 py-2 italic">
+                    {{ isStreaming ? t('issue.toolsWaiting') : t('issue.toolsNone') }}
+                  </div>
+                  <ul class="space-y-1">
+                    <li
+                      v-for="tc in toolCalls"
+                      :key="tc.id"
+                      class="tool-item flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px]"
+                      :class="tc.done ? 'text-foreground/90' : 'text-orange-400 bg-orange-500/5'"
+                    >
+                      <Loader2 v-if="!tc.done" class="h-3 w-3 animate-spin shrink-0" />
+                      <Check v-else class="h-3 w-3 text-emerald-400 shrink-0" />
+                      <span class="truncate flex-1">{{ tc.label }}</span>
+                      <span v-if="tc.done && tc.durationMs > 0" class="text-[9px] text-muted-foreground/50 tabular-nums shrink-0">
+                        {{ (tc.durationMs / 1000).toFixed(1) }}s
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
             </template>
 
             <!-- Stored RCA result (not streaming) -->
@@ -441,4 +496,26 @@ onMounted(() => { fetchIssues() })
 .rca-markdown :deep(table) { width: 100%; border-collapse: collapse; margin: 0.375rem 0; font-size: 0.6875rem; }
 .rca-markdown :deep(th) { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid hsl(var(--border) / 0.6); font-weight: 600; }
 .rca-markdown :deep(td) { padding: 0.25rem 0.5rem; border-bottom: 1px solid hsl(var(--border) / 0.3); }
+
+/* Keyword flash-highlight — draws attention to smoking-gun evidence as RCA streams in */
+.rca-markdown :deep(mark.rca-flash) {
+  background: linear-gradient(90deg, rgba(251, 146, 60, 0.35), rgba(251, 146, 60, 0.15));
+  color: rgb(251, 146, 60);
+  padding: 0 0.25rem;
+  border-radius: 0.1875rem;
+  font-weight: 600;
+  animation: rca-flash-in 0.6s ease-out;
+}
+@keyframes rca-flash-in {
+  0%   { background: rgba(251, 146, 60, 0.9); color: #fff; }
+  60%  { background: rgba(251, 146, 60, 0.5); }
+  100% { background: linear-gradient(90deg, rgba(251, 146, 60, 0.35), rgba(251, 146, 60, 0.15)); }
+}
+
+/* Tools-called side list — slide-in animation when a new tool is pushed */
+.tool-item { animation: tool-slide-in 0.35s ease-out; }
+@keyframes tool-slide-in {
+  from { opacity: 0; transform: translateX(6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
 </style>
