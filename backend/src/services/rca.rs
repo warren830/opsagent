@@ -121,6 +121,43 @@ fn build_rca_prompt(issue: &Issue) -> String {
     )
 }
 
+/// Load default LLM provider env vars (so RCA uses the same Bedrock/gateway
+/// credentials as interactive chat). Falls back to Bedrock via pod IRSA if no
+/// provider is configured.
+async fn load_default_provider_envs(pool: &PgPool) -> Vec<(String, String)> {
+    let row: Option<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT provider_type, config FROM providers WHERE is_default = TRUE ORDER BY updated_at DESC LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    let mut env = Vec::new();
+    match row {
+        Some((pt, config)) if pt == "bedrock" => {
+            env.push(("CLAUDE_CODE_USE_BEDROCK".to_string(), "1".to_string()));
+            if let Some(r) = config.get("region").and_then(|v| v.as_str()) {
+                env.push(("AWS_REGION".to_string(), r.to_string()));
+            }
+        }
+        Some((pt, config)) if pt == "gateway" => {
+            if let Some(u) = config.get("base_url").and_then(|v| v.as_str()) {
+                let base = u.trim_end_matches('/').trim_end_matches("/v1").to_string();
+                env.push(("ANTHROPIC_BASE_URL".to_string(), base));
+            }
+            if let Some(k) = config.get("api_key").and_then(|v| v.as_str()) {
+                env.push(("ANTHROPIC_API_KEY".to_string(), k.to_string()));
+            }
+        }
+        _ => {
+            // Fallback: assume Bedrock via IRSA
+            env.push(("CLAUDE_CODE_USE_BEDROCK".to_string(), "1".to_string()));
+        }
+    }
+    env
+}
+
 /// Execute RCA analysis for an issue using Claude CLI.
 /// Publishes StreamChunks to the broadcast channel and persists the final result to DB.
 pub async fn run_rca(pool: PgPool, config: Arc<AppConfig>, registry: Arc<RcaRegistry>, issue: Issue) {
@@ -138,6 +175,7 @@ pub async fn run_rca(pool: PgPool, config: Arc<AppConfig>, registry: Arc<RcaRegi
     let (tx, _rx) = registry.register(issue_id).await;
 
     let prompt = build_rca_prompt(&issue);
+    let provider_envs = load_default_provider_envs(&pool).await;
 
     let agent = crate::services::agent::claude::ClaudeAgent {
         bin_path: config.claude_bin.clone(),
@@ -154,7 +192,7 @@ pub async fn run_rca(pool: PgPool, config: Arc<AppConfig>, registry: Arc<RcaRegi
         permission_mode: super::claude::AgentPermission::Bypass.cli_flag().to_string(),
         allowed_tools: Vec::new(),
         disallowed_tools: Vec::new(),
-        env_vars: Vec::new(),
+        env_vars: provider_envs,
         mcp_config_path: None,
         images: Vec::new(),
     };
