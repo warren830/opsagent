@@ -76,3 +76,6 @@ k8s/application/storageclass-encrypted.yaml
 ops-sre-zerotrust/
 ops-sre-zerotrust.zip
 *.zip
+
+# Demo recording artifacts (Playwright frames, ffmpeg output, Polly TTS, etc.)
+demo/
