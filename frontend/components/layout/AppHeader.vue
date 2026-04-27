@@ -18,7 +18,7 @@ async function handleLogout() {
     <div class="flex h-12 items-center px-4 gap-3">
       <!-- Logo -->
       <NuxtLink to="/" class="flex items-center gap-2.5 font-semibold text-base hover:opacity-90 transition-opacity">
-        <img src="/logo-icon.png" alt="Ops" class="h-7 w-7" />
+        <SharedBrandMark :size="28" />
         <span class="text-foreground">{{ t('app.name') }}</span>
       </NuxtLink>
 

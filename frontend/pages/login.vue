@@ -58,7 +58,7 @@ async function handleOAuthLogin(provider: 'microsoft' | 'cognito') {
   <div class="w-full max-w-[420px] space-y-6 px-4">
     <!-- Logo + title -->
     <div class="text-center space-y-3">
-      <img src="/logo-icon.png" alt="Ops" class="mx-auto h-20 w-auto drop-shadow-md" />
+      <SharedBrandMark :size="80" class="mx-auto drop-shadow-md" />
       <h1 class="text-2xl font-semibold tracking-tight text-slate-900">{{ t('auth.loginTitle') }}</h1>
       <p class="text-sm text-slate-500">{{ t('auth.loginDescription') }}</p>
     </div>
