@@ -1,5 +1,5 @@
 // e2e/phase1-foundation.spec.ts
-import { test, request } from '@playwright/test'
+import { test } from '@playwright/test'
 
 /**
  * Phase ① baseline/after visual snapshots (local dev server).
@@ -66,9 +66,9 @@ test.describe('Phase 1 Foundation snapshots', () => {
     await loginViaApi(page)
 
     for (const path of ['/', '/issues', '/settings']) {
-      await page.goto(`${FRONTEND}${path}`)
+      await page.goto(path)
       await page.waitForLoadState('networkidle')
-      await page.waitForTimeout(800) // let gradients/skeletons settle
+      await page.waitForTimeout(800) // wait for skeleton loaders / gradient transitions to settle
       const slug = path === '/' ? 'home' : path.replace(/\//g, '-').replace(/^-/, '')
       await page.screenshot({ path: `${OUT}/${slug}.png`, fullPage: true })
     }
