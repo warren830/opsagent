@@ -4,17 +4,17 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded text-xs font-medium ring-offset-background transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 active:scale-[0.97]',
+  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded text-xs font-medium ring-offset-background transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 active:scale-[0.97]',
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-primary/85 shadow-sm shadow-primary/20',
-        destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/85 shadow-sm shadow-destructive/20',
-        outline: 'border border-border bg-transparent hover:bg-accent hover:text-accent-foreground',
-        secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-        ghost: 'hover:bg-accent hover:text-accent-foreground',
-        link: 'text-primary underline-offset-4 hover:underline',
-        success: 'bg-success text-success-foreground hover:bg-success/85 shadow-sm shadow-success/20',
+        default: 'text-white bg-gradient-to-r from-sky-500 to-violet-500 hover:brightness-110 shadow-md shadow-sky-500/25 hover:shadow-sky-500/40',
+        destructive: 'text-white bg-gradient-to-r from-rose-500 to-red-500 hover:brightness-110 shadow-md shadow-rose-500/25',
+        success: 'text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 shadow-md shadow-emerald-500/25',
+        outline: 'border border-slate-200 bg-white/70 backdrop-blur-sm text-slate-700 hover:bg-white hover:border-slate-300 hover:text-slate-900',
+        secondary: 'bg-white/60 border border-white/80 backdrop-blur-sm text-slate-700 hover:bg-white hover:text-slate-900',
+        ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+        link: 'text-sky-600 underline-offset-4 hover:underline',
       },
       size: {
         default: 'h-8 px-3 py-1.5',
