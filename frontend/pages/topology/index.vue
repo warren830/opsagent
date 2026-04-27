@@ -223,7 +223,7 @@ const kindLegend = [
   { color: 'bg-purple-400', label: 'Ingress' },
   { color: 'bg-blue-400', label: 'Service' },
   { color: 'bg-emerald-400', label: 'Deployment' },
-  { color: 'bg-orange-400', label: 'Rollout' },
+  { color: 'bg-amber-400', label: 'Rollout' },
 ]
 
 const statusLegend = [

@@ -359,7 +359,7 @@ async function submitInline() {
         <Badge
           v-else-if="(row as Skill).tenant_id"
           variant="secondary"
-          class="text-[10px] bg-orange-500/10 text-orange-400 border-orange-500/20"
+          class="text-[10px] bg-sky-500/10 text-sky-600 border-sky-500/20"
         >
           {{ t('skill.scopeTenant') }}
         </Badge>

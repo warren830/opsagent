@@ -241,7 +241,7 @@ watch(() => props.pdfUrl, () => {
             <div v-if="loading" class="flex flex-col items-center justify-center py-20 gap-3">
               <div class="w-48 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                 <div
-                  class="h-full rounded-full bg-gradient-to-r from-primary to-orange-400 transition-all duration-300"
+                  class="h-full rounded-full bg-gradient-to-r from-sky-500 to-violet-500 transition-all duration-300"
                   :style="{ width: `${loadProgress || 5}%` }"
                 />
               </div>

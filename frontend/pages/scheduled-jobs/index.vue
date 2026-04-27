@@ -334,7 +334,7 @@ function backToRuns() {
           :title="t('scheduledJob.runNow')"
           @click="triggerRun(row as ScheduledJob)"
         >
-          <Loader2 v-if="runningJobIds.has((row as ScheduledJob).id)" class="h-3 w-3 animate-spin text-orange-500" />
+          <Loader2 v-if="runningJobIds.has((row as ScheduledJob).id)" class="h-3 w-3 animate-spin text-sky-500" />
           <Play v-else class="h-3 w-3" />
         </Button>
         <Button variant="ghost" size="icon-sm" :title="t('scheduledJob.viewRuns')" @click="openRuns(row as ScheduledJob)">

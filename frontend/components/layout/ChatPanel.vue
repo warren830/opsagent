@@ -2,7 +2,7 @@
 import {
   Send, PanelRightClose, RotateCcw, ChevronDown, ChevronRight, Sparkles,
   AlertCircle, Terminal, Maximize2, Minimize2, Square, Pencil, Check, Paperclip,
-  FolderOpen, Trash2, Download, FileText, History, Wrench,
+  FolderOpen, Trash2, Download, FileText, History, Wrench, X,
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -1826,7 +1826,7 @@ class="h-3 w-3 rounded border flex items-center justify-center shrink-0"
 
 /* Eyes blink */
 .neko-eye-l, .neko-eye-r {
-  fill: #111217;
+  fill: currentColor;
   animation: neko-blink 3s ease-in-out infinite;
 }
 .neko-eye-r { animation-delay: 0.1s; }

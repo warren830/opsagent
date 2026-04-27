@@ -157,7 +157,7 @@ function formatDate(dateStr: string): string {
 }
 
 // Mermaid init
-mermaid.initialize({ startOnLoad: false, theme: 'dark', themeVariables: { primaryColor: '#FF6600', primaryTextColor: '#e0e0e0', lineColor: '#555' } })
+mermaid.initialize({ startOnLoad: false, theme: 'default', themeVariables: { primaryColor: '#3b82f6', primaryTextColor: '#0f172a', lineColor: '#94a3b8' } })
 
 /** Custom marked renderer: mermaid code blocks → <pre class="mermaid"> */
 const renderer = new marked.Renderer()
