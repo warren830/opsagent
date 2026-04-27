@@ -1104,9 +1104,8 @@ function startResize(e: MouseEvent) {
   >
     <aside
       v-if="chatOpen"
-      class="flex flex-col border-l border-border/60 bg-background relative"
-      :class="chatFullscreen ? 'flex-1' : ''"
-      style="height: 100%;"
+      class="glass-panel flex flex-col relative overflow-hidden shrink-0"
+      :class="chatFullscreen ? '!flex-1' : ''"
       :style="chatFullscreen ? {} : { width: `${panelWidth}px` }"
     >
       <!-- Resize handle (side panel mode only) -->
@@ -1117,7 +1116,7 @@ function startResize(e: MouseEvent) {
       />
 
       <!-- Header -->
-      <div class="flex items-center justify-between px-3 h-10 border-b border-border/60 shrink-0 bg-card/50">
+      <div class="flex items-center justify-between px-3 h-10 border-b border-slate-200/60 shrink-0 bg-white/40 backdrop-blur-sm">
         <div class="flex items-center gap-1.5">
           <Sparkles class="h-3.5 w-3.5 text-primary" />
           <span class="font-medium text-xs">{{ t('chat.title') }}</span>
