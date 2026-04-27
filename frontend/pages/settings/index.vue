@@ -9,17 +9,13 @@ definePageMeta({ middleware: 'auth' })
 
 const { t, locale } = useI18n()
 const api = useApi()
-const colorMode = useColorMode()
-
 const activeTab = ref<'general' | 'password'>('general')
 
 // General
 const selectedLocale = ref(locale.value)
-const selectedTheme = ref(colorMode.preference)
 
 function saveGeneral() {
   locale.value = selectedLocale.value
-  colorMode.preference = selectedTheme.value
   toast.success(t('common.success'))
 }
 
@@ -88,18 +84,6 @@ async function changePassword() {
             <SelectContent>
               <SelectItem value="zh">中文</SelectItem>
               <SelectItem value="en">English</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div class="space-y-1.5">
-          <label class="text-xs font-medium">Theme</label>
-          <Select v-model="selectedTheme">
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="dark">{{ t('theme.dark') }}</SelectItem>
-              <SelectItem value="light">{{ t('theme.light') }}</SelectItem>
-              <SelectItem value="system">{{ t('theme.system') }}</SelectItem>
             </SelectContent>
           </Select>
         </div>
