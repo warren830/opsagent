@@ -14,7 +14,7 @@ async function handleLogout() {
 </script>
 
 <template>
-  <header class="sticky top-0 z-50 w-full border-b border-border/60 bg-card/80 backdrop-blur-xl">
+  <header class="glass-panel shrink-0 z-50 w-full">
     <div class="flex h-12 items-center px-4 gap-3">
       <!-- Logo -->
       <NuxtLink to="/" class="flex items-center gap-2.5 font-semibold text-base hover:opacity-90 transition-opacity">
