@@ -3,36 +3,66 @@
 @tailwind utilities;
 
 @layer base {
-  /* ─── Light mode (clean, but we default to dark) ─── */
+  /* ─── Sky & Lavender light tokens (Phase ① Foundation) ─── */
   :root {
-    --background: 0 0% 98%;
-    --foreground: 220 20% 14%;
+    /* Base */
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 220 20% 14%;
+    --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 20% 14%;
-    --primary: 24 100% 50%;
+    --popover-foreground: 222 47% 11%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 215 20% 45%;
+
+    /* Accent */
+    --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 14% 92%;
-    --secondary-foreground: 220 20% 14%;
-    --muted: 220 14% 94%;
-    --muted-foreground: 220 9% 46%;
-    --accent: 220 14% 92%;
-    --accent-foreground: 220 20% 14%;
-    --destructive: 354 70% 54%;
-    --destructive-foreground: 0 0% 100%;
-    --success: 110 44% 58%;
+    --secondary: 258 90% 66%;
+    --secondary-foreground: 0 0% 100%;
+    --accent: 217 91% 97%;
+    --accent-foreground: 217 91% 40%;
+
+    /* Semantic */
+    --success: 160 84% 39%;
     --success-foreground: 0 0% 100%;
-    --warning: 30 100% 58%;
+    --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
-    --info: 217 72% 64%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --info: 199 89% 48%;
     --info-foreground: 0 0% 100%;
-    --border: 220 13% 87%;
-    --input: 220 13% 87%;
-    --ring: 24 100% 50%;
-    --radius: 0.375rem;
+
+    /* Structure */
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 217 91% 60%;
+    --radius: 0.5rem;
     --panel: 0 0% 100%;
-    --panel-foreground: 220 20% 14%;
+    --panel-foreground: 222 47% 11%;
+
+    /* Glass surfaces (Phase ② will use these) */
+    --glass-bg: 255 255 255 / 0.55;
+    --glass-border: 255 255 255 / 0.85;
+    --glass-shadow: 0 8px 32px rgba(100, 140, 200, 0.12);
+    --glass-shadow-hover: 0 12px 40px rgba(100, 140, 200, 0.18);
+    --glass-blur: 22px;
+    --glass-blur-subtle: 12px;
+
+    /* Aurora stops (Phase ③ AuroraBackground will read these) */
+    --aurora-sky: rgba(147, 197, 253, 0.45);
+    --aurora-lavender: rgba(196, 181, 253, 0.40);
+    --aurora-mint: rgba(165, 243, 252, 0.35);
+
+    /* Motion easings */
+    --motion-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --motion-ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+
+    /* Radius scale */
+    --radius-sm: 0.25rem;
+    --radius-md: 0.625rem;
+    --radius-lg: 0.875rem;
+    --radius-xl: 1.25rem;
   }
 
   /* ─── Dark mode — Grafana-inspired ─── */
