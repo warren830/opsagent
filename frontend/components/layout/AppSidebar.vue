@@ -151,11 +151,11 @@ function toggleChat() {
 
 <template>
   <aside
-    class="flex-col border-r border-border/60 bg-card/50 transition-all duration-200 shrink-0"
+    class="glass-panel flex-col overflow-hidden transition-[width,transform] duration-200 shrink-0"
     :class="[
-      collapsed ? 'w-12' : 'w-52',
+      collapsed ? 'w-14' : 'w-52',
       mobileSidebarOpen
-        ? 'fixed inset-y-0 left-0 z-40 flex h-screen pt-12'
+        ? 'fixed inset-y-2.5 left-2.5 z-40 flex h-[calc(100vh-20px)]'
         : 'hidden md:flex'
     ]"
   >
