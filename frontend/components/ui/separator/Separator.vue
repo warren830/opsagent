@@ -9,7 +9,7 @@ const props = withDefaults(defineProps<{
 
 const classes = computed(() =>
   cn(
-    'shrink-0 bg-border',
+    'shrink-0 bg-gradient-to-r from-transparent via-slate-200 to-transparent data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-px data-[orientation=vertical]:bg-gradient-to-b data-[orientation=vertical]:from-transparent data-[orientation=vertical]:via-slate-200 data-[orientation=vertical]:to-transparent',
     props.orientation === 'horizontal' ? 'h-[1px] w-full' : 'h-full w-[1px]',
     props.class,
   ),
