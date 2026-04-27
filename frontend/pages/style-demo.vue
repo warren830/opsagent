@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // Internal reference of every UI component + variant. NOT linked from nav.
 // Used for visual regression during Phase ② component restyle.
-definePageMeta({ layout: false })
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -15,6 +14,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar } from '@/components/ui/avatar'
 import { GlassPanel } from '@/components/ui/glass-panel'
 import { CountUp } from '@/components/ui/count-up'
+
+definePageMeta({ layout: false })
 
 const inputVal = ref('')
 const selectVal = ref('a')
