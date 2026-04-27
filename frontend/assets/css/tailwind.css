@@ -18,10 +18,14 @@
     /* Accent */
     --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 258 90% 66%;
-    --secondary-foreground: 0 0% 100%;
+    --secondary: 220 14% 96%;          /* Was lavender → now neutral surface (slate-100) */
+    --secondary-foreground: 222 47% 11%;
     --accent: 217 91% 97%;
     --accent-foreground: 217 91% 40%;
+
+    /* AI/Agent accent (lavender — Phase ② Chat/RCA/AI components will opt into this) */
+    --ai: 258 90% 66%;
+    --ai-foreground: 0 0% 100%;
 
     /* Semantic */
     --success: 160 84% 39%;
