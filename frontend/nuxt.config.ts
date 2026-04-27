@@ -14,17 +14,9 @@ export default defineNuxtConfig({
 
   modules: [
     '@nuxtjs/tailwindcss',
-    '@nuxtjs/color-mode',
     '@nuxtjs/i18n',
     '@pinia/nuxt',
   ],
-
-  // Color mode (dark/light theme)
-  colorMode: {
-    classSuffix: '',
-    preference: 'dark',
-    fallback: 'dark',
-  },
 
   // i18n
   i18n: {
