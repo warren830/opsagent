@@ -314,7 +314,7 @@ const statusLegend = [
             if (kind === 'deployment') return '#10b981'
             return '#6b7280'
           }"
-          :mask-color="'rgba(0,0,0,0.7)'"
+          :mask-color="'rgba(148,163,184,0.25)'"
           class="!bg-white/70 !backdrop-blur-md !border-slate-200 !rounded-lg"
         />
         <Controls class="!bg-white/70 !backdrop-blur-md !border-slate-200 !rounded-lg" />
@@ -324,38 +324,52 @@ const statusLegend = [
 </template>
 
 <style>
-/* Vue Flow dark theme overrides */
+/* Vue Flow — light theme integration with Sky & Lavender palette */
 .topology-flow .vue-flow__background {
   background: transparent;
 }
 .topology-flow .vue-flow__edge-path {
-  filter: drop-shadow(0 0 2px currentColor);
+  stroke: #3b82f6;
+  stroke-opacity: 0.45;
+  filter: drop-shadow(0 0 1px rgba(59, 130, 246, 0.3));
 }
 .topology-flow .vue-flow__edge-text {
   font-size: 9px;
-  fill: rgba(255,255,255,0.4);
+  fill: rgba(71, 85, 105, 0.75);         /* slate-600 */
 }
 .topology-flow .vue-flow__edge-textbg {
-  fill: rgba(17, 18, 23, 0.8);
+  fill: rgba(255, 255, 255, 0.85);
   rx: 3;
 }
 .topology-flow .vue-flow__controls-button {
-  background: rgba(17, 18, 23, 0.8) !important;
-  border-color: rgba(255,255,255,0.1) !important;
-  color: rgba(255,255,255,0.5) !important;
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-color: rgba(226, 232, 240, 1) !important;   /* slate-200 */
+  color: rgba(51, 65, 85, 0.9) !important;           /* slate-700 */
+  backdrop-filter: blur(6px);
 }
 .topology-flow .vue-flow__controls-button:hover {
-  background: rgba(30, 32, 40, 0.9) !important;
-  color: rgba(255,255,255,0.8) !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  color: rgba(37, 99, 235, 1) !important;            /* sky-600 */
+}
+.topology-flow .vue-flow__controls-button svg {
+  fill: currentColor;
 }
 .topology-flow .vue-flow__minimap {
-  background: rgba(0,0,0,0.5) !important;
+  background: rgba(255, 255, 255, 0.7) !important;
+  border: 1px solid rgba(226, 232, 240, 1) !important;
+  backdrop-filter: blur(8px);
+  border-radius: 8px;
+}
+.topology-flow .vue-flow__minimap-mask {
+  fill: rgba(147, 197, 253, 0.25);        /* sky-300 tinted mask */
+  stroke: rgba(59, 130, 246, 0.5);
+  stroke-width: 2;
 }
 .topology-flow .vue-flow__edge.animated path {
   animation: edgeGlow 3s ease-in-out infinite;
 }
 @keyframes edgeGlow {
-  0%, 100% { filter: drop-shadow(0 0 1px currentColor); opacity: 0.8; }
-  50% { filter: drop-shadow(0 0 4px currentColor); opacity: 1; }
+  0%, 100% { stroke-opacity: 0.4; }
+  50% { stroke-opacity: 0.75; }
 }
 </style>
