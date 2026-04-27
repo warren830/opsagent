@@ -131,7 +131,6 @@ async function handleOAuthLogin(provider: 'microsoft' | 'cognito') {
 
     <!-- Bottom toggles -->
     <div class="flex justify-center gap-2 opacity-30 hover:opacity-70 transition-opacity">
-      <LayoutThemeToggle />
       <LayoutLangSwitch />
     </div>
   </div>
