@@ -18,7 +18,7 @@ const props = withDefaults(defineProps<SelectContentProps & { class?: string }>(
     <SelectContent
       v-bind="{ ...props, class: undefined }"
       :class="cn(
-        'relative z-50 max-h-56 min-w-[8rem] overflow-hidden rounded-md border border-border/60 bg-card text-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2',
+        'relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-xl border border-white/85 bg-white/85 backdrop-blur-xl shadow-[0_12px_40px_rgba(100,140,200,0.18)] text-slate-900 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2',
         props.position === 'popper' && 'data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1',
         props.class,
       )"

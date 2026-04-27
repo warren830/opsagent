@@ -10,7 +10,7 @@ const props = defineProps<SelectTriggerProps & { class?: string }>()
   <SelectTrigger
     v-bind="props"
     :class="cn(
-      'flex h-7 w-full items-center justify-between rounded border border-border/60 bg-secondary/50 px-2 py-1 text-[11px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 transition-colors disabled:cursor-not-allowed disabled:opacity-50 [&>span]:truncate',
+      'flex h-8 w-full items-center justify-between rounded-lg border border-slate-200 bg-white/70 backdrop-blur-sm px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-400 focus:bg-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
       props.class,
     )"
   >

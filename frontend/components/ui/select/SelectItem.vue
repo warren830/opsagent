@@ -15,7 +15,7 @@ const props = defineProps<SelectItemProps & { class?: string }>()
   <SelectItem
     v-bind="{ ...props, class: undefined }"
     :class="cn(
-      'relative flex w-full cursor-default select-none items-center rounded-sm py-1 pl-6 pr-2 text-[11px] outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      'relative flex w-full cursor-default select-none items-center rounded-md py-1.5 pl-8 pr-2 text-xs text-slate-700 outline-none hover:bg-sky-50 hover:text-sky-700 focus:bg-sky-50 focus:text-sky-700 data-[state=checked]:bg-sky-100 data-[state=checked]:text-sky-700 data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       props.class,
     )"
   >
