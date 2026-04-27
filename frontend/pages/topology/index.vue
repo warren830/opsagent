@@ -105,8 +105,8 @@ function layoutGraph(apiNodes: TopoNode[], apiEdges: TopoEdge[]) {
       style: {
         width: '740px',
         height: `${groupHeight}px`,
-        background: 'rgba(255,255,255,0.015)',
-        border: '1px dashed rgba(255,255,255,0.06)',
+        background: 'rgba(100,140,200,0.04)',
+        border: '1px dashed rgba(100,140,200,0.22)',
         borderRadius: '12px',
         pointerEvents: 'none',
       },
@@ -126,7 +126,7 @@ function layoutGraph(apiNodes: TopoNode[], apiEdges: TopoEdge[]) {
       style: {
         width: 'auto', height: 'auto',
         background: 'transparent', border: 'none', pointerEvents: 'none',
-        fontSize: '9px', fontWeight: '600', color: 'rgba(255,255,255,0.25)',
+        fontSize: '9px', fontWeight: '600', color: 'rgba(71,85,105,0.55)',
         textTransform: 'uppercase', letterSpacing: '0.1em',
       },
       data: { label: `${group.namespace} @ ${group.cluster}` },
@@ -239,7 +239,7 @@ const statusLegend = [
     <div class="flex items-center justify-between flex-wrap gap-3">
       <div class="flex items-center gap-3">
         <div class="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
-          <Network class="h-5 w-5 text-blue-400" />
+          <Network class="h-5 w-5 text-sky-600" />
         </div>
         <div>
           <h1 class="text-base font-semibold text-foreground">{{ t('topology.title') }}</h1>
@@ -283,11 +283,11 @@ const statusLegend = [
     <div v-else class="relative rounded-lg border border-border/60 bg-card/30 overflow-hidden" style="height: calc(100vh - 140px)">
       <!-- Flow direction labels -->
       <div class="absolute top-3 left-3 z-10 flex items-center gap-2 pointer-events-none">
-        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-purple-500/30 text-purple-400">Ingress</Badge>
-        <span class="text-zinc-600 text-[10px]">→</span>
-        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-blue-500/30 text-blue-400">Service</Badge>
-        <span class="text-zinc-600 text-[10px]">→</span>
-        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-emerald-500/30 text-emerald-400">Workload</Badge>
+        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-violet-300 text-violet-600">Ingress</Badge>
+        <span class="text-slate-400 text-[10px]">→</span>
+        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-sky-300 text-sky-600">Service</Badge>
+        <span class="text-slate-400 text-[10px]">→</span>
+        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-emerald-300 text-emerald-600">Workload</Badge>
       </div>
 
       <VueFlow
