@@ -19,6 +19,9 @@ pub struct User {
     pub microsoft_id: Option<String>,
     pub cognito_sub: Option<String>,
     pub auth_method: String,
+    pub invite_token: Option<Uuid>,
+    pub invite_token_expires_at: Option<DateTime<Utc>>,
+    pub must_change_password: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +71,7 @@ pub struct UserInfo {
     pub email: Option<String>,
     pub is_active: bool,
     pub auth_method: String,
+    pub must_change_password: bool,
 }
 
 impl From<User> for UserInfo {
@@ -80,8 +84,26 @@ impl From<User> for UserInfo {
             email: user.email,
             is_active: user.is_active,
             auth_method: user.auth_method,
+            must_change_password: user.must_change_password,
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RedeemInviteRequest {
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct InviteResponse {
+    pub user: UserInfo,
+    pub invite_link: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ValidateInviteResponse {
+    pub email: String,
+    pub username: String,
 }
 
 #[derive(Debug, Deserialize)]
