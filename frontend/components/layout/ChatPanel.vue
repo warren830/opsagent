@@ -1053,7 +1053,7 @@ async function renderMermaid() {
       m.default.initialize({
         startOnLoad: false,
         theme: 'dark',
-        themeVariables: { darkMode: true, background: '#181b1f', primaryColor: '#FF6600', primaryTextColor: '#e0e0e0', lineColor: '#555', fontSize: '12px' },
+        themeVariables: { darkMode: false, background: '#ffffff', primaryColor: '#3b82f6', primaryTextColor: '#0f172a', lineColor: '#94a3b8', fontSize: '12px' },
       })
       mermaidLoaded = true
     } catch { return }
@@ -1787,7 +1787,7 @@ class="h-3 w-3 rounded border flex items-center justify-center shrink-0"
 
 /* Chat input border */
 .chat-input-idle {
-  background: linear-gradient(135deg, #ff6600, #ff8533, #ffad66, #e85d00, #ff6600);
+  background: linear-gradient(135deg, #3b82f6, #60a5fa, #c4b5fd, #8b5cf6, #3b82f6);
 }
 
 /* Streaming: conic-gradient "snake" that chases around the border */
@@ -1796,9 +1796,9 @@ class="h-3 w-3 rounded border flex items-center justify-center shrink-0"
     from var(--glow-angle, 0deg),
     transparent 0%,
     transparent 60%,
-    #ff6600 75%,
-    #ff8533 85%,
-    #ffad66 92%,
+    #3b82f6 75%,
+    #8b5cf6 85%,
+    #c4b5fd 92%,
     transparent 100%
   );
   animation: glow-spin 3s linear infinite;
