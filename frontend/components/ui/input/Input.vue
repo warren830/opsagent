@@ -21,6 +21,6 @@ const modelValue = computed({
 <template>
   <input
     v-model="modelValue"
-    :class="cn('flex h-8 w-full rounded border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs ring-offset-background file:border-0 file:bg-transparent file:text-xs file:font-medium file:text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:border-primary/50 disabled:cursor-not-allowed disabled:opacity-50 transition-colors', props.class)"
+    :class="cn('flex h-8 w-full rounded-lg border border-slate-200 bg-white/70 backdrop-blur-sm px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 focus-visible:ring-offset-0 focus-visible:border-sky-400 focus-visible:bg-white transition-colors disabled:cursor-not-allowed disabled:opacity-50', props.class)"
   />
 </template>
