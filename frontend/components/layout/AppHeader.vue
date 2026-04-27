@@ -43,9 +43,6 @@ async function handleLogout() {
         </span>
       </div>
 
-      <!-- Theme toggle -->
-      <LayoutThemeToggle />
-
       <!-- Language switch -->
       <LayoutLangSwitch />
 
