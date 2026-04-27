@@ -315,9 +315,9 @@ const statusLegend = [
             return '#6b7280'
           }"
           :mask-color="'rgba(0,0,0,0.7)'"
-          class="!bg-black/40 !border-border/30 !rounded-lg"
+          class="!bg-white/70 !backdrop-blur-md !border-slate-200 !rounded-lg"
         />
-        <Controls class="!bg-black/40 !border-border/30 !rounded-lg" />
+        <Controls class="!bg-white/70 !backdrop-blur-md !border-slate-200 !rounded-lg" />
       </VueFlow>
     </div>
   </div>

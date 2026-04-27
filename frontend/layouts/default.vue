@@ -12,7 +12,7 @@ const mobileSidebarOpen = useState('mobileSidebarOpen', () => false)
       <!-- Mobile sidebar overlay -->
       <div
         v-if="mobileSidebarOpen && !chatFullscreen"
-        class="fixed inset-0 z-30 bg-black/50 md:hidden"
+        class="fixed inset-0 z-30 bg-slate-900/30 md:hidden"
         @click="mobileSidebarOpen = false"
       />
       <LayoutAppSidebar v-if="!chatFullscreen" />

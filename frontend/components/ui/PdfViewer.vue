@@ -182,7 +182,7 @@ watch(() => props.pdfUrl, () => {
     >
       <div v-if="open" class="fixed inset-0 z-[100] flex items-center justify-center">
         <!-- Backdrop -->
-        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" @click="close" />
+        <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" @click="close" />
 
         <!-- Viewer -->
         <div class="relative z-10 flex flex-col bg-card border border-border/60 rounded-xl shadow-2xl max-w-[90vw] max-h-[90vh] w-[800px]">
@@ -236,7 +236,7 @@ watch(() => props.pdfUrl, () => {
           </div>
 
           <!-- Content -->
-          <div ref="containerRef" class="flex-1 overflow-auto bg-[#1a1a1a] flex justify-center p-4">
+          <div ref="containerRef" class="flex-1 overflow-auto bg-slate-100 flex justify-center p-4">
             <!-- Loading -->
             <div v-if="loading" class="flex flex-col items-center justify-center py-20 gap-3">
               <div class="w-48 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">

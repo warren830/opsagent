@@ -738,7 +738,7 @@ async function revokeAccess(userId: string) {
             </div>
             <p class="text-[11px] text-muted-foreground pl-7">{{ t('account.guideStep1Desc') }}</p>
             <div class="relative pl-7">
-              <pre class="rounded bg-[#0d0f12] p-3 text-[11px] font-mono overflow-x-auto text-emerald-400/90 leading-relaxed">aws iam create-role \
+              <pre class="rounded-md bg-slate-900 p-3 text-[11px] font-mono overflow-x-auto text-emerald-300 leading-relaxed">aws iam create-role \
   --role-name OpsRole \
   --assume-role-policy-document '{
     "Version": "2012-10-17",
@@ -769,7 +769,7 @@ async function revokeAccess(userId: string) {
             </div>
             <p class="text-[11px] text-muted-foreground pl-7">{{ t('account.guideStep2Desc') }}</p>
             <div class="relative pl-7">
-              <pre class="rounded bg-[#0d0f12] p-3 text-[11px] font-mono overflow-x-auto text-emerald-400/90 leading-relaxed">aws iam attach-role-policy \
+              <pre class="rounded-md bg-slate-900 p-3 text-[11px] font-mono overflow-x-auto text-emerald-300 leading-relaxed">aws iam attach-role-policy \
   --role-name OpsRole \
   --policy-arn arn:aws:iam::aws:policy/ReadOnlyAccess</pre>
               <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s2')">
@@ -789,7 +789,7 @@ async function revokeAccess(userId: string) {
               <h3 class="text-xs font-semibold">{{ t('account.guideStep3') }}</h3>
             </div>
             <div class="relative pl-7">
-              <pre class="rounded bg-[#0d0f12] p-3 text-[11px] font-mono overflow-x-auto text-emerald-400/90 leading-relaxed">aws iam get-role --role-name OpsRole \
+              <pre class="rounded-md bg-slate-900 p-3 text-[11px] font-mono overflow-x-auto text-emerald-300 leading-relaxed">aws iam get-role --role-name OpsRole \
   --query 'Role.Arn' --output text</pre>
               <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s3')">
                 <Check v-if="copiedBlock === 's3'" class="h-3.5 w-3.5 text-emerald-400" />

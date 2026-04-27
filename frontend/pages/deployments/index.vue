@@ -433,13 +433,13 @@ onUnmounted(() => {
         <!-- Cluster multi-select (shadcn Popover + Checkbox) -->
         <Popover v-model:open="clusterPopoverOpen">
           <PopoverTrigger as-child>
-            <Button variant="outline" size="sm" class="h-8 px-3 text-xs bg-[#181b1f] border-zinc-700/50 text-zinc-300 hover:bg-[#1e2127] hover:border-zinc-600">
+            <Button variant="outline" size="sm" class="h-8 px-3 text-xs bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300">
               <Server class="h-3.5 w-3.5 mr-2 text-zinc-500" />
               <span class="max-w-[180px] truncate">{{ clusterSelectorLabel }}</span>
               <ChevronDown class="h-3.5 w-3.5 ml-2 text-zinc-500 transition-transform" :class="{ 'rotate-180': clusterPopoverOpen }" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent class="w-[300px] p-0 bg-[#1a1d22] border-zinc-700/50" align="end">
+          <PopoverContent class="w-[300px] p-0 bg-white border-slate-200" align="end">
             <!-- Select all row -->
             <div class="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-zinc-800/50 transition-colors" @click="toggleAllClusters">
               <div
@@ -473,7 +473,7 @@ onUnmounted(() => {
                 >
                   <Check v-if="selectedClusterIds.includes(c.id)" class="h-3 w-3" />
                 </div>
-                <span class="text-xs text-zinc-300 truncate flex-1">{{ c.name }}</span>
+                <span class="text-xs text-slate-700 truncate flex-1">{{ c.name }}</span>
                 <span class="text-[11px] text-zinc-600 shrink-0">{{ c.region || c.cloud }}</span>
               </div>
             </div>
@@ -529,7 +529,7 @@ onUnmounted(() => {
         <Collapsible :open="expandedRows.has(rowKey(cr))" @update:open="toggleRow(cr)">
           <!-- Main row -->
           <CollapsibleTrigger as-child>
-            <div class="group relative flex items-center gap-3 px-4 py-2.5 rounded-lg bg-[#181b1f]/60 border border-zinc-800/50 hover:border-zinc-700/60 transition-colors cursor-pointer overflow-hidden">
+            <div class="group relative flex items-center gap-3 px-4 py-2.5 rounded-lg bg-white/60 backdrop-blur-sm border border-slate-200 hover:border-slate-300 transition-colors cursor-pointer overflow-hidden">
               <!-- Rollback progress bar (appears for ~15s after rollback is triggered) -->
               <div
                 v-if="rollingBack.has(rowKey(cr))"
@@ -543,13 +543,13 @@ onUnmounted(() => {
 
               <!-- Name + namespace + cluster -->
               <div class="min-w-0 flex-1 flex items-center gap-1.5 overflow-hidden">
-                <span class="text-sm font-medium text-zinc-200 truncate">{{ cr.rollout.name }}</span>
+                <span class="text-sm font-medium text-slate-700 truncate">{{ cr.rollout.name }}</span>
                 <span class="text-xs text-zinc-500 shrink-0">{{ cr.rollout.namespace }}</span>
                 <span v-if="selectedClusterIds.length > 1" class="text-[11px] text-zinc-600 truncate shrink-0">@ {{ cr.clusterName }}</span>
               </div>
 
               <!-- Strategy -->
-              <Badge variant="outline" class="text-xs px-2 py-0.5 border-zinc-700/50 text-zinc-400 shrink-0 hidden sm:inline-flex">
+              <Badge variant="outline" class="text-xs px-2 py-0.5 border-slate-200 text-zinc-400 shrink-0 hidden sm:inline-flex">
                 {{ cr.rollout.strategy }}
               </Badge>
 
@@ -642,7 +642,7 @@ onUnmounted(() => {
 
           <!-- Expanded detail -->
           <CollapsibleContent>
-            <div class="ml-6 mr-2 mb-2 mt-1 p-4 rounded-lg bg-[#111217]/80 border border-zinc-800/40 space-y-4">
+            <div class="ml-6 mr-2 mb-2 mt-1 p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-4">
               <template v-if="rowDetails.has(rowKey(cr))">
                 <!-- Canary Steps -->
                 <div v-if="rowDetails.get(rowKey(cr))!.detail.canary_steps.length > 0">
@@ -719,7 +719,7 @@ onUnmounted(() => {
           </DialogTitle>
           <DialogDescription v-if="strategyTarget">
             {{ strategyTarget.rollout.namespace }}/{{ strategyTarget.rollout.name }}
-            <Badge variant="outline" class="ml-2 text-[10px] px-1.5 py-0 border-zinc-700/50 text-zinc-400">
+            <Badge variant="outline" class="ml-2 text-[10px] px-1.5 py-0 border-slate-200 text-zinc-400">
               {{ t('deployment.currentStrategy') }}: {{ strategyTarget.rollout.strategy }}
             </Badge>
           </DialogDescription>
@@ -730,17 +730,17 @@ onUnmounted(() => {
           <div class="space-y-1.5">
             <label class="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">{{ t('deployment.strategyType') }}</label>
             <Select v-model="strategyType">
-              <SelectTrigger class="h-9 bg-[#181b1f] border-zinc-700/50 text-zinc-200">
+              <SelectTrigger class="h-9 bg-white border-slate-200 text-slate-700">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent class="bg-[#1a1d22] border-zinc-700/50">
-                <SelectItem value="canary" class="text-zinc-300">
+              <SelectContent class="bg-white border-slate-200">
+                <SelectItem value="canary" class="text-slate-700">
                   <span class="flex items-center gap-2">🐤 {{ t('deployment.canary') }}</span>
                 </SelectItem>
-                <SelectItem value="blueGreen" class="text-zinc-300">
+                <SelectItem value="blueGreen" class="text-slate-700">
                   <span class="flex items-center gap-2">🔵🟢 {{ t('deployment.blueGreen') }}</span>
                 </SelectItem>
-                <SelectItem value="rollingUpdate" class="text-zinc-300">
+                <SelectItem value="rollingUpdate" class="text-slate-700">
                   <span class="flex items-center gap-2">🔄 {{ t('deployment.rollingUpdate') }}</span>
                 </SelectItem>
               </SelectContent>
@@ -754,17 +754,17 @@ onUnmounted(() => {
             <div class="space-y-1.5">
               <label class="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">{{ t('deployment.canaryTemplate') }}</label>
               <Select v-model="canaryTemplate">
-                <SelectTrigger class="h-9 bg-[#181b1f] border-zinc-700/50 text-zinc-200">
+                <SelectTrigger class="h-9 bg-white border-slate-200 text-slate-700">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent class="bg-[#1a1d22] border-zinc-700/50">
-                  <SelectItem value="conservative" class="text-zinc-300">
+                <SelectContent class="bg-white border-slate-200">
+                  <SelectItem value="conservative" class="text-slate-700">
                     {{ t('deployment.conservative') }}
                   </SelectItem>
-                  <SelectItem value="aggressive" class="text-zinc-300">
+                  <SelectItem value="aggressive" class="text-slate-700">
                     {{ t('deployment.aggressive') }}
                   </SelectItem>
-                  <SelectItem value="custom" class="text-zinc-300">
+                  <SelectItem value="custom" class="text-slate-700">
                     {{ t('deployment.custom') }}
                   </SelectItem>
                 </SelectContent>
@@ -800,7 +800,7 @@ onUnmounted(() => {
               <label class="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">{{ t('deployment.activeService') }}</label>
               <Input
                 v-model="bgActiveService"
-                class="h-9 bg-[#181b1f] border-zinc-700/50 text-zinc-200 text-sm"
+                class="h-9 bg-white border-slate-200 text-slate-700 text-sm"
                 placeholder="my-app-active"
               />
             </div>
@@ -808,7 +808,7 @@ onUnmounted(() => {
               <label class="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">{{ t('deployment.previewService') }}</label>
               <Input
                 v-model="bgPreviewService"
-                class="h-9 bg-[#181b1f] border-zinc-700/50 text-zinc-200 text-sm"
+                class="h-9 bg-white border-slate-200 text-slate-700 text-sm"
                 placeholder="my-app-preview"
               />
               <p class="text-[10px] text-zinc-600">Auto-created if not existing</p>
