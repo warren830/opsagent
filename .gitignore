@@ -79,3 +79,5 @@ ops-sre-zerotrust.zip
 
 # Demo recording artifacts (Playwright frames, ffmpeg output, Polly TTS, etc.)
 demo/
+.gstack/
+.superpowers/
