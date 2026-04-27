@@ -13,6 +13,8 @@ import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar } from '@/components/ui/avatar'
+import { GlassPanel } from '@/components/ui/glass-panel'
+import { CountUp } from '@/components/ui/count-up'
 
 const inputVal = ref('')
 const selectVal = ref('a')
@@ -114,8 +116,20 @@ const switchVal = ref(true)
 
     <section>
       <h2 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Glass primitives (Phase ② new)</h2>
-      <!-- GlassPanel + CountUp will be rendered here after Task 2. For now empty placeholder. -->
-      <div class="text-sm text-slate-400 italic">See after Task 2</div>
+      <div class="grid grid-cols-3 gap-4">
+        <GlassPanel class="p-4">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Subtle default</div>
+          <div class="text-2xl font-light mt-1"><CountUp :to="1247" /></div>
+        </GlassPanel>
+        <GlassPanel variant="strong" hover="lift" class="p-4">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Strong + lift</div>
+          <div class="text-2xl font-light mt-1 text-gradient-primary"><CountUp :to="42" /></div>
+        </GlassPanel>
+        <GlassPanel variant="subtle" class="p-4">
+          <div class="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Subtle (nested-safe)</div>
+          <div class="text-2xl font-light mt-1"><CountUp :to="98.4" :decimals="1" /></div>
+        </GlassPanel>
+      </div>
     </section>
   </div>
 </template>
