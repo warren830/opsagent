@@ -64,37 +64,6 @@
     --radius-lg: 0.875rem;
     --radius-xl: 1.25rem;
   }
-
-  /* ─── Dark mode — Grafana-inspired ─── */
-  .dark {
-    --background: 228 22% 7%;        /* #111217 — deepest bg */
-    --foreground: 210 6% 87%;        /* #d8d9da — body text */
-    --card: 225 16% 11%;             /* #181b1f — panel/card bg */
-    --card-foreground: 210 6% 87%;
-    --popover: 225 16% 11%;
-    --popover-foreground: 210 6% 87%;
-    --primary: 24 100% 50%;          /* #FF6600 — Grafana orange */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 12% 16%;        /* #23262b — secondary surfaces */
-    --secondary-foreground: 210 6% 87%;
-    --muted: 220 12% 16%;
-    --muted-foreground: 220 6% 55%;  /* #858688 — muted text */
-    --accent: 220 12% 20%;           /* #2c3035 — hover/accent surface */
-    --accent-foreground: 210 6% 93%;
-    --destructive: 354 75% 55%;      /* #F2495C — Grafana red */
-    --destructive-foreground: 0 0% 100%;
-    --success: 110 44% 58%;          /* #73BF69 — Grafana green */
-    --success-foreground: 0 0% 100%;
-    --warning: 30 90% 58%;           /* #FF9830 — Grafana amber */
-    --warning-foreground: 0 0% 100%;
-    --info: 217 85% 64%;             /* #5794F2 — Grafana blue */
-    --info-foreground: 0 0% 100%;
-    --border: 220 12% 18%;           /* #2c3235 — subtle borders */
-    --input: 220 12% 18%;
-    --ring: 24 100% 50%;
-    --panel: 228 16% 9%;             /* #141619 — panel alt bg */
-    --panel-foreground: 210 6% 87%;
-  }
 }
 
 @layer base {
@@ -104,11 +73,6 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
-  }
-  /* Native select dropdown — force readable colors in dark mode */
-  .dark select option {
-    background: #1e2028;
-    color: #e0e0e0;
   }
   /* Smooth scrollbars — Grafana style */
   ::-webkit-scrollbar {
