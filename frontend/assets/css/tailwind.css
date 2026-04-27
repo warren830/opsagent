@@ -92,44 +92,46 @@
 }
 
 @layer utilities {
-  /* Grafana-style glow effects */
-  .glow-primary {
-    box-shadow: 0 0 12px hsl(var(--primary) / 0.25);
+  /* ─── Glass surfaces ─── */
+  .glass-panel {
+    background: rgba(var(--glass-bg));
+    border: 1px solid rgba(var(--glass-border));
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border-radius: var(--radius-lg);
   }
-  .glow-success {
-    box-shadow: 0 0 10px hsl(var(--success) / 0.3);
+  .glass-panel-subtle {
+    background: rgba(var(--glass-bg));
+    border: 1px solid rgba(var(--glass-border));
+    box-shadow: 0 4px 16px rgba(100, 140, 200, 0.08);
+    backdrop-filter: blur(var(--glass-blur-subtle));
+    -webkit-backdrop-filter: blur(var(--glass-blur-subtle));
+    border-radius: var(--radius-md);
   }
-  .glow-warning {
-    box-shadow: 0 0 10px hsl(var(--warning) / 0.3);
+  .glass-hover-lift {
+    transition: transform 200ms var(--motion-ease-spring),
+                box-shadow 200ms var(--motion-ease-spring);
   }
-  .glow-destructive {
-    box-shadow: 0 0 10px hsl(var(--destructive) / 0.3);
-  }
-  .glow-info {
-    box-shadow: 0 0 10px hsl(var(--info) / 0.3);
-  }
-
-  /* Panel left accent border */
-  .panel-accent {
-    border-left: 3px solid hsl(var(--primary));
-  }
-  .panel-accent-success {
-    border-left: 3px solid hsl(var(--success));
-  }
-  .panel-accent-warning {
-    border-left: 3px solid hsl(var(--warning));
-  }
-  .panel-accent-info {
-    border-left: 3px solid hsl(var(--info));
+  .glass-hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--glass-shadow-hover);
   }
 
-  /* Grafana-style gradient text */
-  .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-orange-400 to-amber-500;
+  /* ─── Gradient text (Phase ② will apply to titles) ─── */
+  .text-gradient-primary {
+    background: linear-gradient(120deg, hsl(var(--primary)), hsl(var(--secondary)));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 
-  /* Subtle noise texture overlay for depth */
-  .panel-surface {
-    @apply bg-card border border-border/60 rounded-md;
+  /* ─── Aurora background hook (Phase ③ will mount this) ─── */
+  .aurora-bg {
+    background:
+      radial-gradient(circle at 12% 10%, var(--aurora-sky), transparent 42%),
+      radial-gradient(circle at 88% 20%, var(--aurora-lavender), transparent 42%),
+      radial-gradient(circle at 50% 100%, var(--aurora-mint), transparent 45%),
+      hsl(var(--background));
   }
 }
