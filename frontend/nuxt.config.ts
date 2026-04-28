@@ -24,6 +24,14 @@ export default defineNuxtConfig({
     '@pinia/nuxt',
   ],
 
+  // Components auto-import — limit to .vue files only. Without this, Nuxt
+  // also registers shadcn-vue `components/ui/<name>/index.ts` barrel files
+  // and collides with the sibling `.vue` component, producing 19 dev-mode
+  // "Two component files resolving to the same name Ui<Name>" warnings.
+  components: [
+    { path: '~/components', extensions: ['vue'], pathPrefix: true },
+  ],
+
   // i18n
   i18n: {
     locales: [
@@ -33,10 +41,14 @@ export default defineNuxtConfig({
     defaultLocale: 'zh',
     langDir: '../i18n',
     strategy: 'no_prefix',
-    detectBrowserLanguage: {
-      useCookie: true,
-      cookieKey: 'i18n_locale',
-      fallbackLocale: 'zh',
+    // Disable browser Accept-Language detection so everyone starts on zh by
+    // default (per project language policy). Users can still switch via the
+    // header toggle; i18n persists the choice in the `i18n_locale` cookie.
+    detectBrowserLanguage: false,
+    // Silence the v10 deprecation notice for the v-t directive optimiser.
+    // We don't rely on bundle-time translation-directive optimisation.
+    bundle: {
+      optimizeTranslationDirective: false,
     },
   },
 
@@ -66,9 +78,6 @@ export default defineNuxtConfig({
       apiBase: process.env.NUXT_PUBLIC_API_BASE || '',
     },
   },
-
-  // Note: shadcn-vue ui/ barrel files (index.ts) cause harmless duplicate
-  // component name warnings. These are safe to ignore.
 
   // TypeScript
   typescript: {

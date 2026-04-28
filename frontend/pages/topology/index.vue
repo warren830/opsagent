@@ -49,7 +49,9 @@ const flowNodes = ref<any[]>([])
 const flowEdges = ref<any[]>([])
 
 const nodeTypes = { topology: TopologyNode }
-const { fitView } = useVueFlow({ id: 'service-topology' })
+// Use the string-id signature — the object-options form was deprecated in
+// @vue-flow/core v1.x and removed in v2.
+const { fitView } = useVueFlow('service-topology')
 
 // ─── Edge styles by kind ────────────────────────────────────────
 const edgeStyleMap: Record<string, Record<string, any>> = {

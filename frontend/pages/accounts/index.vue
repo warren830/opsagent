@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Pencil, Trash2, Zap, BookOpen, X, Shield, Building2, Copy, Check, Info, ExternalLink } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Zap, BookOpen, X, Shield, Building2, Copy, Check, Info, ExternalLink } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

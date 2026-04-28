@@ -1,6 +1,6 @@
 <script setup lang="ts">
-definePageMeta({ middleware: 'auth' })
-
+// Auth middleware is applied per-page via definePageMeta in pages/*.vue.
+// Layouts can't set page meta (Vue compiler hint: only pages may call it).
 const chatFullscreen = useState('chatFullscreen', () => false)
 const mobileSidebarOpen = useState('mobileSidebarOpen', () => false)
 </script>
