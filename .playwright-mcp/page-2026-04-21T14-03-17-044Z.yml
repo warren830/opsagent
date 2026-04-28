@@ -1,0 +1,31 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img "Ops" [ref=e7]
+        - heading "Sign in to Ops" [level=1] [ref=e8]
+        - paragraph [ref=e9]: Enter your credentials
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - text: Username
+          - textbox "Username" [ref=e13]
+        - generic [ref=e14]:
+          - text: Password
+          - textbox "Password" [ref=e15]
+        - button "Sign in" [ref=e16] [cursor=pointer]
+      - generic [ref=e17]:
+        - button "Light" [ref=e18] [cursor=pointer]:
+          - img [ref=e19]
+        - button "中" [ref=e25] [cursor=pointer]
+    - region "Notifications alt+T":
+      - list
+  - generic:
+    - img
+  - generic [ref=e26]:
+    - button "Toggle Nuxt DevTools" [ref=e27] [cursor=pointer]:
+      - img [ref=e28]
+    - generic "Page load time" [ref=e31]:
+      - generic [ref=e32]: "2.5"
+      - generic [ref=e33]: s
+    - button "Toggle Component Inspector" [ref=e35] [cursor=pointer]:
+      - img [ref=e36]

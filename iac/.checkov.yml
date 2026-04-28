@@ -1,0 +1,14 @@
+# Checkov configuration for opsagent Terraform modules.
+# Documented skips: each one must be revisited periodically.
+
+framework:
+  - terraform
+
+compact: true
+
+# Skip IDs with reason — do not expand without review.
+skip-check:
+  # Example pattern — delete or add real skips after first run.
+  #   - CKV_AWS_7   # KMS key rotation: handled externally via AWS Config
+  #   - CKV_AWS_190 # Secrets Manager rotation: documented RFC
+  []

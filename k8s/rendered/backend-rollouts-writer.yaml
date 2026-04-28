@@ -1,0 +1,33 @@
+# Grants the backend ServiceAccount permission to mutate Argo Rollouts.
+# Needed for promote / rollback (patch rollouts/status) / change-strategy.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ops-backend-rollouts-writer
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts", "rollouts/status"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["analysisruns"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ops-backend-rollouts-writer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ops-backend-rollouts-writer
+subjects:
+  # EKS access entry maps OpsReadRole (used by backend when talking to its own
+  # cluster) to this K8s group via `kubernetesGroups: [ops-rollouts-writers]`.
+  - kind: Group
+    name: ops-rollouts-writers
+    apiGroup: rbac.authorization.k8s.io
+  # Also bind the backend ServiceAccount for any path that uses in-cluster SA
+  # token directly (current code uses IAM, but keep this as a safety net).
+  - kind: ServiceAccount
+    name: backend
+    namespace: ops

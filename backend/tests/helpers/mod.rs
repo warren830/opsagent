@@ -1,4 +1,5 @@
 pub mod seed;
+pub mod http;
 
 use uuid::Uuid;
 

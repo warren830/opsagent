@@ -1,0 +1,347 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - banner [ref=e4]:
+        - generic [ref=e5]:
+          - link "Ops Ops" [ref=e6] [cursor=pointer]:
+            - /url: /
+            - img "Ops" [ref=e7]
+            - generic [ref=e8]: Ops
+          - generic [ref=e9]:
+            - generic [ref=e11]: A
+            - generic [ref=e12]: admin
+          - button "Light" [ref=e13] [cursor=pointer]:
+            - img [ref=e14]
+          - button "中" [ref=e20] [cursor=pointer]
+          - button "Logout" [ref=e21] [cursor=pointer]:
+            - img
+            - text: Logout
+      - generic [ref=e22]:
+        - complementary [ref=e23]:
+          - button [ref=e25] [cursor=pointer]:
+            - img
+          - generic [ref=e29]:
+            - link "Dashboard" [ref=e30] [cursor=pointer]:
+              - /url: /
+              - img [ref=e31]
+              - generic [ref=e36]: Dashboard
+            - button "Chat ⌘ K" [ref=e37] [cursor=pointer]:
+              - img
+              - generic [ref=e38]: Chat
+              - generic [ref=e39]:
+                - generic [ref=e40]: ⌘
+                - generic [ref=e41]: K
+            - button "Collapse All" [ref=e43] [cursor=pointer]:
+              - img
+            - generic [ref=e44]:
+              - button "Principals" [expanded] [ref=e45] [cursor=pointer]:
+                - generic [ref=e46]: Principals
+                - img [ref=e47]
+              - generic [ref=e49]:
+                - link "Users" [ref=e50] [cursor=pointer]:
+                  - /url: /users
+                  - img [ref=e51]
+                  - generic [ref=e56]: Users
+                - link "Tenants" [ref=e57] [cursor=pointer]:
+                  - /url: /tenants
+                  - img [ref=e58]
+                  - generic [ref=e62]: Tenants
+            - generic [ref=e63]:
+              - button "Assets" [expanded] [ref=e64] [cursor=pointer]:
+                - generic [ref=e65]: Assets
+                - img [ref=e66]
+              - generic [ref=e68]:
+                - link "Cloud Accounts" [ref=e69] [cursor=pointer]:
+                  - /url: /accounts
+                  - img [ref=e70]
+                  - generic [ref=e72]: Cloud Accounts
+                - link "Clusters" [ref=e73] [cursor=pointer]:
+                  - /url: /clusters
+                  - img [ref=e74]
+                  - generic [ref=e77]: Clusters
+                - link "Service Topology" [ref=e78] [cursor=pointer]:
+                  - /url: /topology
+                  - img [ref=e79]
+                  - generic [ref=e84]: Service Topology
+                - link "Security Insights" [ref=e85] [cursor=pointer]:
+                  - /url: /resources
+                  - img [ref=e86]
+                  - generic [ref=e96]: Security Insights
+            - generic [ref=e97]:
+              - button "Integrations" [expanded] [ref=e98] [cursor=pointer]:
+                - generic [ref=e99]: Integrations
+                - img [ref=e100]
+              - generic [ref=e102]:
+                - link "Channels" [ref=e103] [cursor=pointer]:
+                  - /url: /channels
+                  - img [ref=e104]
+                  - generic [ref=e110]: Channels
+                - link "Models" [ref=e111] [cursor=pointer]:
+                  - /url: /providers
+                  - img [ref=e112]
+                  - generic [ref=e122]: Models
+            - generic [ref=e123]:
+              - button "Knowledge" [expanded] [ref=e124] [cursor=pointer]:
+                - generic [ref=e125]: Knowledge
+                - img [ref=e126]
+              - generic [ref=e128]:
+                - link "Glossary" [ref=e129] [cursor=pointer]:
+                  - /url: /glossary
+                  - img [ref=e130]
+                  - generic [ref=e132]: Glossary
+                - link "Knowledge" [ref=e133] [cursor=pointer]:
+                  - /url: /knowledge
+                  - img [ref=e134]
+                  - generic [ref=e137]: Knowledge
+            - generic [ref=e138]:
+              - button "Tools" [expanded] [ref=e139] [cursor=pointer]:
+                - generic [ref=e140]: Tools
+                - img [ref=e141]
+              - generic [ref=e143]:
+                - link "Skills" [ref=e144] [cursor=pointer]:
+                  - /url: /skills
+                  - img [ref=e145]
+                  - generic [ref=e147]: Skills
+                - link "MCP Plugins" [ref=e148] [cursor=pointer]:
+                  - /url: /mcp
+                  - img [ref=e149]
+                  - generic [ref=e151]: MCP Plugins
+                - link "Scheduled Jobs" [ref=e152] [cursor=pointer]:
+                  - /url: /scheduled-jobs
+                  - img [ref=e153]
+                  - generic [ref=e156]: Scheduled Jobs
+            - generic [ref=e157]:
+              - button "Telemetry" [expanded] [ref=e158] [cursor=pointer]:
+                - generic [ref=e159]: Telemetry
+                - img [ref=e160]
+              - generic [ref=e162]:
+                - link "Telemetry" [ref=e163] [cursor=pointer]:
+                  - /url: /telemetry
+                  - img [ref=e164]
+                  - generic [ref=e166]: Telemetry
+                - link "Code Repos" [ref=e167] [cursor=pointer]:
+                  - /url: /repo
+                  - img [ref=e168]
+                  - generic [ref=e172]: Code Repos
+            - generic [ref=e173]:
+              - button "Ops" [expanded] [ref=e174] [cursor=pointer]:
+                - generic [ref=e175]: Ops
+                - img [ref=e176]
+              - generic [ref=e178]:
+                - link "Deployments" [ref=e179] [cursor=pointer]:
+                  - /url: /deployments
+                  - img [ref=e180]
+                  - generic [ref=e185]: Deployments
+                - link "Issues" [ref=e186] [cursor=pointer]:
+                  - /url: /issues
+                  - img [ref=e187]
+                  - generic [ref=e189]: Issues
+            - link "Settings" [ref=e190] [cursor=pointer]:
+              - /url: /settings
+              - img [ref=e191]
+              - generic [ref=e194]: Settings
+        - main [ref=e195]:
+          - generic [ref=e197]:
+            - heading "Cluster Management" [level=1] [ref=e199]
+            - generic [ref=e200]:
+              - generic [ref=e201]:
+                - generic [ref=e202]:
+                  - img [ref=e203]
+                  - generic [ref=e206]: Auto Discovery
+                - button "Refresh Now" [ref=e207] [cursor=pointer]:
+                  - img
+                  - text: Refresh Now
+              - paragraph [ref=e209]: Scans all accessible AWS accounts for EKS clusters. Discovered clusters appear below.
+            - generic [ref=e210]:
+              - generic [ref=e211]:
+                - generic [ref=e212]:
+                  - img [ref=e213]
+                  - generic [ref=e216]: Static Clusters
+                  - generic [ref=e217]: "0"
+                - button "Add Cluster" [ref=e218] [cursor=pointer]:
+                  - img
+                  - text: Add Cluster
+              - paragraph [ref=e361]: No static clusters. Click Add Cluster to create one manually.
+            - generic [ref=e306]:
+              - generic [ref=e307]:
+                - img [ref=e308]
+                - generic [ref=e313]: Discovered Clusters
+                - generic [ref=e314]: "6"
+              - generic [ref=e362]:
+                - generic [ref=e363]:
+                  - generic [ref=e364]:
+                    - generic [ref=e369]: data-platform
+                    - generic [ref=e370]: ACTIVE
+                  - generic [ref=e371]:
+                    - generic [ref=e372]: EKS
+                    - generic [ref=e373]: "034362076319"
+                    - generic [ref=e374]: us-east-1
+                    - generic [ref=e375]: v1.31
+                  - generic [ref=e376]:
+                    - generic [ref=e377]:
+                      - generic [ref=e378]: Endpoint
+                      - generic [ref=e379]: https://11A5C90818F2123D330C337B284430A2.gr7.us-east-1.eks.amazonaws.com
+                    - generic [ref=e380]:
+                      - generic [ref=e381]: Last Seen
+                      - generic [ref=e382]: Apr 21, 2026, 10:22 PM
+                  - generic [ref=e383]:
+                    - button [ref=e384] [cursor=pointer]:
+                      - img
+                    - button [ref=e385] [cursor=pointer]:
+                      - img
+                - generic [ref=e386]:
+                  - generic [ref=e387]:
+                    - generic [ref=e392]: ecommerce-prod
+                    - generic [ref=e393]: ACTIVE
+                  - generic [ref=e394]:
+                    - generic [ref=e395]: EKS
+                    - generic [ref=e396]: "034362076319"
+                    - generic [ref=e397]: us-east-1
+                    - generic [ref=e398]: v1.30
+                  - generic [ref=e399]:
+                    - generic [ref=e400]:
+                      - generic [ref=e401]: Endpoint
+                      - generic [ref=e402]: https://E5E5127AAF52F544D98B59848307FA09.gr7.us-east-1.eks.amazonaws.com
+                    - generic [ref=e403]:
+                      - generic [ref=e404]: Last Seen
+                      - generic [ref=e405]: Apr 21, 2026, 10:22 PM
+                  - generic [ref=e406]:
+                    - button [ref=e407] [cursor=pointer]:
+                      - img
+                    - button [ref=e408] [cursor=pointer]:
+                      - img
+                - generic [ref=e409]:
+                  - generic [ref=e410]:
+                    - generic [ref=e415]: legacy-migration
+                    - generic [ref=e416]: ACTIVE
+                  - generic [ref=e417]:
+                    - generic [ref=e418]: EKS
+                    - generic [ref=e419]: "034362076319"
+                    - generic [ref=e420]: us-east-1
+                    - generic [ref=e421]: v1.30
+                  - generic [ref=e422]:
+                    - generic [ref=e423]:
+                      - generic [ref=e424]: Endpoint
+                      - generic [ref=e425]: https://DFA38D2EC386A2D22A9CC98F1C9B478F.gr7.us-east-1.eks.amazonaws.com
+                    - generic [ref=e426]:
+                      - generic [ref=e427]: Last Seen
+                      - generic [ref=e428]: Apr 21, 2026, 10:22 PM
+                  - generic [ref=e429]:
+                    - button [ref=e430] [cursor=pointer]:
+                      - img
+                    - button [ref=e431] [cursor=pointer]:
+                      - img
+                - generic [ref=e432]:
+                  - generic [ref=e433]:
+                    - generic [ref=e438]: mcp-test
+                    - generic [ref=e439]: ACTIVE
+                  - generic [ref=e440]:
+                    - generic [ref=e441]: EKS
+                    - generic [ref=e442]: "034362076319"
+                    - generic [ref=e443]: us-east-1
+                    - generic [ref=e444]: v1.31
+                  - generic [ref=e445]:
+                    - generic [ref=e446]:
+                      - generic [ref=e447]: Endpoint
+                      - generic [ref=e448]: https://EEAC5C23E4639D47E97AA978E11BEA18.yl4.us-east-1.eks.amazonaws.com
+                    - generic [ref=e449]:
+                      - generic [ref=e450]: Last Seen
+                      - generic [ref=e451]: Apr 21, 2026, 10:22 PM
+                  - generic [ref=e452]:
+                    - button [ref=e453] [cursor=pointer]:
+                      - img
+                    - button [ref=e454] [cursor=pointer]:
+                      - img
+                - generic [ref=e455]:
+                  - generic [ref=e456]:
+                    - generic [ref=e461]: opsagent-test
+                    - generic [ref=e462]: ACTIVE
+                  - generic [ref=e463]:
+                    - generic [ref=e464]: EKS
+                    - generic [ref=e465]: "034362076319"
+                    - generic [ref=e466]: us-east-1
+                    - generic [ref=e467]: v1.31
+                  - generic [ref=e468]:
+                    - generic [ref=e469]:
+                      - generic [ref=e470]: Endpoint
+                      - generic [ref=e471]: https://CC69334C8049A3265C154E7A769AE2CE.gr7.us-east-1.eks.amazonaws.com
+                    - generic [ref=e472]:
+                      - generic [ref=e473]: Last Seen
+                      - generic [ref=e474]: Apr 21, 2026, 10:22 PM
+                  - generic [ref=e475]:
+                    - button [ref=e476] [cursor=pointer]:
+                      - img
+                    - button [ref=e477] [cursor=pointer]:
+                      - img
+                - generic [ref=e478]:
+                  - generic [ref=e479]:
+                    - generic [ref=e484]: ops-eks-ap-southeast-1-default
+                    - generic [ref=e485]: ACTIVE
+                  - generic [ref=e486]:
+                    - generic [ref=e487]: EKS
+                    - generic [ref=e488]: "034362076319"
+                    - generic [ref=e489]: ap-southeast-1
+                    - generic [ref=e490]: v1.32
+                  - generic [ref=e491]:
+                    - generic [ref=e492]:
+                      - generic [ref=e493]: Endpoint
+                      - generic [ref=e494]: https://D9EC218D92B0ED8CE111288FBF680AE3.gr7.ap-southeast-1.eks.amazonaws.com
+                    - generic [ref=e495]:
+                      - generic [ref=e496]: Last Seen
+                      - generic [ref=e497]: Apr 21, 2026, 10:22 PM
+                  - generic [ref=e498]:
+                    - button [ref=e499] [cursor=pointer]:
+                      - img
+                    - button [ref=e500] [cursor=pointer]:
+                      - img
+        - complementary [ref=e315]:
+          - generic [ref=e317]:
+            - generic [ref=e318]:
+              - img [ref=e319]
+              - generic [ref=e321]: AI Chat
+              - combobox [ref=e501] [cursor=pointer]:
+                - generic: bedrock
+                - img [ref=e502]
+              - combobox [ref=e504]
+            - generic [ref=e322]:
+              - button "1/1" [ref=e506] [cursor=pointer]:
+                - img
+                - generic [ref=e507]: 1/1
+              - button "Sessions" [ref=e324] [cursor=pointer]:
+                - img
+              - button "New Chat" [ref=e325] [cursor=pointer]:
+                - img
+              - button "Workspace" [ref=e326] [cursor=pointer]:
+                - img
+              - button "Fullscreen" [ref=e327] [cursor=pointer]:
+                - img
+              - button [ref=e328] [cursor=pointer]:
+                - img
+          - generic [ref=e330]:
+            - img [ref=e332]
+            - paragraph [ref=e334]: Your AI ops copilot — ready when you are.
+            - generic [ref=e335]:
+              - button "List EKS clusters" [ref=e336] [cursor=pointer]
+              - button "Check pending pods" [ref=e337] [cursor=pointer]
+              - button "Show S3 buckets" [ref=e338] [cursor=pointer]
+              - button "Recent issues" [ref=e339] [cursor=pointer]
+          - generic [ref=e340]:
+            - generic [ref=e342]:
+              - button "Attach image" [ref=e343] [cursor=pointer]:
+                - img
+              - textbox "Ask me about your cloud infrastructure..." [ref=e344]
+              - button [disabled]:
+                - img
+            - generic [ref=e345]: Type / for commands
+    - region "Notifications alt+T":
+      - list
+  - generic:
+    - img
+  - generic [ref=e346]:
+    - button "Toggle Nuxt DevTools" [ref=e347] [cursor=pointer]:
+      - img [ref=e348]
+    - generic "Page load time" [ref=e351]:
+      - generic [ref=e352]: "72"
+      - generic [ref=e353]: ms
+    - button "Toggle Component Inspector" [ref=e355] [cursor=pointer]:
+      - img [ref=e356]

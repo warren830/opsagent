@@ -1,0 +1,269 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - banner [ref=e4]:
+        - generic [ref=e5]:
+          - link "Ops Ops" [ref=e6] [cursor=pointer]:
+            - /url: /
+            - img "Ops" [ref=e7]
+            - generic [ref=e8]: Ops
+          - generic [ref=e9]:
+            - generic [ref=e11]: A
+            - generic [ref=e12]: admin
+          - button "Light" [ref=e13] [cursor=pointer]:
+            - img [ref=e14]
+          - button "中" [ref=e20] [cursor=pointer]
+          - button "Logout" [ref=e21] [cursor=pointer]:
+            - img
+            - text: Logout
+      - generic [ref=e22]:
+        - complementary [ref=e23]:
+          - button [ref=e25] [cursor=pointer]:
+            - img
+          - generic [ref=e29]:
+            - link "Dashboard" [ref=e30] [cursor=pointer]:
+              - /url: /
+              - img [ref=e31]
+              - generic [ref=e36]: Dashboard
+            - button "Chat ⌘ K" [ref=e37] [cursor=pointer]:
+              - img
+              - generic [ref=e38]: Chat
+              - generic [ref=e39]:
+                - generic [ref=e40]: ⌘
+                - generic [ref=e41]: K
+            - button "Collapse All" [ref=e43] [cursor=pointer]:
+              - img
+            - generic [ref=e44]:
+              - button "Principals" [expanded] [ref=e45] [cursor=pointer]:
+                - generic [ref=e46]: Principals
+                - img [ref=e47]
+              - generic [ref=e49]:
+                - link "Users" [ref=e50] [cursor=pointer]:
+                  - /url: /users
+                  - img [ref=e51]
+                  - generic [ref=e56]: Users
+                - link "Tenants" [ref=e57] [cursor=pointer]:
+                  - /url: /tenants
+                  - img [ref=e58]
+                  - generic [ref=e62]: Tenants
+            - generic [ref=e63]:
+              - button "Assets" [expanded] [ref=e64] [cursor=pointer]:
+                - generic [ref=e65]: Assets
+                - img [ref=e66]
+              - generic [ref=e68]:
+                - link "Cloud Accounts" [ref=e69] [cursor=pointer]:
+                  - /url: /accounts
+                  - img [ref=e70]
+                  - generic [ref=e72]: Cloud Accounts
+                - link "Clusters" [ref=e73] [cursor=pointer]:
+                  - /url: /clusters
+                  - img [ref=e74]
+                  - generic [ref=e77]: Clusters
+                - link "Service Topology" [ref=e78] [cursor=pointer]:
+                  - /url: /topology
+                  - img [ref=e79]
+                  - generic [ref=e84]: Service Topology
+                - link "Security Insights" [ref=e85] [cursor=pointer]:
+                  - /url: /resources
+                  - img [ref=e86]
+                  - generic [ref=e96]: Security Insights
+            - generic [ref=e97]:
+              - button "Integrations" [expanded] [ref=e98] [cursor=pointer]:
+                - generic [ref=e99]: Integrations
+                - img [ref=e100]
+              - generic [ref=e102]:
+                - link "Channels" [ref=e103] [cursor=pointer]:
+                  - /url: /channels
+                  - img [ref=e104]
+                  - generic [ref=e110]: Channels
+                - link "Models" [ref=e111] [cursor=pointer]:
+                  - /url: /providers
+                  - img [ref=e112]
+                  - generic [ref=e122]: Models
+            - generic [ref=e123]:
+              - button "Knowledge" [expanded] [ref=e124] [cursor=pointer]:
+                - generic [ref=e125]: Knowledge
+                - img [ref=e126]
+              - generic [ref=e128]:
+                - link "Glossary" [ref=e129] [cursor=pointer]:
+                  - /url: /glossary
+                  - img [ref=e130]
+                  - generic [ref=e132]: Glossary
+                - link "Knowledge" [ref=e133] [cursor=pointer]:
+                  - /url: /knowledge
+                  - img [ref=e134]
+                  - generic [ref=e137]: Knowledge
+            - generic [ref=e138]:
+              - button "Tools" [expanded] [ref=e139] [cursor=pointer]:
+                - generic [ref=e140]: Tools
+                - img [ref=e141]
+              - generic [ref=e143]:
+                - link "Skills" [ref=e144] [cursor=pointer]:
+                  - /url: /skills
+                  - img [ref=e145]
+                  - generic [ref=e147]: Skills
+                - link "MCP Plugins" [ref=e148] [cursor=pointer]:
+                  - /url: /mcp
+                  - img [ref=e149]
+                  - generic [ref=e151]: MCP Plugins
+                - link "Scheduled Jobs" [ref=e152] [cursor=pointer]:
+                  - /url: /scheduled-jobs
+                  - img [ref=e153]
+                  - generic [ref=e156]: Scheduled Jobs
+            - generic [ref=e157]:
+              - button "Telemetry" [expanded] [ref=e158] [cursor=pointer]:
+                - generic [ref=e159]: Telemetry
+                - img [ref=e160]
+              - generic [ref=e162]:
+                - link "Telemetry" [ref=e163] [cursor=pointer]:
+                  - /url: /telemetry
+                  - img [ref=e164]
+                  - generic [ref=e166]: Telemetry
+                - link "Code Repos" [ref=e167] [cursor=pointer]:
+                  - /url: /repo
+                  - img [ref=e168]
+                  - generic [ref=e172]: Code Repos
+            - generic [ref=e173]:
+              - button "Ops" [expanded] [ref=e174] [cursor=pointer]:
+                - generic [ref=e175]: Ops
+                - img [ref=e176]
+              - generic [ref=e178]:
+                - link "Deployments" [ref=e179] [cursor=pointer]:
+                  - /url: /deployments
+                  - img [ref=e180]
+                  - generic [ref=e185]: Deployments
+                - link "Issues" [ref=e186] [cursor=pointer]:
+                  - /url: /issues
+                  - img [ref=e187]
+                  - generic [ref=e189]: Issues
+            - link "Settings" [ref=e190] [cursor=pointer]:
+              - /url: /settings
+              - img [ref=e191]
+              - generic [ref=e194]: Settings
+        - main [ref=e195]:
+          - generic [ref=e197]:
+            - generic [ref=e198]:
+              - generic [ref=e199]:
+                - heading "Welcome back, admin" [level=1] [ref=e200]
+                - paragraph [ref=e201]: AI-powered multi-cloud operations platform
+              - button [ref=e202] [cursor=pointer]:
+                - img
+            - generic [ref=e203]:
+              - generic [ref=e304]:
+                - generic [ref=e305]:
+                  - paragraph [ref=e306]: Sessions
+                  - paragraph [ref=e307]: "1"
+                - img [ref=e309]
+              - generic [ref=e311]:
+                - generic [ref=e312]:
+                  - paragraph [ref=e313]: Tenants
+                  - paragraph [ref=e314]: "0"
+                - img [ref=e316]
+              - generic [ref=e320]:
+                - generic [ref=e321]:
+                  - paragraph [ref=e322]: Users
+                  - paragraph [ref=e323]: "1"
+                - img [ref=e325]
+              - generic [ref=e330]:
+                - generic [ref=e331]:
+                  - paragraph [ref=e332]: Skills
+                  - paragraph [ref=e333]: "0"
+                - img [ref=e335]
+              - generic [ref=e337]:
+                - generic [ref=e338]:
+                  - paragraph [ref=e339]: Clusters
+                  - paragraph [ref=e340]: "6"
+                - img [ref=e342]
+              - generic [ref=e345]:
+                - generic [ref=e346]:
+                  - paragraph [ref=e347]: Open Issues
+                  - paragraph [ref=e348]: "0"
+                - img [ref=e350]
+        - complementary [ref=e252]:
+          - generic [ref=e254]:
+            - generic [ref=e255]:
+              - img [ref=e256]
+              - generic [ref=e258]: AI Chat
+              - combobox [ref=e259] [cursor=pointer]:
+                - generic: bedrock
+                - img [ref=e260]
+              - combobox [ref=e262]
+            - generic [ref=e263]:
+              - button "1/1" [ref=e265] [cursor=pointer]:
+                - img
+                - generic [ref=e266]: 1/1
+              - button "Sessions" [ref=e268] [cursor=pointer]:
+                - img
+              - button "New Chat" [ref=e269] [cursor=pointer]:
+                - img
+              - button "Workspace" [ref=e270] [cursor=pointer]:
+                - img
+              - button "Fullscreen" [ref=e271] [cursor=pointer]:
+                - img
+              - button [ref=e272] [cursor=pointer]:
+                - img
+          - generic [ref=e352]:
+            - generic [ref=e354]:
+              - button "Edit" [ref=e355] [cursor=pointer]:
+                - img
+              - generic [ref=e357]: hi
+            - button "Thinking... The user said \"hi\". Let me respond in Chinese as per the CLA..." [ref=e359] [cursor=pointer]:
+              - img [ref=e360]
+              - generic [ref=e362]: Thinking...
+              - generic [ref=e363]: The user said "hi". Let me respond in Chinese as per the CLA...
+            - generic [ref=e365]:
+              - paragraph [ref=e366]: 你好！👋 我是 Ops AI，你的多雲基礎設施運維助手。
+              - paragraph [ref=e367]: 我可以幫你：
+              - list [ref=e368]:
+                - listitem [ref=e369]:
+                  - text: 🔍
+                  - strong [ref=e370]: 查詢
+                  - text: 雲帳號、叢集、服務拓撲
+                - listitem [ref=e371]:
+                  - text: 🚀
+                  - strong [ref=e372]: 部署管理
+                  - text: — Argo Rollouts 的 promote / rollback / 策略變更
+                - listitem [ref=e373]:
+                  - text: 🔒
+                  - strong [ref=e374]: 安全檢視
+                  - text: — 安全發現與資源掃描
+                - listitem [ref=e375]:
+                  - text: 📊
+                  - strong [ref=e376]: 可觀測性
+                  - text: — 指標、日誌、追蹤查詢
+                - listitem [ref=e377]:
+                  - text: 🔧
+                  - strong [ref=e378]: 問題排查
+                  - text: — 告警分析與根因定位
+                - listitem [ref=e379]:
+                  - text: 📚
+                  - strong [ref=e380]: 知識庫
+                  - text: — 內部術語、Runbook 查詢
+              - paragraph [ref=e381]: 有什麼需要幫忙的？
+            - generic [ref=e383]:
+              - button "Edit" [ref=e384] [cursor=pointer]:
+                - img
+              - generic [ref=e386]: List all EKS clusters and their status
+            - generic [ref=e388]:
+              - img [ref=e389]
+              - generic [ref=e403]: thinking...
+          - generic [ref=e284]:
+            - generic [ref=e286]:
+              - button "Attach image" [ref=e287] [cursor=pointer]:
+                - img
+              - textbox "Ask me about your cloud infrastructure..." [active] [ref=e288]
+              - button [ref=e404] [cursor=pointer]:
+                - img
+            - generic [ref=e289]: Type / for commands
+    - region "Notifications alt+T":
+      - list
+  - generic:
+    - img
+  - generic [ref=e290]:
+    - button "Toggle Nuxt DevTools" [ref=e291] [cursor=pointer]:
+      - img [ref=e292]
+    - generic "Page load time" [ref=e295]:
+      - generic [ref=e296]: "77"
+      - generic [ref=e297]: ms
+    - button "Toggle Component Inspector" [ref=e299] [cursor=pointer]:
+      - img [ref=e300]

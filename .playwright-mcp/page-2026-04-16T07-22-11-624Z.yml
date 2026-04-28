@@ -1,0 +1,12 @@
+- generic [ref=e2]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - img "Ops" [ref=e7]
+      - heading "Sign in to Ops" [level=1] [ref=e8]
+      - paragraph [ref=e9]: Enter your credentials
+    - generic [ref=e11]:
+      - button "Light" [ref=e12] [cursor=pointer]:
+        - img [ref=e13]
+      - button "中" [ref=e19] [cursor=pointer]
+  - region "Notifications alt+T":
+    - list

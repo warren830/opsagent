@@ -1,0 +1,34 @@
+# gitleaks: secret scanner configuration.
+# Uses the default rules bundled with gitleaks; paths below are excluded from scans.
+
+title = "opsagent secret scan"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "paths and patterns safe to ignore"
+paths = [
+    '''node_modules/''',
+    '''target/''',
+    '''demo/frames/''',
+    '''demo/final/''',
+    '''e2e/test-results/''',
+    '''e2e/screenshots/''',
+    '''e2e/report/''',
+    '''\.playwright-mcp/''',
+    '''\.git/''',
+    '''\.secrets\.baseline$''',
+    # Synthetic test values — reviewed, not real secrets.
+    '''backend/tests/helpers/http\.rs$''',
+    '''scripts/seed-dev-data\.sql$''',
+    '''scripts/local-dev\.sh$''',
+    '''\.env\.example$''',
+    '''docs/.*\.md$''',
+]
+regexes = [
+    # The local-dev JWT secret is intentionally committed (dev-only, validated by config.rs).
+    '''dev-secret-minimum-32-characters-long''',
+    # Test JWT secret in backend/tests/helpers/http.rs
+    '''test-secret-minimum-32-characters-long-test-only''',
+]

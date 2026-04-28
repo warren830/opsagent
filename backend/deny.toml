@@ -1,0 +1,59 @@
+# cargo-deny policy for opsagent backend.
+# Blocks critical/high CVEs; documents known-unfixable issues that must be revisited.
+
+[advisories]
+# RustSec advisory database.
+# Policy: CVEs must have a documented fix plan before ignore.
+yanked = "warn"
+unmaintained = "workspace"
+ignore = [
+    # RUSTSEC-2023-0071: rsa — Marvin Attack timing sidechannel.
+    #   No upstream fix available. Limited exposure: used only for RSA private-key
+    #   decryption in OAuth flows which are not attacker-reachable under our topology
+    #   (CloudFront + WAF in front). Revisit if rsa crate ships a fix.
+    "RUSTSEC-2023-0071",
+
+    # RUSTSEC-2024-0384 / RUSTSEC-2025-0012 / RUSTSEC-2025-0134: unmaintained transitive deps.
+    # Pulled by aws-sdk-* — upgrade to newer aws-config when available.
+    "RUSTSEC-2024-0384",
+    "RUSTSEC-2025-0012",
+    "RUSTSEC-2025-0134",
+
+    # RUSTSEC-2026-0097: rand (custom logger). Transitive via ring/aws-lc-rs;
+    # not reachable in our code paths. Revisit when rand 0.9+ propagates.
+    "RUSTSEC-2026-0097",
+
+    # RUSTSEC-2026-0098/0099/0104: rustls-webpki 0.101.x.
+    # The old 0.101.x version is pulled transitively via aws-smithy-http-client →
+    # rustls 0.21. Our direct rustls-webpki is 0.103.13+ (patched). These three
+    # advisories only affect the old transitive copy, which AWS SDK will update
+    # in a future release. Tracked; revisit on aws-config upgrade.
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards         = "deny"
+highlight         = "all"
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[sources]
+unknown-registry = "deny"
+unknown-git      = "warn"

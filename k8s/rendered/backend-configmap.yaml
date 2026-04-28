@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: ops
+data:
+  # ── Environment ──────────────────────────────
+  OPS_ENV: ""
+  BACKEND_PORT: "3080"
+  RUST_LOG: "ops=info,tower_http=info"
+
+  # ── Database ─────────────────────────────────
+  # DATABASE_URL comes from Secret (ESO)
+  DB_MAX_CONNECTIONS: "20"
+  DB_MIN_CONNECTIONS: "5"
+
+  # ── CORS ─────────────────────────────────────
+  ALLOWED_ORIGINS: "https://"
+
+  # ── Claude Code ──────────────────────────────
+  CLAUDE_TIMEOUT_MS: "300000"
+  CLAUDE_MODEL: "opus"
+  CLAUDE_WORK_DIR: "/app/workspace"
+
+  # ── Cognito ──────────────────────────────────
+  COGNITO_DOMAIN: ""
+  COGNITO_REDIRECT_URIS: "https:///auth/cognito/callback"
+  MICROSOFT_REDIRECT_URIS: "https:///auth/microsoft/callback"
+
+  # ── AWS ──────────────────────────────────────
+  AWS_REGION: "us-east-1"

@@ -70,3 +70,7 @@ croner = "2"
 [dev-dependencies]
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "migrate"] }
 tokio = { version = "1", features = ["full", "test-util"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+bytes = "1"
+wiremock = "0.6"
