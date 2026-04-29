@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: frontend-config
-  namespace: ops
-data:
-  NUXT_PUBLIC_API_BASE: "https://"
-  NODE_ENV: "production"
