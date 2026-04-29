@@ -122,6 +122,12 @@ variable "enable_cloudfront" {
   default     = false
 }
 
+variable "enable_org_cross_account" {
+  description = "Bootstrap OpsRole + trust policies on every child AWS Organizations account. Requires this account be the org management account and the caller to hold OrganizationAccountAccessRole on each child. Leave false for single-account deployments."
+  type        = bool
+  default     = false
+}
+
 variable "cloudfront_frontend_alb_dns" {
   description = "DNS name of the frontend ALB (set after K8s Ingress creates it)"
   type        = string
@@ -130,6 +136,32 @@ variable "cloudfront_frontend_alb_dns" {
 
 variable "cloudfront_api_alb_dns" {
   description = "DNS name of the API ALB (set after K8s Ingress creates it)"
+  type        = string
+  default     = ""
+}
+
+# CloudFront VPC Origin requires the ALB ARN (not just DNS). Populated after
+# k8s creates the ingress — see scripts/deploy-all.sh for the two-stage flow.
+variable "cloudfront_frontend_alb_arn" {
+  description = "ARN of the frontend internal ALB — used to construct a CloudFront VPC Origin"
+  type        = string
+  default     = ""
+}
+
+variable "cloudfront_api_alb_arn" {
+  description = "ARN of the API internal ALB — used to construct a CloudFront VPC Origin"
+  type        = string
+  default     = ""
+}
+
+variable "cloudfront_aliases" {
+  description = "Alternate domain names for the CloudFront distribution (e.g. [\"loops.yingchu.cloud\"]). Each alias must be covered by the ACM cert."
+  type        = list(string)
+  default     = []
+}
+
+variable "cloudfront_acm_certificate_arn" {
+  description = "ACM certificate ARN to use for CloudFront. Must be in us-east-1 regardless of deployment region. Empty string = default *.cloudfront.net cert."
   type        = string
   default     = ""
 }

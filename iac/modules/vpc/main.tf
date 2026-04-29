@@ -202,3 +202,64 @@ resource "aws_security_group" "rds" {
     create_before_destroy = true
   }
 }
+
+# Security Group for the internal ALBs that serve as CloudFront VPC Origins.
+# The ALB itself is `scheme: internal` (no public IP). Ingress on port 80 is
+# allowed only from within the VPC CIDR — in practice the only outside-VPC
+# caller that can reach this ALB is the CloudFront VPC Origin (managed by
+# AWS, traffic tunnelled via PrivateLink into the ALB's subnets). Direct
+# internet / ALB-DNS lookups resolve to a private IP that is unreachable.
+#
+# Passed to the k8s Ingress via the `alb.ingress.kubernetes.io/security-groups`
+# annotation so the AWS LBC attaches this SG instead of creating its own.
+resource "aws_security_group" "alb" {
+  name_prefix = "${var.name_prefix}-alb-"
+  description = "ALB SG - ingress gated to CloudFront VPC Origin"
+  vpc_id      = aws_vpc.main.id
+
+  egress {
+    description = "ALB to EKS pods"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = merge(var.tags, {
+    Name = "${var.name_prefix}-alb-sg"
+  })
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# CloudFront VPC Origin traffic is routed via AWS's service-managed SG
+# `CloudFront-VPCOrigins-Service-SG`. CIDR-based rules do NOT match because
+# the AWS edge rewrites the connection source to this SG's identity. So we
+# must allow ingress from that SG explicitly. Looked up at apply time —
+# AWS creates it automatically the first time a VPC Origin is provisioned in
+# the region, so it pre-exists for any workspace that has ever enabled
+# CloudFront VPC Origin.
+data "aws_security_groups" "cloudfront_vpc_origin" {
+  filter {
+    name   = "group-name"
+    values = ["CloudFront-VPCOrigins-Service-SG"]
+  }
+  filter {
+    name   = "vpc-id"
+    values = [aws_vpc.main.id]
+  }
+}
+
+resource "aws_security_group_rule" "alb_from_cloudfront" {
+  count = length(data.aws_security_groups.cloudfront_vpc_origin.ids) > 0 ? 1 : 0
+
+  type                     = "ingress"
+  from_port                = 80
+  to_port                  = 80
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.alb.id
+  source_security_group_id = data.aws_security_groups.cloudfront_vpc_origin.ids[0]
+  description              = "HTTP from CloudFront VPC Origin managed SG"
+}

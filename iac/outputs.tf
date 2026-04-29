@@ -128,6 +128,22 @@ output "rds_security_group_id" {
   value       = module.vpc.rds_security_group_id
 }
 
+output "alb_security_group_id" {
+  description = "ID of the ALB security group — attach to k8s Ingress via alb.ingress.kubernetes.io/security-groups"
+  value       = module.vpc.alb_security_group_id
+}
+
+# CloudFront outputs (only populated when the distribution exists)
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID"
+  value       = length(module.cloudfront) > 0 ? module.cloudfront[0].distribution_id : null
+}
+
+output "cloudfront_domain_name" {
+  description = "CloudFront distribution domain name (d*.cloudfront.net) — CNAME target for custom domains"
+  value       = length(module.cloudfront) > 0 ? module.cloudfront[0].distribution_domain_name : null
+}
+
 # EFS Outputs
 output "efs_filesystem_id" {
   description = "EFS filesystem ID for workspace storage"

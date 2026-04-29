@@ -193,28 +193,42 @@ module "waf" {
   default_tags = local.default_tags
 }
 
-# ── CloudFront (Optional) ───────────────────────────────────
-# NOTE: Enable after Step 4 — ALB DNS names must exist first.
+# ── CloudFront (Optional, two-stage) ─────────────────────────
+# NOTE: Enable after Step 4 — ALB DNS *and* ARN must exist first.
 # 1. Deploy Steps 0-4 (creates internal ALBs via K8s Ingress)
-# 2. Get ALB DNS: kubectl get ingress -n ops
-# 3. Set cloudfront_frontend_alb_dns and cloudfront_api_alb_dns in terraform.tfvars
-# 4. terraform apply (creates CloudFront distribution)
+# 2. Get ALB info:
+#      kubectl get ingress -n ops -o wide
+#      aws elbv2 describe-load-balancers --names ops-frontend-alb ops-api-alb \
+#        --query 'LoadBalancers[].[LoadBalancerName,LoadBalancerArn,DNSName]' --output table
+# 3. Set cloudfront_frontend_alb_arn/_dns and cloudfront_api_alb_arn/_dns in terraform.tfvars
+# 4. terraform apply (creates CloudFront distribution + VPC Origins)
 module "cloudfront" {
-  count  = var.enable_cloudfront && var.cloudfront_frontend_alb_dns != "" ? 1 : 0
+  count = var.enable_cloudfront && var.cloudfront_frontend_alb_arn != "" && var.cloudfront_api_alb_arn != "" ? 1 : 0
+
   source = "./modules/cloudfront"
 
-  project_name_alias = var.project_name_alias
-  workspace          = local.workspace
-  frontend_alb_dns   = var.cloudfront_frontend_alb_dns
-  api_alb_dns        = var.cloudfront_api_alb_dns
-  cf_secret_header   = var.cloudfront_secret_header
-  default_tags       = local.default_tags
+  project_name_alias  = var.project_name_alias
+  workspace           = local.workspace
+  frontend_alb_dns    = var.cloudfront_frontend_alb_dns
+  api_alb_dns         = var.cloudfront_api_alb_dns
+  frontend_alb_arn    = var.cloudfront_frontend_alb_arn
+  api_alb_arn         = var.cloudfront_api_alb_arn
+  cf_secret_header    = var.cloudfront_secret_header
+  aliases             = var.cloudfront_aliases
+  acm_certificate_arn = var.cloudfront_acm_certificate_arn
+  default_tags        = local.default_tags
 }
 
-# ── Org Cross-Account Setup ─────────────────────────────────
-# Updates trust policies + creates OpsRole on all child accounts
+# ── Org Cross-Account Setup (optional) ──────────────────────
+# Configures trust policies + OpsRole on every child account in the AWS Org.
+# Only meaningful when this account is the org management account AND the user
+# holds OrganizationAccountAccessRole on each child. For single-account
+# deployments (or when the caller lacks org-wide privileges) leave
+# `enable_org_cross_account = false` — the default.
 module "org_cross_account" {
-  source                = "./modules/org-cross-account"
+  count  = var.enable_org_cross_account ? 1 : 0
+  source = "./modules/org-cross-account"
+
   management_account_id = local.account
   default_tags          = local.default_tags
 }
