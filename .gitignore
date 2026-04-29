@@ -88,3 +88,12 @@ demo/frames/
 demo/final/
 demo/assets/
 infra/
+
+# Orphans / tooling caches (cleaned 2026-04-29)
+.gstack/
+.playwright-mcp/
+.cc-connect/
+test-results/
+web/
+server/
+packages/
