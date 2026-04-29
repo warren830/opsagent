@@ -1,0 +1,42 @@
+version: 0.2
+
+# CodeBuild build spec for Ops — builds and pushes the backend + frontend
+# images to ECR, targeting linux/arm64 (Graviton node pool).
+#
+# Required env vars (set on the CodeBuild project):
+#   AWS_ACCOUNT_ID   - e.g. 034362076319
+#   AWS_REGION       - e.g. us-west-2
+#
+# Runs on `aws/codebuild/amazonlinux-aarch64-standard:3.0` (privileged) so
+# Docker BuildKit is available natively on ARM64 and no cross-compilation is
+# needed.
+
+env:
+  variables:
+    ECR_NAMESPACE: "ops"
+
+phases:
+  pre_build:
+    commands:
+      - 'echo "Starting build at $(date -u)"'
+      - 'export GIT_SHA=$(echo "${CODEBUILD_RESOLVED_SOURCE_VERSION:-$CODEBUILD_BUILD_NUMBER}" | cut -c1-7)'
+      - 'export ECR_BASE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"'
+      - 'echo "ECR_BASE=$ECR_BASE GIT_SHA=$GIT_SHA"'
+      - 'aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_BASE"'
+      - 'for repo in ops-backend ops-frontend; do aws ecr describe-repositories --repository-names "$repo" --region "$AWS_REGION" >/dev/null 2>&1 || aws ecr create-repository --repository-name "$repo" --region "$AWS_REGION" --image-scanning-configuration scanOnPush=true; done'
+
+  build:
+    commands:
+      - 'echo ">>> Backend image"'
+      - 'docker build --pull -f Dockerfile.backend -t "$ECR_BASE/ops-backend:latest" -t "$ECR_BASE/ops-backend:$GIT_SHA" .'
+      - 'docker push "$ECR_BASE/ops-backend:latest"'
+      - 'docker push "$ECR_BASE/ops-backend:$GIT_SHA"'
+      - 'echo ">>> Frontend image"'
+      - 'docker build --pull -f Dockerfile.frontend -t "$ECR_BASE/ops-frontend:latest" -t "$ECR_BASE/ops-frontend:$GIT_SHA" .'
+      - 'docker push "$ECR_BASE/ops-frontend:latest"'
+      - 'docker push "$ECR_BASE/ops-frontend:$GIT_SHA"'
+
+  post_build:
+    commands:
+      - 'echo "Finished build at $(date -u)"'
+      - 'echo "Pushed tags: $GIT_SHA and latest"'
