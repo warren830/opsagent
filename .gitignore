@@ -108,3 +108,7 @@ backend/.ops/
 iac/tfplan
 k8s/infrastructure/*.yaml
 !k8s/infrastructure/*.yaml.template
+/aidlc-docs/
+
+# AIDLC (AI-driven design/lifecycle) drafts — personal notes, not shared
+aidlc-docs/
