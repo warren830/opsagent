@@ -5,7 +5,13 @@ FROM public.ecr.aws/docker/library/node:22-alpine AS builder
 
 WORKDIR /app
 COPY frontend/package*.json ./
-RUN npm ci --force
+# Use `npm install` (not `ci`) because the lockfile may reference platform-
+# specific optional deps that only resolve at install time (rolldown / rollup
+# / lightningcss all ship native binaries via optionalDependencies). `npm ci`
+# would fail on the cross-platform diff; `npm install --omit=dev=false` keeps
+# the deterministic install semantics we want without rejecting optional
+# platform mismatches.
+RUN npm install --no-audit --no-fund --legacy-peer-deps
 
 COPY frontend/ .
 

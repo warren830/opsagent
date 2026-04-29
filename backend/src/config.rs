@@ -142,11 +142,19 @@ impl AppConfig {
         }
     }
 
+    /// Treat empty string the same as "missing" — Secrets Manager / ConfigMap
+    /// pipelines routinely set unused keys to `""` rather than omitting them,
+    /// which would otherwise tickle `load_*_oauth` into thinking an incomplete
+    /// provider is fully wired up.
+    fn env_non_empty(key: &str) -> Option<String> {
+        env::var(key).ok().filter(|s| !s.is_empty())
+    }
+
     /// Load Microsoft Entra ID OAuth config from env vars (returns None if not configured)
     fn load_microsoft_oauth() -> Option<MicrosoftOAuthConfig> {
-        let client_id = env::var("MICROSOFT_CLIENT_ID").ok()?;
-        let client_secret = env::var("MICROSOFT_CLIENT_SECRET").ok()?;
-        let tenant_id = env::var("MICROSOFT_TENANT_ID").ok()?;
+        let client_id = Self::env_non_empty("MICROSOFT_CLIENT_ID")?;
+        let client_secret = Self::env_non_empty("MICROSOFT_CLIENT_SECRET")?;
+        let tenant_id = Self::env_non_empty("MICROSOFT_TENANT_ID")?;
         let redirect_uris: Vec<String> = env::var("MICROSOFT_REDIRECT_URIS")
             .unwrap_or_default()
             .split(',')
@@ -164,11 +172,11 @@ impl AppConfig {
 
     /// Load AWS Cognito OAuth config from env vars (returns None if not configured)
     fn load_cognito_oauth() -> Option<CognitoOAuthConfig> {
-        let user_pool_id = env::var("COGNITO_USER_POOL_ID").ok()?;
-        let client_id = env::var("COGNITO_CLIENT_ID").ok()?;
-        let client_secret = env::var("COGNITO_CLIENT_SECRET").ok()?;
-        let region = env::var("COGNITO_REGION").ok()?;
-        let domain = env::var("COGNITO_DOMAIN").ok()?;
+        let user_pool_id = Self::env_non_empty("COGNITO_USER_POOL_ID")?;
+        let client_id = Self::env_non_empty("COGNITO_CLIENT_ID")?;
+        let client_secret = Self::env_non_empty("COGNITO_CLIENT_SECRET")?;
+        let region = Self::env_non_empty("COGNITO_REGION")?;
+        let domain = Self::env_non_empty("COGNITO_DOMAIN")?;
         let redirect_uris: Vec<String> = env::var("COGNITO_REDIRECT_URIS")
             .unwrap_or_default()
             .split(',')
