@@ -81,3 +81,10 @@ ops-sre-zerotrust.zip
 demo/
 .gstack/
 .superpowers/
+
+# Claude Code internal state (per-user, per-session)
+.claude/
+demo/frames/
+demo/final/
+demo/assets/
+infra/
