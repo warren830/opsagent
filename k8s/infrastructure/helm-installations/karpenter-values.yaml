@@ -1,6 +1,6 @@
 serviceAccount:
   name: karpenter
 settings:
-  clusterName: oops-eks-us-west-1-kolya
-  clusterEndpoint: https://B438FDC741987F1B1FAD07592EA853CD.gr7.us-west-1.eks.amazonaws.com
-  interruptionQueue: oops-kolya-karpenter
+  clusterName: ops-eks-us-west-2-default
+  clusterEndpoint: https://7B10E20BE328C6F4FEB31AF3B34E24C6.gr7.us-west-2.eks.amazonaws.com
+  interruptionQueue: ops-default-karpenter

@@ -65,6 +65,7 @@ cmd_init() {
     export SECRETS_MANAGER_NAME="${SECRETS_MANAGER_NAME:-$(_tf_output backend_secrets_manager_name 2>/dev/null || echo "")}"
     export EFS_FILESYSTEM_ID="${EFS_FILESYSTEM_ID:-$(_tf_output efs_filesystem_id 2>/dev/null || echo "")}"
     export COGNITO_DOMAIN="${COGNITO_DOMAIN:-$(_tf_output cognito_domain 2>/dev/null || echo "")}"
+    export ALB_SECURITY_GROUP_ID="${ALB_SECURITY_GROUP_ID:-$(_tf_output alb_security_group_id 2>/dev/null || echo "")}"
 
     # Detect environment from terraform workspace
     local workspace

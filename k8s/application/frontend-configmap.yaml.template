@@ -4,5 +4,8 @@ metadata:
   name: frontend-config
   namespace: ops
 data:
-  NUXT_PUBLIC_API_BASE: "https://${API_DOMAIN}"
+  # Empty => client uses same-origin relative URLs (/api/*). CloudFront
+  # routes those to the API origin. If you ever split the API onto its own
+  # host, change this to "https://api.your-domain.tld".
+  NUXT_PUBLIC_API_BASE: ""
   NODE_ENV: "production"

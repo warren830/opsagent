@@ -1,5 +1,5 @@
-clusterName: oops-eks-us-west-1-kolya
-region: us-west-1
-vpcId: vpc-07a2ef26654cea65f
+clusterName: ops-eks-us-west-2-default
+region: us-west-2
+vpcId: vpc-021a0006a42b1e1e3
 serviceAccount:
   name: aws-load-balancer-controller
