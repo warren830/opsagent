@@ -108,6 +108,28 @@ pub async fn create(
     let regions = req.regions.unwrap_or_else(|| vec!["us-east-1".to_string()]);
     let source = req.source.unwrap_or_else(|| "manual".to_string());
 
+    // If the caller supplied AK/SK, persist them to Secrets Manager before
+    // inserting the row — we never store raw credentials in Postgres. This
+    // path is mandatory for AWS China (cross-partition AssumeRole isn't a
+    // thing) but also valid for any other provider where the user prefers
+    // static credentials over role chaining.
+    let secret_arn = if !req.is_mock
+        && req.access_key_id.as_deref().is_some_and(|s| !s.is_empty())
+        && req.secret_access_key.as_deref().is_some_and(|s| !s.is_empty())
+    {
+        Some(
+            store_static_credentials(
+                &req.provider,
+                req.account_id.as_deref().unwrap_or("unknown"),
+                req.access_key_id.as_deref().unwrap(),
+                req.secret_access_key.as_deref().unwrap(),
+            )
+            .await?,
+        )
+    } else {
+        req.secret_arn.clone()
+    };
+
     let account = sqlx::query_as::<_, CloudAccount>(
         r#"INSERT INTO cloud_accounts (provider, name, account_id, config, secret_arn, tenant_id, is_mock, role_arn, profile, regions, source)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -117,7 +139,7 @@ pub async fn create(
     .bind(&req.name)
     .bind(&req.account_id)
     .bind(&req.config)
-    .bind(&req.secret_arn)
+    .bind(&secret_arn)
     .bind(tenant_id)
     .bind(req.is_mock)
     .bind(&req.role_arn)
@@ -128,6 +150,49 @@ pub async fn create(
     .await?;
 
     Ok(account)
+}
+
+/// Persist static cloud credentials (AK/SK pair) in Secrets Manager and
+/// return the ARN. Used for any provider whose auth path needs raw keys —
+/// notably AWS China (cross-partition AssumeRole isn't available) and any
+/// non-AWS cloud (Alicloud / Azure / GCP) where IAM roles don't apply.
+/// The backend's IRSA role needs `secretsmanager:CreateSecret` and
+/// `PutSecretValue` on `ops/cloud-accounts/*`.
+async fn store_static_credentials(
+    provider: &str,
+    account_id: &str,
+    access_key_id: &str,
+    secret_access_key: &str,
+) -> AppResult<String> {
+    let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let client = aws_sdk_secretsmanager::Client::new(&config);
+
+    let secret_name = format!(
+        "ops/cloud-accounts/{}/{}/{}",
+        provider,
+        account_id,
+        uuid::Uuid::new_v4()
+    );
+    let secret_body = serde_json::json!({
+        "access_key_id": access_key_id,
+        "secret_access_key": secret_access_key,
+        "provider": provider,
+    });
+
+    let out = client
+        .create_secret()
+        .name(&secret_name)
+        .description(format!("{provider} credentials for account {account_id}"))
+        .secret_string(secret_body.to_string())
+        .send()
+        .await
+        .map_err(|e| {
+            AppError::Internal(format!("Failed to store credentials in Secrets Manager: {e}"))
+        })?;
+
+    out.arn().map(String::from).ok_or_else(|| {
+        AppError::Internal("Secrets Manager did not return a secret ARN".to_string())
+    })
 }
 
 /// Fire-and-forget org discovery after creating an account.

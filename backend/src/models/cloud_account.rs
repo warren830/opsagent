@@ -39,6 +39,13 @@ pub struct CreateCloudAccountRequest {
     /// If true, trigger Organization discovery after creating this account
     #[serde(default)]
     pub discover_org: bool,
+    // ─── AWS China (partition `aws-cn`) credentials ────────────────
+    // China partition is network-isolated from the global partition, so we
+    // can't AssumeRole across — instead the caller pastes an AK/SK pair that
+    // the service stores in Secrets Manager. Fields are ignored unless
+    // `provider == "aws-cn"`.
+    pub access_key_id: Option<String>,
+    pub secret_access_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

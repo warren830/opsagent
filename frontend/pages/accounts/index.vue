@@ -34,7 +34,7 @@ const AWS_REGIONS = [
 
 interface Account {
   id: string
-  provider: 'aws' | 'alicloud' | 'azure'
+  provider: 'aws' | 'aws-cn' | 'alicloud' | 'azure'
   name: string
   account_id: string
   role_arn: string | null
@@ -110,18 +110,32 @@ const grantForm = ref({ user_id: '', role: 'readonly' })
 const granting = ref(false)
 
 const form = ref({
-  provider: 'aws' as 'aws' | 'alicloud' | 'azure',
+  provider: 'aws' as 'aws' | 'aws-cn' | 'alicloud' | 'azure',
   name: '',
   account_id: '',
-  mode: 'cloud' as 'local' | 'cloud',
+  // Auth modes:
+  //   local  - read from the local AWS CLI profile (dev only)
+  //   cloud  - AssumeRole via `role_arn` (AWS Global standard cross-account)
+  //   aksk   - static IAM user AK/SK (required for AWS China, optional elsewhere)
+  mode: 'cloud' as 'local' | 'cloud' | 'aksk',
   role_arn: '',
   profile: '',
+  access_key_id: '',
+  secret_access_key: '',
   allRegions: false,
   selectedRegions: ['us-east-1'] as string[],
   tenant_id: '',
   is_mock: false,
   discover_org: false,
 })
+
+// Regions differ by AWS partition — China is network-isolated and only has
+// two regions. For non-AWS providers we just keep the generic AWS list since
+// users add custom regions.
+const AWS_CHINA_REGIONS = ['cn-north-1', 'cn-northwest-1']
+const availableRegions = computed(() =>
+  form.value.provider === 'aws-cn' ? AWS_CHINA_REGIONS : AWS_REGIONS
+)
 
 const isEditing = computed(() => !!editingAccount.value)
 const formTitle = computed(() => isEditing.value ? t('common.edit') : t('account.addAccount'))
@@ -174,9 +188,12 @@ function providerVariant(p: string): string {
   return map[p] || 'default'
 }
 
-function inferMode(account: Account): 'local' | 'cloud' {
+function inferMode(account: Account): 'local' | 'cloud' | 'aksk' {
   if (account.profile) return 'local'
-  return 'cloud'
+  if (account.role_arn) return 'cloud'
+  // AK/SK accounts have neither profile nor role_arn — the raw credentials
+  // live in Secrets Manager, referenced via secret_arn on the row.
+  return 'aksk'
 }
 
 function toggleRegion(region: string) {
@@ -212,7 +229,7 @@ onMounted(() => {
 
 function openCreate() {
   editingAccount.value = null
-  form.value = { provider: 'aws', name: '', account_id: '', mode: 'cloud', role_arn: '', profile: '', allRegions: false, selectedRegions: ['us-east-1'], tenant_id: tenants.value[0]?.id || '', is_mock: false, discover_org: false }
+  form.value = { provider: 'aws', name: '', account_id: '', mode: 'cloud', role_arn: '', profile: '', access_key_id: '', secret_access_key: '', allRegions: false, selectedRegions: ['us-east-1'], tenant_id: tenants.value[0]?.id || '', is_mock: false, discover_org: false }
   showRegionPicker.value = false
   showFormDialog.value = true
 }
@@ -228,6 +245,9 @@ function openEdit(account: Account) {
     mode: inferMode(account),
     role_arn: account.role_arn || '',
     profile: account.profile || '',
+    // Credentials are never echoed back — user re-enters only when rotating
+    access_key_id: '',
+    secret_access_key: '',
     allRegions: isAll,
     selectedRegions: isAll ? [] : [...regions],
     tenant_id: account.tenant_id || '',
@@ -247,15 +267,20 @@ async function saveAccount() {
   saving.value = true
   try {
     const regions = form.value.allRegions ? [] : form.value.selectedRegions
+    // Only the currently-selected mode contributes credentials to the payload;
+    // the other two fields are nulled out so old values don't leak through.
     const payload: Record<string, unknown> = {
       provider: form.value.provider,
       name: form.value.name,
       account_id: form.value.account_id,
       role_arn: form.value.mode === 'cloud' ? (form.value.role_arn || null) : null,
       profile: form.value.mode === 'local' ? (form.value.profile || null) : null,
+      access_key_id: form.value.mode === 'aksk' && !form.value.is_mock ? (form.value.access_key_id || null) : null,
+      secret_access_key: form.value.mode === 'aksk' && !form.value.is_mock ? (form.value.secret_access_key || null) : null,
       regions,
       tenant_id: form.value.tenant_id || null,
       is_mock: form.value.is_mock,
+      // Org discovery is global-partition specific (uses global STS + Organizations API).
       discover_org: form.value.discover_org && form.value.provider === 'aws',
       config: {},
     }
@@ -517,6 +542,7 @@ async function revokeAccess(userId: string) {
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="aws">{{ t('account.aws') }}</SelectItem>
+                <SelectItem value="aws-cn">AWS (China)</SelectItem>
                 <SelectItem value="alicloud">{{ t('account.alicloud') }}</SelectItem>
                 <SelectItem value="azure">{{ t('account.azure') }}</SelectItem>
               </SelectContent>
@@ -533,12 +559,14 @@ async function revokeAccess(userId: string) {
             <Input v-model="form.account_id" :placeholder="t('account.accountId')" required />
           </div>
 
-          <!-- Mode selector (AWS only) -->
-          <template v-if="form.provider === 'aws'">
+          <!-- Auth mode selector — three choices, gated by provider below. -->
+          <template v-if="form.provider === 'aws' || form.provider === 'aws-cn'">
             <div class="space-y-1.5">
               <label class="text-xs font-medium">{{ t('account.mode') }}</label>
               <div class="flex gap-2">
+                <!-- Local profile only makes sense for AWS Global (dev flow). -->
                 <button
+                  v-if="form.provider === 'aws'"
                   type="button"
                   class="flex-1 h-8 rounded border text-xs font-medium transition-all"
                   :class="form.mode === 'local'
@@ -548,7 +576,9 @@ async function revokeAccess(userId: string) {
                 >
                   {{ t('account.modeLocal') }}
                 </button>
+                <!-- AssumeRole is blocked across partitions, so AWS China drops it. -->
                 <button
+                  v-if="form.provider === 'aws'"
                   type="button"
                   class="flex-1 h-8 rounded border text-xs font-medium transition-all"
                   :class="form.mode === 'cloud'
@@ -557,6 +587,17 @@ async function revokeAccess(userId: string) {
                   @click="form.mode = 'cloud'"
                 >
                   {{ t('account.modeCloud') }}
+                </button>
+                <!-- Static IAM user AK/SK — universal, and the ONLY option for China. -->
+                <button
+                  type="button"
+                  class="flex-1 h-8 rounded border text-xs font-medium transition-all"
+                  :class="form.mode === 'aksk'
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border/60 bg-secondary/50 text-muted-foreground hover:border-border'"
+                  @click="form.mode = 'aksk'"
+                >
+                  IAM AK/SK
                 </button>
               </div>
             </div>
@@ -580,6 +621,23 @@ async function revokeAccess(userId: string) {
               <Input v-model="form.role_arn" :placeholder="t('account.roleArnHint')" />
               <p class="text-[10px] text-muted-foreground">{{ t('account.roleArnDesc') }}</p>
             </div>
+
+            <!-- AK/SK mode: static IAM user credentials -->
+            <template v-if="form.mode === 'aksk' && !form.is_mock">
+              <div class="space-y-1.5">
+                <label class="text-xs font-medium">Access Key ID</label>
+                <Input v-model="form.access_key_id" placeholder="AKIA..." autocomplete="off" />
+              </div>
+              <div class="space-y-1.5">
+                <label class="text-xs font-medium">Secret Access Key</label>
+                <Input v-model="form.secret_access_key" type="password" placeholder="..." autocomplete="off" />
+                <p class="text-[10px] text-muted-foreground">
+                  {{ form.provider === 'aws-cn'
+                    ? 'AWS China 和 Global 分区网络隔离,无法跨分区 AssumeRole,只能用 AK/SK。凭证存入 Secrets Manager,后端读取后构造 cn 区 SDK client。'
+                    : '静态 IAM User 凭证。存入 Secrets Manager,后端取出使用。生产建议仍用 AssumeRole,AK/SK 用于跨分区或快速集成场景。' }}
+                </p>
+              </div>
+            </template>
           </template>
 
           <!-- Regions -->
@@ -614,7 +672,7 @@ async function revokeAccess(userId: string) {
 
               <div v-if="showRegionPicker" class="rounded border border-border/60 bg-secondary/50 p-1.5 max-h-[160px] overflow-y-auto grid grid-cols-2 gap-0.5">
                 <button
-                  v-for="r in AWS_REGIONS"
+                  v-for="r in availableRegions"
                   :key="r"
                   type="button"
                   class="text-left text-[10px] px-2 py-1 rounded transition-colors"
