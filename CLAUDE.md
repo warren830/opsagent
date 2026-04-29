@@ -106,10 +106,22 @@ Every API endpoint and UI action must enforce the 3-tier access model:
 - Embed in Markdown files or code comments where appropriate
 
 ## Frontend Design
-- Use polished, modern UI components (shadcn-vue + Radix Vue + Tailwind)
-- Keep layouts **clean and minimal** — no visual clutter
-- Apply trending effects: subtle transitions, glassmorphism, smooth hover animations, skeleton loaders, gradient accents
-- Reference opsagent for feature structure; implement real functionality (not placeholder)
+
+**Design Language**: AWS Q Developer / Bedrock Agent Studio — deep technical aesthetic with generative-AI undertones. Data-dense, professional, with a signature **bottom aurora halo** as the generative-AI brand cue.
+
+### Core Principles
+- **Dark-first**: cold near-black base (`#0A0B10`), no light mode as primary
+- **Borderless layout**: rely on spacing + subtle panel tint for hierarchy, not visible card borders
+- **Bottom aurora halo**: global footer-band gradient (pink-purple → teal → indigo) that bleeds upward ~30-35vh — appears on ALL pages
+- **Isometric mesh texture**: faint SVG triangle pattern (~4% opacity) over background for structural rhythm
+- **Compact sizing**: `h-8` controls, `text-xs` body, `text-[11px]` labels — never oversized
+- **Readable data**: tables/metrics/logs must NOT sit on blur or glass — use solid panel tint so digits stay crisp
+- **shadcn-vue + Radix Vue + Tailwind** as the component foundation
+
+### Components not to use
+- ❌ Full-screen aurora/gradient backgrounds (only bottom halo)
+- ❌ Heavy glassmorphism (`backdrop-filter: blur`) on data surfaces — kills legibility
+- ❌ Visible `border` + `bg-card` combo on main panels — prefer `bg-panel/60` with spacing
 
 ## Architecture Notes
 - **Infrastructure**: EKS + Karpenter (ARM64 Graviton), NOT ECS
@@ -127,10 +139,21 @@ Every API endpoint and UI action must enforce the 3-tier access model:
 - **Opinions**: Give bold, expert-level functional opinions; don't be cautious or hedge
 
 ### Design Philosophy
-- **UI Theme**: Grafana-inspired dark theme — data-dense, colorful, professional
+- **UI Theme**: AWS Q Developer / Bedrock Agent Studio inspired — deep dark, technical, with generative-AI aurora accent
 - **Components**: Compact sizing (h-8 buttons/inputs, text-xs body, text-[11px] labels) — never big/clumsy
-- **Effects**: Subtle transitions, glassmorphism, smooth hover animations, skeleton loaders
-- **Color palette**: Dark backgrounds (#111217/#181b1f), orange primary (#FF6600), info blue, success green, warning amber
+- **Effects**: Subtle transitions, soft hover glows, skeleton loaders, smooth motion — NO heavy glass on data surfaces
+- **Signature motif**: Bottom aurora halo (pink-purple / teal / indigo gradient band, ~30-35vh from bottom) present on ALL pages as AI brand cue
+- **Background texture**: Faint isometric triangle mesh (~4% opacity) for structural rhythm
+- **Color palette (design tokens)**:
+  - `--background: 225 25% 5%` (deep cold black, `#0A0B10`)
+  - `--panel: 225 20% 7%` (cards/sidebars, slightly lifted)
+  - `--foreground: 0 0% 98%` (primary text)
+  - `--muted-foreground: 225 10% 60%` (secondary text)
+  - `--border: 225 15% 15%` (low-opacity hairlines only)
+  - `--primary: 217 91% 60%` (AWS blue — actions, focus, links)
+  - Semantic: info blue, success green, warning amber, destructive red
+  - Aurora halo stops: `#B794F6` (pink-purple) · `#5EEAD4` (teal) · `#818CF8` (indigo)
+- **Typography**: Geist (Latin) + Noto Sans SC / HarmonyOS Sans (CJK)
 
 ### AI Agent Philosophy
 - Don't over-constrain AI agents with rigid command structures
