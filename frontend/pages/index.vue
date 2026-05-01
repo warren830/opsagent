@@ -8,15 +8,47 @@ import {
   Server,
   AlertTriangle,
   RefreshCw,
+  Cloud,
+  ChevronRight,
 } from 'lucide-vue-next'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 
 definePageMeta({ middleware: 'auth' })
 
 const { t } = useI18n()
 const authStore = useAuthStore()
 const api = useApi()
+
+// Live data for "Systems online" chips — clusters + ranked issues.
+// See useHomeLiveData.ts for the issue-ranking decision.
+const {
+  clusters: liveClusters,
+  issues: liveIssues,
+  clustersLoading,
+  issuesLoading,
+} = useHomeLiveData()
+
+// Small helpers for issue chip styling — severity → token class.
+const sevBadgeVariant: Record<string, 'destructive' | 'warning' | 'info' | 'secondary'> = {
+  critical: 'destructive',
+  high: 'destructive',
+  medium: 'warning',
+  low: 'info',
+}
+const sevBadgeLabel: Record<string, string> = {
+  critical: 'P0', high: 'P1', medium: 'P2', low: 'P3',
+}
+
+// Cluster status → dot color. Healthy-looking statuses go to success,
+// anything else flags via destructive.
+function clusterDotClass(status: string): string {
+  const s = (status || '').toLowerCase()
+  if (s === 'active' || s === 'healthy' || s === 'ready') return 'bg-success'
+  if (s === 'degraded' || s === 'warning') return 'bg-warning'
+  return 'bg-muted-foreground/40'
+}
 
 interface DashboardStats {
   active_sessions: number
@@ -142,6 +174,92 @@ onUnmounted(() => {
       >
         <RefreshCw class="h-3.5 w-3.5" :class="refreshing ? 'animate-spin' : ''" />
       </Button>
+    </div>
+
+    <!-- Systems online — live chips from /api/clusters + /api/issues.
+         Two compact rows: clusters (left) + issues (right). Each chip is
+         clickable → goes to its detail context. Turns the empty home
+         from "6 counters" into "here's what's running right now." -->
+    <div class="grid gap-3 lg:grid-cols-2">
+      <!-- Clusters row -->
+      <div class="rounded border border-border/60 bg-card px-4 py-3">
+        <div class="flex items-center justify-between mb-2.5">
+          <div class="flex items-center gap-1.5">
+            <Cloud class="h-3.5 w-3.5 text-primary/80" />
+            <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              {{ t('dashboard.liveClusters') }}
+            </span>
+          </div>
+          <NuxtLink to="/clusters" class="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground/70 hover:text-primary transition-colors">
+            {{ t('common.viewAll') }}
+            <ChevronRight class="h-3 w-3" />
+          </NuxtLink>
+        </div>
+        <!-- Skeleton -->
+        <div v-if="clustersLoading" class="flex flex-wrap gap-1.5">
+          <Skeleton v-for="i in 5" :key="i" class="h-6 w-24 rounded-full" />
+        </div>
+        <!-- Empty -->
+        <p v-else-if="liveClusters.length === 0" class="text-[11px] text-muted-foreground/70 italic">
+          {{ t('dashboard.noClustersYet') }}
+        </p>
+        <!-- Chips -->
+        <div v-else class="flex flex-wrap gap-1.5">
+          <NuxtLink
+            v-for="c in liveClusters"
+            :key="c.id"
+            :to="`/clusters`"
+            class="group inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-panel/40 px-2.5 py-1 text-[11px] text-foreground transition-all duration-150 hover:border-primary/40 hover:bg-primary/5 hover:-translate-y-0.5"
+            :title="`${c.cloud}${c.region ? ' · ' + c.region : ''}`"
+          >
+            <span class="relative inline-flex h-1.5 w-1.5 shrink-0">
+              <span :class="['absolute inset-0 rounded-full opacity-70 animate-pulse', clusterDotClass(c.status)]" />
+              <span :class="['relative inline-block h-1.5 w-1.5 rounded-full', clusterDotClass(c.status)]" />
+            </span>
+            <span class="font-medium">{{ c.name }}</span>
+            <span class="text-[10px] text-muted-foreground/60 font-mono">{{ c.cloud }}</span>
+          </NuxtLink>
+        </div>
+      </div>
+
+      <!-- Issues row -->
+      <div class="rounded border border-border/60 bg-card px-4 py-3">
+        <div class="flex items-center justify-between mb-2.5">
+          <div class="flex items-center gap-1.5">
+            <AlertTriangle class="h-3.5 w-3.5 text-destructive/80" />
+            <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              {{ t('dashboard.recentIssues') }}
+            </span>
+          </div>
+          <NuxtLink to="/issues" class="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground/70 hover:text-primary transition-colors">
+            {{ t('common.viewAll') }}
+            <ChevronRight class="h-3 w-3" />
+          </NuxtLink>
+        </div>
+        <!-- Skeleton -->
+        <div v-if="issuesLoading" class="space-y-1.5">
+          <Skeleton v-for="i in 3" :key="i" class="h-6 w-full rounded" />
+        </div>
+        <!-- Empty (happy path) -->
+        <p v-else-if="liveIssues.length === 0" class="text-[11px] text-success italic">
+          {{ t('dashboard.noIssuesHappy') }}
+        </p>
+        <!-- List -->
+        <ul v-else class="space-y-1">
+          <li v-for="i in liveIssues" :key="i.id">
+            <NuxtLink
+              :to="`/issues`"
+              class="flex items-center gap-2 rounded px-1.5 py-1 text-[11px] transition-colors hover:bg-accent/40"
+            >
+              <Badge :variant="sevBadgeVariant[i.severity] || 'secondary'" class="!rounded !text-[9px] !px-1.5 !py-0 shrink-0 font-mono">
+                {{ sevBadgeLabel[i.severity] || i.severity.toUpperCase() }}
+              </Badge>
+              <span class="flex-1 min-w-0 truncate text-foreground/90">{{ i.title }}</span>
+              <span class="text-[10px] text-muted-foreground/60 font-mono shrink-0">{{ i.issue_type }}</span>
+            </NuxtLink>
+          </li>
+        </ul>
+      </div>
     </div>
 
     <!-- Stats Grid — Grafana panel style -->

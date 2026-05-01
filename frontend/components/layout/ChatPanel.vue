@@ -1325,7 +1325,7 @@ class="h-3 w-3 rounded border flex items-center justify-center shrink-0"
             </div>
 
             <!-- ========== Thinking ========== -->
-            <div v-else-if="msg.type === 'thinking'" class="py-0.5">
+            <div v-else-if="msg.type === 'thinking'" class="assistant-block py-0.5">
               <button
                 class="inline-flex items-center gap-1 text-[11px] text-muted-foreground/80 hover:text-foreground transition-colors"
                 @click="toggleThinking(msg.id)"
@@ -1353,7 +1353,11 @@ class="h-3 w-3 rounded border flex items-center justify-center shrink-0"
             </div>
 
             <!-- ========== Text (markdown) ========== -->
-            <div v-else-if="msg.type === 'text'" class="py-1 overflow-x-auto">
+            <div
+              v-else-if="msg.type === 'text'"
+              class="assistant-block py-1 overflow-x-auto"
+              :class="{ 'is-streaming': isStreaming && msg.id === messages[messages.length - 1]?.id }"
+            >
               <div
                 class="chat-markdown text-[13px] leading-relaxed text-foreground/90"
                 v-html="renderMd(msg.content)"
@@ -1361,7 +1365,7 @@ class="h-3 w-3 rounded border flex items-center justify-center shrink-0"
             </div>
 
             <!-- ========== Tool use (with merged result) ========== -->
-            <div v-else-if="msg.type === 'tool_use'" class="py-0.5">
+            <div v-else-if="msg.type === 'tool_use'" class="assistant-block py-0.5">
               <button
                 class="inline-flex items-center gap-1.5 text-[11px] transition-colors"
                 :class="getToolResult(msg) ? 'text-success/70 hover:text-success' : 'text-muted-foreground hover:text-foreground'"
@@ -1389,7 +1393,7 @@ class="h-3 w-3 rounded border flex items-center justify-center shrink-0"
             <template v-else-if="msg.type === 'tool_result'" />
 
             <!-- ========== Error ========== -->
-            <div v-else-if="msg.type === 'error'" class="py-1">
+            <div v-else-if="msg.type === 'error'" class="assistant-block py-1">
               <div class="inline-flex items-center gap-1.5 text-[11px] text-destructive/70 bg-destructive/5 rounded px-2 py-1 border border-destructive/10">
                 <AlertCircle class="h-3 w-3 shrink-0" />
                 <span>{{ msg.content }}</span>
@@ -1643,6 +1647,42 @@ class="h-3 w-3 rounded border flex items-center justify-center shrink-0"
 </template>
 
 <style>
+/* Assistant role marker — left accent bar on all non-user message types.
+   Under aurora, uses the aurora-teal stop to reinforce the agent brand
+   signal. On light theme, uses primary (sky). Subtle enough to not steal
+   focus from content, distinct enough that scrolling never confuses "who
+   said what" between user and AI. */
+.assistant-block {
+  position: relative;
+  padding-left: 14px;
+}
+.assistant-block::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    hsl(var(--aurora-teal, 170 78% 64%) / 0.55) 0%,
+    hsl(var(--aurora-indigo, 231 88% 74%) / 0.35) 60%,
+    hsl(var(--aurora-teal, 170 78% 64%) / 0.1) 100%
+  );
+}
+/* When message is streaming in, add a subtle pulse to the accent */
+.assistant-block.is-streaming::before {
+  animation: assistant-accent-pulse 2.2s ease-in-out infinite;
+}
+@keyframes assistant-accent-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-block.is-streaming::before { animation: none; }
+}
+
 /* Markdown */
 .chat-markdown p { margin: 0 0 0.4em; }
 .chat-markdown p:last-child { margin-bottom: 0; }

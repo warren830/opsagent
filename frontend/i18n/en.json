@@ -69,7 +69,11 @@
     "totalUsers": "Users",
     "totalSkills": "Skills",
     "totalClusters": "Clusters",
-    "openIssues": "Open Issues"
+    "openIssues": "Open Issues",
+    "liveClusters": "Live Clusters",
+    "recentIssues": "Recent Issues",
+    "noClustersYet": "No clusters yet — add or discover them under Assets / Clusters",
+    "noIssuesHappy": "All clear — no open issues"
   },
   "tenant": {
     "title": "Tenant Management",
@@ -671,6 +675,7 @@
     "search": "Search",
     "filter": "Filter",
     "loading": "Loading...",
+    "viewAll": "View all",
     "noData": "No data",
     "success": "Success",
     "error": "Error",

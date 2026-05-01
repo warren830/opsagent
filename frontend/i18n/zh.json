@@ -69,7 +69,11 @@
     "totalUsers": "用户总数",
     "totalSkills": "技能总数",
     "totalClusters": "集群总数",
-    "openIssues": "待处理问题"
+    "openIssues": "待处理问题",
+    "liveClusters": "运行中的集群",
+    "recentIssues": "最近问题",
+    "noClustersYet": "暂无集群 — 去「资产 / 集群」添加或自动发现",
+    "noIssuesHappy": "一切正常，无待处理问题"
   },
   "tenant": {
     "title": "租户管理",
@@ -671,6 +675,7 @@
     "filter": "筛选",
     "loading": "加载中...",
     "noData": "暂无数据",
+    "viewAll": "查看全部",
     "success": "操作成功",
     "error": "操作失败",
     "enabled": "已启用",

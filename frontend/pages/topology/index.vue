@@ -54,11 +54,13 @@ const nodeTypes = { topology: TopologyNode }
 const { fitView } = useVueFlow('service-topology')
 
 // ─── Edge styles by kind ────────────────────────────────────────
+// Token-driven so edges adapt to both light and aurora themes. SVG's
+// stroke attribute resolves CSS vars the same way CSS properties do.
 const edgeStyleMap: Record<string, Record<string, any>> = {
-  'ingress-service': { stroke: '#a855f7', strokeWidth: 1.5 },
-  'service-deployment': { stroke: '#3b82f6', strokeWidth: 1.5 },
-  'service-rollout': { stroke: '#f97316', strokeWidth: 2 },
-  default: { stroke: '#6b7280', strokeWidth: 1 },
+  'ingress-service':    { stroke: 'hsl(var(--ai))',      strokeWidth: 1.5 }, // agent/layer-7 ingress
+  'service-deployment': { stroke: 'hsl(var(--info))',    strokeWidth: 1.5 }, // cluster-internal traffic
+  'service-rollout':    { stroke: 'hsl(var(--warning))', strokeWidth: 2 },   // progressive delivery
+  default:              { stroke: 'hsl(var(--muted-foreground) / 0.5)', strokeWidth: 1 },
 }
 
 function getEdgeStyle(sourceKind: string, targetKind: string) {
@@ -107,8 +109,11 @@ function layoutGraph(apiNodes: TopoNode[], apiEdges: TopoEdge[]) {
       style: {
         width: '740px',
         height: `${groupHeight}px`,
-        background: 'rgba(100,140,200,0.04)',
-        border: '1px dashed rgba(100,140,200,0.22)',
+        // Token-driven zone surface: barely-visible fill + dashed border
+        // using the panel + border tokens so both light and aurora themes
+        // render cleanly.
+        background: 'hsl(var(--panel) / 0.35)',
+        border: '1px dashed hsl(var(--border) / 0.6)',
         borderRadius: '12px',
         pointerEvents: 'none',
       },
@@ -128,7 +133,11 @@ function layoutGraph(apiNodes: TopoNode[], apiEdges: TopoEdge[]) {
       style: {
         width: 'auto', height: 'auto',
         background: 'transparent', border: 'none', pointerEvents: 'none',
-        fontSize: '9px', fontWeight: '600', color: 'rgba(71,85,105,0.55)',
+        // Read the muted-foreground token so the label adapts to both Sky &
+        // Lavender (light) and Aurora (dark). 0.85 alpha keeps it secondary
+        // but clearly readable on dark base (#0A0B10).
+        fontSize: '10px', fontWeight: '600',
+        color: 'hsl(var(--muted-foreground) / 0.85)',
         textTransform: 'uppercase', letterSpacing: '0.1em',
       },
       data: { label: `${group.namespace} @ ${group.cluster}` },
@@ -309,14 +318,22 @@ const statusLegend = [
       >
         <MiniMap
           :node-color="(n: any) => {
+            // Vue Flow's minimap renders to canvas → needs resolved color
+            // strings, not CSS vars. Read the live token value at call time
+            // so switching themes updates the minimap on next render.
+            const v = (name: string) => {
+              if (typeof document === 'undefined') return '#6b7280'
+              const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+              return raw ? `hsl(${raw})` : '#6b7280'
+            }
             const kind = n.data?.kind
-            if (kind === 'ingress') return '#a855f7'
-            if (kind === 'service') return '#3b82f6'
-            if (kind === 'rollout') return '#f97316'
-            if (kind === 'deployment') return '#10b981'
-            return '#6b7280'
+            if (kind === 'ingress') return v('--ai')
+            if (kind === 'service') return v('--info')
+            if (kind === 'rollout') return v('--warning')
+            if (kind === 'deployment') return v('--success')
+            return v('--muted-foreground')
           }"
-          :mask-color="'rgba(148,163,184,0.25)'"
+          :mask-color="'hsl(var(--muted-foreground) / 0.2)'"
           class="!bg-panel/$1 !backdrop-blur-md !border-border !rounded-lg"
         />
         <Controls class="!bg-panel/$1 !backdrop-blur-md !border-border !rounded-lg" />
@@ -326,45 +343,46 @@ const statusLegend = [
 </template>
 
 <style>
-/* Vue Flow — light theme integration with Sky & Lavender palette */
+/* Vue Flow — token-driven so it adapts to light (Sky & Lavender) and
+   aurora (dark) themes automatically. */
 .topology-flow .vue-flow__background {
   background: transparent;
 }
 .topology-flow .vue-flow__edge-path {
-  stroke: #3b82f6;
-  stroke-opacity: 0.45;
-  filter: drop-shadow(0 0 1px rgba(59, 130, 246, 0.3));
+  stroke: hsl(var(--primary));
+  stroke-opacity: 0.55;
+  filter: drop-shadow(0 0 1px hsl(var(--primary) / 0.35));
 }
 .topology-flow .vue-flow__edge-text {
   font-size: 9px;
-  fill: rgba(71, 85, 105, 0.75);         /* slate-600 */
+  fill: hsl(var(--muted-foreground) / 0.85);
 }
 .topology-flow .vue-flow__edge-textbg {
-  fill: rgba(255, 255, 255, 0.85);
+  fill: hsl(var(--panel) / 0.9);
   rx: 3;
 }
 .topology-flow .vue-flow__controls-button {
-  background: rgba(255, 255, 255, 0.85) !important;
-  border-color: rgba(226, 232, 240, 1) !important;   /* slate-200 */
-  color: rgba(51, 65, 85, 0.9) !important;           /* slate-700 */
+  background: hsl(var(--panel) / 0.85) !important;
+  border-color: hsl(var(--border)) !important;
+  color: hsl(var(--foreground) / 0.85) !important;
   backdrop-filter: blur(6px);
 }
 .topology-flow .vue-flow__controls-button:hover {
-  background: rgba(255, 255, 255, 0.95) !important;
-  color: rgba(37, 99, 235, 1) !important;            /* sky-600 */
+  background: hsl(var(--panel) / 0.95) !important;
+  color: hsl(var(--primary)) !important;
 }
 .topology-flow .vue-flow__controls-button svg {
   fill: currentColor;
 }
 .topology-flow .vue-flow__minimap {
-  background: rgba(255, 255, 255, 0.7) !important;
-  border: 1px solid rgba(226, 232, 240, 1) !important;
+  background: hsl(var(--panel) / 0.8) !important;
+  border: 1px solid hsl(var(--border)) !important;
   backdrop-filter: blur(8px);
   border-radius: 8px;
 }
 .topology-flow .vue-flow__minimap-mask {
-  fill: rgba(147, 197, 253, 0.25);        /* sky-300 tinted mask */
-  stroke: rgba(59, 130, 246, 0.5);
+  fill: hsl(var(--primary) / 0.2);
+  stroke: hsl(var(--primary) / 0.5);
   stroke-width: 2;
 }
 .topology-flow .vue-flow__edge.animated path {
