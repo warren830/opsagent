@@ -1053,7 +1053,13 @@ async function renderMermaid() {
       m.default.initialize({
         startOnLoad: false,
         theme: 'dark',
-        themeVariables: { darkMode: false, background: '#ffffff', primaryColor: '#3b82f6', primaryTextColor: '#0f172a', lineColor: '#94a3b8', fontSize: '12px' },
+        themeVariables: (() => {
+          // Respect the active theme for Mermaid diagrams rendered inside chat.
+          const isAurora = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'aurora'
+          return isAurora
+            ? { darkMode: true, background: '#0A0B10', primaryColor: '#1ec7a8', primaryTextColor: '#fafafa', lineColor: '#7b8391', fontSize: '12px' }
+            : { darkMode: false, background: '#ffffff', primaryColor: '#3b82f6', primaryTextColor: '#0f172a', lineColor: '#94a3b8', fontSize: '12px' }
+        })(),
       })
       mermaidLoaded = true
     } catch { return }
@@ -1116,7 +1122,7 @@ function startResize(e: MouseEvent) {
       />
 
       <!-- Header -->
-      <div class="flex items-center justify-between px-3 h-10 border-b border-slate-200/60 shrink-0 bg-white/40 backdrop-blur-sm">
+      <div class="flex items-center justify-between px-3 h-10 border-b border-border/50 shrink-0 bg-panel/40 backdrop-blur-sm">
         <div class="flex items-center gap-1.5">
           <Sparkles class="h-3.5 w-3.5 text-primary" />
           <span class="font-medium text-xs">{{ t('chat.title') }}</span>
@@ -1784,9 +1790,17 @@ class="h-3 w-3 rounded border flex items-center justify-center shrink-0"
 /* Images in markdown — scrollable */
 .chat-markdown img { max-height: 600px; border-radius: 6px; }
 
-/* Chat input border */
+/* Chat input border — reads aurora halo stops via hsl(var(--aurora-*)) so it
+   matches the brand motif under the dark theme; light theme uses its own
+   --aurora-sky/lavender/mint. */
 .chat-input-idle {
-  background: linear-gradient(135deg, #3b82f6, #60a5fa, #c4b5fd, #8b5cf6, #3b82f6);
+  background: linear-gradient(
+    135deg,
+    hsl(var(--aurora-teal, 170 78% 64%)),
+    hsl(var(--aurora-pink, 258 90% 82%)),
+    hsl(var(--aurora-indigo, 231 88% 74%)),
+    hsl(var(--aurora-teal, 170 78% 64%))
+  );
 }
 
 /* Streaming: conic-gradient "snake" that chases around the border */
@@ -1795,9 +1809,9 @@ class="h-3 w-3 rounded border flex items-center justify-center shrink-0"
     from var(--glow-angle, 0deg),
     transparent 0%,
     transparent 60%,
-    #3b82f6 75%,
-    #8b5cf6 85%,
-    #c4b5fd 92%,
+    hsl(var(--aurora-teal, 170 78% 64%)) 75%,
+    hsl(var(--aurora-indigo, 231 88% 74%)) 85%,
+    hsl(var(--aurora-pink, 258 90% 82%)) 92%,
     transparent 100%
   );
   animation: glow-spin 3s linear infinite;

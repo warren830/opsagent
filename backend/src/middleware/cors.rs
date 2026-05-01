@@ -12,8 +12,8 @@ use crate::config::AppConfig;
 pub fn build_cors_layer(config: &AppConfig) -> CorsLayer {
     let allow_origin = if config.env.is_local() && config.allowed_origins.is_empty() {
         // Local mode without explicit origins: allow localhost without credentials conflict
-        tracing::warn!("CORS: Allowing localhost:3000 (local mode, no origins configured)");
-        let origins: Vec<_> = vec!["http://localhost:3000".parse().unwrap()];
+        tracing::warn!("CORS: Allowing localhost:3003 (local mode, no origins configured)");
+        let origins: Vec<_> = vec!["http://localhost:3003".parse().unwrap()];
         AllowOrigin::list(origins)
     } else {
         let origins: Vec<_> = config.allowed_origins.iter().filter_map(|o| o.parse().ok()).collect();

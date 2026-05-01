@@ -163,13 +163,13 @@ function toolIcon(name: string): string {
 
 /** Color class for the tool label badge by category. */
 function toolColor(label: string): string {
-  if (label.includes('kubectl')) return 'text-sky-400'
-  if (label.includes('Mimir')) return 'text-violet-400'
-  if (label.includes('Loki')) return 'text-amber-400'
-  if (label.includes('Tempo')) return 'text-rose-400'
-  if (label.includes('Runbook') || label.includes('知识库')) return 'text-emerald-400'
-  if (label.includes('Rollout 状态')) return 'text-cyan-400'
-  if (label.includes('Argo')) return 'text-sky-600'
+  if (label.includes('kubectl')) return 'text-info'
+  if (label.includes('Mimir')) return 'text-ai'
+  if (label.includes('Loki')) return 'text-warning'
+  if (label.includes('Tempo')) return 'text-destructive'
+  if (label.includes('Runbook') || label.includes('知识库')) return 'text-success'
+  if (label.includes('Rollout 状态')) return 'text-primary'
+  if (label.includes('Argo')) return 'text-info'
   return 'text-zinc-400'
 }
 
@@ -405,7 +405,7 @@ onMounted(() => { fetchIssues() })
             <template v-if="isStreaming || rcaText">
               <div class="flex items-center justify-between">
                 <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <Loader2 v-if="isStreaming" class="h-3 w-3 animate-spin text-sky-500" />
+                  <Loader2 v-if="isStreaming" class="h-3 w-3 animate-spin text-info" />
                   {{ isStreaming ? t('issue.rcaStreaming') : t('issue.rcaComplete') }}
                 </label>
                 <div class="flex items-center gap-2">
@@ -419,8 +419,8 @@ onMounted(() => { fetchIssues() })
               </div>
 
               <!-- Thinking / tool-use indicator (enlarged + colored for demo visibility) -->
-              <div v-if="thinkingText && isStreaming" class="text-sm text-sky-600 font-medium px-2 truncate flex items-center gap-2">
-                <span class="inline-block h-1.5 w-1.5 rounded-full bg-sky-500 animate-pulse" />
+              <div v-if="thinkingText && isStreaming" class="text-sm text-info font-medium px-2 truncate flex items-center gap-2">
+                <span class="inline-block h-1.5 w-1.5 rounded-full bg-info animate-pulse" />
                 {{ thinkingText }}
               </div>
 
@@ -429,7 +429,7 @@ onMounted(() => { fetchIssues() })
                 <!-- LEFT: Timeline (thinking + tools interleaved) -->
                 <div class="rounded border border-border/60 bg-secondary/20 p-2 max-h-[440px] overflow-y-auto">
                   <div class="flex items-center gap-1.5 px-1 pb-1.5 mb-1.5 border-b border-border/40">
-                    <Activity class="h-3 w-3 text-sky-600" />
+                    <Activity class="h-3 w-3 text-info" />
                     <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       {{ t('issue.timeline') }}
                     </span>
@@ -448,12 +448,12 @@ onMounted(() => { fetchIssues() })
                         {{ fmtRelative(timelineStart, evt.at) }}
                       </span>
                       <template v-if="evt.kind === 'think'">
-                        <Brain class="h-3 w-3 text-violet-400 shrink-0 mt-0.5" />
+                        <Brain class="h-3 w-3 text-ai shrink-0 mt-0.5" />
                         <span class="text-foreground/80 line-clamp-2">{{ evt.label }}</span>
                       </template>
                       <template v-else>
-                        <Loader2 v-if="!evt.tc?.done" class="h-3 w-3 animate-spin text-sky-500 shrink-0 mt-0.5" />
-                        <Check v-else class="h-3 w-3 text-emerald-400 shrink-0 mt-0.5" />
+                        <Loader2 v-if="!evt.tc?.done" class="h-3 w-3 animate-spin text-info shrink-0 mt-0.5" />
+                        <Check v-else class="h-3 w-3 text-success shrink-0 mt-0.5" />
                         <span :class="[toolColor(evt.label), 'font-medium truncate flex-1']">{{ evt.label }}</span>
                         <span v-if="evt.tc?.done && evt.tc.durationMs > 0" class="text-[9px] text-muted-foreground/50 tabular-nums shrink-0">
                           {{ (evt.tc.durationMs / 1000).toFixed(1) }}s
@@ -473,7 +473,7 @@ onMounted(() => { fetchIssues() })
                 <!-- RIGHT: Evidence panel (tool cards with command + output preview) -->
                 <div class="rounded border border-border/60 bg-secondary/20 p-2 max-h-[440px] overflow-y-auto">
                   <div class="flex items-center gap-1.5 px-1 pb-1.5 mb-1.5 border-b border-border/40">
-                    <FileText class="h-3 w-3 text-sky-600" />
+                    <FileText class="h-3 w-3 text-info" />
                     <span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       {{ t('issue.evidence') }}
                     </span>
@@ -487,7 +487,7 @@ onMounted(() => { fetchIssues() })
                       v-for="tc in toolCalls"
                       :key="tc.id"
                       class="tool-item rounded border border-border/40 bg-background/40 p-1.5"
-                      :class="!tc.done && 'border-sky-500/40 bg-sky-500/5'"
+                      :class="!tc.done && 'border-info/40/40 bg-info/5'"
                     >
                       <!-- Header: icon + label + duration -->
                       <div class="flex items-center gap-1.5 text-[11px] mb-1">
@@ -496,8 +496,8 @@ onMounted(() => { fetchIssues() })
                         <span v-if="tc.done && tc.durationMs > 0" class="text-[9px] text-muted-foreground/50 tabular-nums shrink-0">
                           {{ (tc.durationMs / 1000).toFixed(1) }}s
                         </span>
-                        <Loader2 v-if="!tc.done" class="h-3 w-3 animate-spin text-sky-500 shrink-0" />
-                        <Check v-else class="h-3 w-3 text-emerald-400 shrink-0" />
+                        <Loader2 v-if="!tc.done" class="h-3 w-3 animate-spin text-info shrink-0" />
+                        <Check v-else class="h-3 w-3 text-success shrink-0" />
                       </div>
                       <!-- Command / Input preview -->
                       <div v-if="tc.inputPreview" class="text-[10px] text-muted-foreground/80 font-mono bg-secondary/40 rounded px-1.5 py-1 mb-1 break-all">

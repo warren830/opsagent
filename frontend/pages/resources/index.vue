@@ -154,18 +154,18 @@ const latestCompletedScan = computed(() => scans.value.find(s => s.status === 'c
 const canChat = computed(() => !!latestCompletedScan.value)
 
 const sevColors: Record<string, string> = {
-  H: 'text-rose-700 bg-gradient-to-br from-rose-50 to-rose-100 border-rose-200',
-  M: 'text-amber-700 bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200',
-  L: 'text-sky-700 bg-gradient-to-br from-sky-50 to-sky-100 border-sky-200',
-  I: 'text-slate-600 bg-gradient-to-br from-slate-50 to-slate-100 border-slate-200',
+  H: 'text-destructive bg-gradient-to-br from-destructive/10 to-destructive/20 border-destructive/40',
+  M: 'text-warning     bg-gradient-to-br from-warning/10     to-warning/20     border-warning/40',
+  L: 'text-info        bg-gradient-to-br from-info/10        to-info/20        border-info/40',
+  I: 'text-muted-foreground bg-gradient-to-br from-muted/60  to-muted          border-border',
 }
 
 const catIcons: Record<string, { icon: typeof ShieldCheck; color: string }> = {
-  security: { icon: ShieldAlert, color: 'text-red-600' },
-  cost: { icon: DollarSign, color: 'text-emerald-600' },
+  security: { icon: ShieldAlert, color: 'text-destructive' },
+  cost: { icon: DollarSign, color: 'text-success' },
   reliability: { icon: Activity, color: 'text-blue-600' },
-  performance: { icon: Gauge, color: 'text-purple-600' },
-  operations: { icon: Wrench, color: 'text-amber-600' },
+  performance: { icon: Gauge, color: 'text-ai' },
+  operations: { icon: Wrench, color: 'text-warning' },
 }
 
 const uniqueServices = computed(() => {
@@ -208,12 +208,12 @@ function categoryLabel(c: string): string {
 
 function categoryColor(c: string): string {
   switch (c) {
-    case 'S': return 'text-red-600'
-    case 'C': return 'text-emerald-600'
+    case 'S': return 'text-destructive'
+    case 'C': return 'text-success'
     case 'R': return 'text-blue-600'
-    case 'P': return 'text-purple-600'
-    case 'O': return 'text-amber-600'
-    default: return 'text-slate-500'
+    case 'P': return 'text-ai'
+    case 'O': return 'text-warning'
+    default: return 'text-muted-foreground'
   }
 }
 
@@ -983,7 +983,7 @@ onMounted(async () => {
             <!-- Error indicator -->
             <AlertTriangle
               v-if="scan.error_message"
-              class="h-3 w-3 text-amber-600 shrink-0"
+              class="h-3 w-3 text-warning shrink-0"
               :title="scan.error_message"
             />
           </div>

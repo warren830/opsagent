@@ -222,16 +222,16 @@ onMounted(() => {
 
 // ─── Legend ──────────────────────────────────────────────────────
 const kindLegend = [
-  { color: 'bg-purple-400', label: 'Ingress' },
+  { color: 'bg-ai', label: 'Ingress' },
   { color: 'bg-blue-400', label: 'Service' },
-  { color: 'bg-emerald-400', label: 'Deployment' },
-  { color: 'bg-amber-400', label: 'Rollout' },
+  { color: 'bg-success', label: 'Deployment' },
+  { color: 'bg-warning', label: 'Rollout' },
 ]
 
 const statusLegend = [
-  { color: 'bg-emerald-400', label: t('topology.healthy') },
-  { color: 'bg-amber-400', label: t('topology.warning') },
-  { color: 'bg-red-400 animate-pulse', label: t('topology.critical') },
+  { color: 'bg-success', label: t('topology.healthy') },
+  { color: 'bg-warning', label: t('topology.warning') },
+  { color: 'bg-destructive animate-pulse', label: t('topology.critical') },
 ]
 </script>
 
@@ -241,7 +241,7 @@ const statusLegend = [
     <div class="flex items-center justify-between flex-wrap gap-3">
       <div class="flex items-center gap-3">
         <div class="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
-          <Network class="h-5 w-5 text-sky-600" />
+          <Network class="h-5 w-5 text-info" />
         </div>
         <div>
           <h1 class="text-base font-semibold text-foreground">{{ t('topology.title') }}</h1>
@@ -285,11 +285,11 @@ const statusLegend = [
     <div v-else class="relative rounded-lg border border-border/60 bg-card/30 overflow-hidden" style="height: calc(100vh - 140px)">
       <!-- Flow direction labels -->
       <div class="absolute top-3 left-3 z-10 flex items-center gap-2 pointer-events-none">
-        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-violet-300 text-violet-600">Ingress</Badge>
-        <span class="text-slate-400 text-[10px]">→</span>
-        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-sky-300 text-sky-600">Service</Badge>
-        <span class="text-slate-400 text-[10px]">→</span>
-        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-emerald-300 text-emerald-600">Workload</Badge>
+        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-ai/40 text-ai">Ingress</Badge>
+        <span class="text-muted-foreground text-[10px]">→</span>
+        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-info/40 text-info">Service</Badge>
+        <span class="text-muted-foreground text-[10px]">→</span>
+        <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-success/40 text-success">Workload</Badge>
       </div>
 
       <VueFlow
@@ -317,9 +317,9 @@ const statusLegend = [
             return '#6b7280'
           }"
           :mask-color="'rgba(148,163,184,0.25)'"
-          class="!bg-white/70 !backdrop-blur-md !border-slate-200 !rounded-lg"
+          class="!bg-panel/$1 !backdrop-blur-md !border-border !rounded-lg"
         />
-        <Controls class="!bg-white/70 !backdrop-blur-md !border-slate-200 !rounded-lg" />
+        <Controls class="!bg-panel/$1 !backdrop-blur-md !border-border !rounded-lg" />
       </VueFlow>
     </div>
   </div>

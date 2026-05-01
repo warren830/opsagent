@@ -27,6 +27,15 @@ if [[ ! -f .env ]]; then
   warn "Created .env from .env.example — review and update values"
 fi
 
+# Read ports from .env so the log messages + proxies match reality.
+BACKEND_PORT=$(awk -F'=' '/^BACKEND_PORT=/ {print $2}' .env | tr -d '"' | head -1)
+FRONTEND_PORT=$(awk -F'=' '/^FRONTEND_PORT=/ {print $2}' .env | tr -d '"' | head -1)
+BACKEND_PORT=${BACKEND_PORT:-8003}
+FRONTEND_PORT=${FRONTEND_PORT:-3003}
+export BACKEND_PORT FRONTEND_PORT
+# Tell Nuxt dev server + nuxt.config proxy where to find the backend.
+export NUXT_BACKEND_URL="http://localhost:${BACKEND_PORT}"
+
 # Start database
 log "Starting PostgreSQL..."
 docker compose up -d postgres
@@ -45,14 +54,14 @@ log "Seeding development data..."
 docker compose exec -T postgres psql -U ops -d ops -f /dev/stdin < "$SCRIPT_DIR/seed-dev-data.sql" 2>/dev/null || warn "Seed skipped (tables may not exist yet, will retry after backend starts)"
 
 # Start backend (prefixed output so logs don't get lost)
-log "Starting Rust backend on :3080..."
+log "Starting Rust backend on :${BACKEND_PORT}..."
 (cd backend && cargo run 2>&1 | sed -u "s/^/[backend] /") &
 BACKEND_PID=$!
 
 # Wait for backend to be ready (runs migrations on startup)
 log "Waiting for backend..."
 for i in {1..30}; do
-  if curl -s http://localhost:3080/health >/dev/null 2>&1; then
+  if curl -s "http://localhost:${BACKEND_PORT}/health" >/dev/null 2>&1; then
     break
   fi
   sleep 1
@@ -62,8 +71,8 @@ done
 docker compose exec -T postgres psql -U ops -d ops -f /dev/stdin < "$SCRIPT_DIR/seed-dev-data.sql" >/dev/null 2>&1 && log "Development data seeded" || true
 
 # Start frontend (prefixed output)
-log "Starting Nuxt frontend on :3000..."
-(cd frontend && npm run dev 2>&1 | sed -u "s/^/[frontend] /") &
+log "Starting Nuxt frontend on :${FRONTEND_PORT}..."
+(cd frontend && PORT="${FRONTEND_PORT}" npm run dev 2>&1 | sed -u "s/^/[frontend] /") &
 FRONTEND_PID=$!
 
 TUNNEL_PID=""
@@ -71,15 +80,15 @@ TUNNEL_PID=""
 # Cloudflare tunnel for Grafana webhook — disabled by default, enable with ENABLE_TUNNEL=true
 if [ "${ENABLE_TUNNEL:-false}" = "true" ] && command -v cloudflared >/dev/null; then
   log "Starting cloudflare tunnel for Grafana webhook callbacks..."
-  cloudflared tunnel --url http://localhost:3080 2>&1 | sed -u "s/^/[tunnel] /" &
+  cloudflared tunnel --url "http://localhost:${BACKEND_PORT}" 2>&1 | sed -u "s/^/[tunnel] /" &
   TUNNEL_PID=$!
   sleep 3
   log "💡 Copy the tunnel URL from [tunnel] output → Grafana Alerting → Contact Points → Webhook"
 fi
 
 log "🚀 Ops is running!"
-log "   Frontend: http://localhost:3000"
-log "   Backend:  http://localhost:3080"
+log "   Frontend: http://localhost:${FRONTEND_PORT}"
+log "   Backend:  http://localhost:${BACKEND_PORT}"
 log "   Login:    admin / admin123"
 log ""
 log "Press Ctrl+C to stop all services"

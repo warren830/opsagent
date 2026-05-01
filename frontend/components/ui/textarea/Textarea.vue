@@ -20,6 +20,6 @@ const modelValue = computed({
 <template>
   <textarea
     v-model="modelValue"
-    :class="cn('flex min-h-[80px] w-full rounded-lg border border-slate-200 bg-white/70 backdrop-blur-sm px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40 focus-visible:border-sky-400 focus-visible:bg-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 resize-none', props.class)"
+    :class="cn('flex min-h-[80px] w-full rounded-lg border border-border bg-input/70 backdrop-blur-sm px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:border-ring focus-visible:bg-input transition-colors disabled:cursor-not-allowed disabled:opacity-50 resize-none', props.class)"
   />
 </template>

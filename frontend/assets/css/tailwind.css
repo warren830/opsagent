@@ -67,6 +67,79 @@
     --radius-md: 0.625rem;
     --radius-lg: 0.875rem;
     --radius-xl: 1.25rem;
+
+    /* Halo/mesh opacity (light default - essentially disabled for Sky & Lavender) */
+    --halo-dim: 0;
+    --mesh-opacity: 0;
+  }
+
+  /* ─────────────────────────────────────────────────────────
+     Aurora dark theme — AWS Q Developer / Bedrock Agent Studio
+     Applied via <html data-theme="aurora">
+     Reads: [data-surface="focus"] to dim halo/mesh on data pages
+     ───────────────────────────────────────────────────────── */
+  [data-theme="aurora"] {
+    /* Base surface — cold near-black */
+    --background: 225 25% 5%;               /* #0A0B10 */
+    --foreground: 0 0% 98%;
+    --card: 225 20% 7%;
+    --card-foreground: 0 0% 98%;
+    --popover: 225 22% 8%;
+    --popover-foreground: 0 0% 98%;
+    --muted: 225 15% 12%;
+    --muted-foreground: 225 10% 62%;
+    --panel: 225 20% 7%;
+    --panel-foreground: 0 0% 98%;
+
+    /* Brand — Aurora Teal (from halo palette, not AWS blue) */
+    --primary: 174 70% 48%;
+    --primary-foreground: 225 25% 5%;
+    --secondary: 225 18% 14%;
+    --secondary-foreground: 0 0% 95%;
+    --accent: 225 18% 14%;
+    --accent-foreground: 174 60% 70%;
+
+    /* AI/Agent accent — for assistant bubbles, agent status glow */
+    --ai: 178 60% 58%;
+    --ai-foreground: 225 25% 5%;
+
+    /* Ops severities — desaturated for cold-black base (no traffic-light look) */
+    --success: 160 65% 52%;
+    --success-foreground: 225 25% 5%;
+    --warning: 38 85% 62%;
+    --warning-foreground: 225 25% 5%;
+    --destructive: 0 72% 65%;
+    --destructive-foreground: 0 0% 98%;
+    --info: 199 75% 58%;
+    --info-foreground: 225 25% 5%;
+
+    /* Structure — low-opacity hairlines only */
+    --border: 225 15% 16%;
+    --input: 225 18% 10%;
+    --ring: 174 60% 55%;
+
+    /* Aurora halo stops — read by AuroraHalo.vue */
+    --aurora-pink: 183 84% 77%;             /* #B794F6 base */
+    --aurora-teal: 170 78% 64%;             /* #5EEAD4 base */
+    --aurora-indigo: 231 88% 74%;           /* #818CF8 base */
+
+    /* Decoration layer intensity */
+    --halo-dim: 1;                          /* full-strength halo */
+    --mesh-opacity: 0.04;                   /* ~4% triangle mesh */
+
+    /* Kill gloss: glass panels revert to solid panel tint on dark theme */
+    --glass-bg: 225 20% 7% / 1;
+    --glass-border: 225 15% 16% / 1;
+    --glass-shadow: 0 0 0 0 transparent;
+    --glass-shadow-hover: 0 0 0 0 transparent;
+    --glass-blur: 0px;
+    --glass-blur-subtle: 0px;
+  }
+
+  /* Focus surface variant — data-dense routes suppress decoration */
+  [data-theme="aurora"][data-surface="focus"] {
+    --halo-dim: 0.27;                       /* ~45% → ~12% effective */
+    --mesh-opacity: 0.01;
   }
 }
 
@@ -137,6 +210,73 @@
       radial-gradient(circle at 88% 20%, var(--aurora-lavender), transparent 42%),
       radial-gradient(circle at 50% 100%, var(--aurora-mint), transparent 45%),
       hsl(var(--background));
+  }
+
+  /* ─── Aurora halo (dark theme signature) ─── */
+  /* Bottom-30-35vh gradient band: pink-purple → teal → indigo.
+     Intensity multiplied by --halo-dim (1 default, 0.27 in focus mode).
+     Self-positioning (fixed) so consumers just render <LayoutAuroraHalo />. */
+  .aurora-halo {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 35vh;
+    z-index: -10;
+    pointer-events: none;
+    opacity: var(--halo-dim, 0);
+    transition: opacity 600ms var(--motion-ease-smooth);
+    background:
+      radial-gradient(ellipse 55% 100% at 18% 100%,
+        hsl(var(--aurora-pink) / 0.38) 0%,
+        transparent 55%),
+      radial-gradient(ellipse 55% 100% at 50% 100%,
+        hsl(var(--aurora-teal) / 0.32) 0%,
+        transparent 60%),
+      radial-gradient(ellipse 55% 100% at 82% 100%,
+        hsl(var(--aurora-indigo) / 0.34) 0%,
+        transparent 55%);
+    filter: blur(28px);
+    will-change: transform;
+    animation: aurora-drift 45s var(--motion-ease-smooth) infinite;
+  }
+
+  /* Isometric triangle mesh texture (SVG data URI, stroke-only).
+     Full viewport. Self-positioning (fixed). */
+  .mesh-texture {
+    position: fixed;
+    inset: 0;
+    z-index: -10;
+    pointer-events: none;
+    opacity: var(--mesh-opacity, 0);
+    transition: opacity 600ms var(--motion-ease-smooth);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='48' viewBox='0 0 56 48'><g fill='none' stroke='%23ffffff' stroke-width='0.6'><path d='M0 48 L28 0 L56 48 Z'/><path d='M28 0 L56 0 L42 24 Z'/><path d='M0 0 L28 0 L14 24 Z'/></g></svg>");
+    background-size: 56px 48px;
+    background-repeat: repeat;
+  }
+
+  /* Double-layer focus ring for dark theme (1px solid + 3px aurora glow) */
+  [data-theme="aurora"] .aurora-focus-ring:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 1.5px hsl(var(--ring)),
+      0 0 0 4px hsl(var(--ring) / 0.25),
+      0 0 18px hsl(var(--ring) / 0.35);
+  }
+
+  /* Aurora theme kills glass panels — CLAUDE.md design rule:
+     no backdrop-blur on data surfaces. Panels become solid-tinted. */
+  [data-theme="aurora"] .glass-panel,
+  [data-theme="aurora"] .glass-panel-subtle {
+    background: hsl(var(--panel) / 0.72);
+    border: 1px solid hsl(var(--border) / 0.6);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  [data-theme="aurora"] .glass-hover-lift:hover {
+    transform: none;
+    box-shadow: 0 0 0 1px hsl(var(--ring) / 0.4);
   }
 }
 

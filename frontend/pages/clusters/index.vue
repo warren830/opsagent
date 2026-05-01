@@ -84,17 +84,28 @@ function statusVariant(status: string): 'success' | 'warning' | 'destructive' | 
     case 'ACTIVE': return 'success'
     case 'CREATING': case 'UPDATING': return 'warning'
     case 'FAILED': case 'DELETING': case 'DELETED': return 'destructive'
+    // `STALE` = backend reconcile marked it as "hasn't been seen in AWS for >1h".
+    // Render as neutral/grey so it visibly recedes without implying a hard error.
+    case 'STALE': return 'secondary'
     default: return 'secondary'
   }
 }
 
 function statusDot(status: string): string {
   switch (status?.toUpperCase()) {
-    case 'ACTIVE': return 'bg-emerald-400'
-    case 'CREATING': case 'UPDATING': return 'bg-amber-400'
-    case 'FAILED': case 'DELETING': return 'bg-red-400'
+    case 'ACTIVE': return 'bg-success'
+    case 'CREATING': case 'UPDATING': return 'bg-warning'
+    case 'FAILED': case 'DELETING': return 'bg-destructive'
+    case 'STALE': return 'bg-zinc-400'
     default: return 'bg-zinc-400'
   }
+}
+
+// Display label for the badge — show a friendly "离线" for stale rows so the
+// raw AWS status enum ("ACTIVE", "CREATING", etc.) doesn't mix with our
+// internal reconcile marker.
+function statusLabel(status: string): string {
+  return status?.toUpperCase() === 'STALE' ? '离线' : status
 }
 
 function formatDate(dateStr: string | null): string {
@@ -286,7 +297,7 @@ async function deleteCluster() {
 
         <template #cell-status="{ row }">
           <Badge :variant="statusVariant((row as Cluster).status)">
-            {{ (row as Cluster).status }}
+            {{ statusLabel((row as Cluster).status) }}
           </Badge>
         </template>
 
@@ -332,7 +343,7 @@ async function deleteCluster() {
               </span>
               <span class="font-medium text-sm text-foreground truncate">{{ cluster.name }}</span>
             </div>
-            <Badge :variant="statusVariant(cluster.status)" class="text-[9px] shrink-0">{{ cluster.status }}</Badge>
+            <Badge :variant="statusVariant(cluster.status)" class="text-[9px] shrink-0">{{ statusLabel(cluster.status) }}</Badge>
           </div>
 
           <!-- Badges row -->

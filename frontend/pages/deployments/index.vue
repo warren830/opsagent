@@ -153,20 +153,20 @@ function rowKey(cr: ClusterRollout): string {
 
 function statusBadge(status: string) {
   switch (status) {
-    case 'Healthy': return { class: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', icon: CheckCircle2 }
+    case 'Healthy': return { class: 'bg-success/15 text-success border-success/40/20', icon: CheckCircle2 }
     case 'Progressing': return { class: 'bg-blue-500/15 text-blue-400 border-blue-500/20 animate-pulse', icon: Loader2 }
-    case 'Degraded': return { class: 'bg-red-500/15 text-red-400 border-red-500/20', icon: AlertTriangle }
-    case 'Paused': return { class: 'bg-amber-500/15 text-amber-400 border-amber-500/20', icon: Pause }
-    default: return { class: 'bg-slate-500/15 text-slate-500 border-slate-500/20', icon: Box }
+    case 'Degraded': return { class: 'bg-destructive/15 text-destructive border-destructive/40/20', icon: AlertTriangle }
+    case 'Paused': return { class: 'bg-warning/15 text-warning border-warning/40/20', icon: Pause }
+    default: return { class: 'bg-panel/15 text-muted-foreground border-border/20', icon: Box }
   }
 }
 
 function analysisPhaseColor(phase: string): string {
   switch (phase) {
-    case 'Successful': return 'text-emerald-400'
-    case 'Failed': case 'Error': return 'text-red-400'
+    case 'Successful': return 'text-success'
+    case 'Failed': case 'Error': return 'text-destructive'
     case 'Running': return 'text-blue-400'
-    default: return 'text-slate-500'
+    default: return 'text-muted-foreground'
   }
 }
 
@@ -420,12 +420,12 @@ onUnmounted(() => {
     <!-- Header -->
     <div class="flex items-center justify-between flex-wrap gap-3">
       <div class="flex items-center gap-3">
-        <div class="p-2 rounded-lg bg-sky-500/10 border border-sky-500/20">
-          <Rocket class="h-5 w-5 text-sky-600" />
+        <div class="p-2 rounded-lg bg-info/10 border border-info/40/20">
+          <Rocket class="h-5 w-5 text-info" />
         </div>
         <div>
-          <h1 class="text-lg font-semibold text-slate-900">{{ t('deployment.title') }}</h1>
-          <p class="text-[11px] text-slate-500">Argo Rollouts &middot; {{ t('deployment.autoRefresh') }}</p>
+          <h1 class="text-lg font-semibold text-foreground">{{ t('deployment.title') }}</h1>
+          <p class="text-[11px] text-muted-foreground">Argo Rollouts &middot; {{ t('deployment.autoRefresh') }}</p>
         </div>
       </div>
 
@@ -433,48 +433,48 @@ onUnmounted(() => {
         <!-- Cluster multi-select (shadcn Popover + Checkbox) -->
         <Popover v-model:open="clusterPopoverOpen">
           <PopoverTrigger as-child>
-            <Button variant="outline" size="sm" class="h-8 px-3 text-xs bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300">
-              <Server class="h-3.5 w-3.5 mr-2 text-slate-500" />
+            <Button variant="outline" size="sm" class="h-8 px-3 text-xs bg-background border-border text-foreground hover:bg-muted hover:border-border">
+              <Server class="h-3.5 w-3.5 mr-2 text-muted-foreground" />
               <span class="max-w-[180px] truncate">{{ clusterSelectorLabel }}</span>
-              <ChevronDown class="h-3.5 w-3.5 ml-2 text-slate-500 transition-transform" :class="{ 'rotate-180': clusterPopoverOpen }" />
+              <ChevronDown class="h-3.5 w-3.5 ml-2 text-muted-foreground transition-transform" :class="{ 'rotate-180': clusterPopoverOpen }" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent class="w-[300px] p-0 bg-white border-slate-200" align="end">
+          <PopoverContent class="w-[300px] p-0 bg-background border-border" align="end">
             <!-- Select all row -->
-            <div class="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-slate-100 transition-colors" @click="toggleAllClusters">
+            <div class="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-muted transition-colors" @click="toggleAllClusters">
               <div
                 class="h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors"
                 :class="allClustersSelected
-                  ? 'bg-sky-500 border-sky-500 text-white'
+                  ? 'bg-info border-info/40 text-foreground'
                   : someClustersSelected
-                    ? 'bg-sky-500/50 border-sky-500 text-white'
-                    : 'border-slate-300'"
+                    ? 'bg-info/50 border-info/40 text-foreground'
+                    : 'border-border'"
               >
                 <Minus v-if="someClustersSelected && !allClustersSelected" class="h-3 w-3" />
                 <Check v-else-if="allClustersSelected" class="h-3 w-3" />
               </div>
-              <span class="text-xs text-slate-500 font-medium">{{ t('deployment.selectCluster') }}</span>
-              <span class="text-[10px] text-slate-400 ml-auto">{{ selectedClusterIds.length }}/{{ clusters.length }}</span>
+              <span class="text-xs text-muted-foreground font-medium">{{ t('deployment.selectCluster') }}</span>
+              <span class="text-[10px] text-muted-foreground ml-auto">{{ selectedClusterIds.length }}/{{ clusters.length }}</span>
             </div>
-            <Separator class="bg-slate-200" />
+            <Separator class="bg-muted" />
             <!-- Cluster list -->
             <div class="py-1 max-h-[240px] overflow-y-auto">
               <div
                 v-for="c in clusters"
                 :key="c.id"
-                class="flex items-center gap-2.5 w-full px-3 py-1.5 cursor-pointer hover:bg-slate-100 transition-colors"
+                class="flex items-center gap-2.5 w-full px-3 py-1.5 cursor-pointer hover:bg-muted transition-colors"
                 @click="toggleCluster(c.id)"
               >
                 <div
                   class="h-4 w-4 rounded border flex items-center justify-center shrink-0 transition-colors"
                   :class="selectedClusterIds.includes(c.id)
-                    ? 'bg-sky-500 border-sky-500 text-white'
-                    : 'border-slate-300'"
+                    ? 'bg-info border-info/40 text-foreground'
+                    : 'border-border'"
                 >
                   <Check v-if="selectedClusterIds.includes(c.id)" class="h-3 w-3" />
                 </div>
-                <span class="text-xs text-slate-700 truncate flex-1">{{ c.name }}</span>
-                <span class="text-[11px] text-slate-400 shrink-0">{{ c.region || c.cloud }}</span>
+                <span class="text-xs text-foreground truncate flex-1">{{ c.name }}</span>
+                <span class="text-[11px] text-muted-foreground shrink-0">{{ c.region || c.cloud }}</span>
               </div>
             </div>
           </PopoverContent>
@@ -507,18 +507,18 @@ onUnmounted(() => {
     </div>
 
     <!-- Empty state -->
-    <div v-if="!hasCluster" class="flex flex-col items-center justify-center py-20 text-slate-500">
+    <div v-if="!hasCluster" class="flex flex-col items-center justify-center py-20 text-muted-foreground">
       <Rocket class="h-10 w-10 mb-3 opacity-30" />
       <p class="text-sm">{{ t('deployment.noCluster') }}</p>
     </div>
 
     <!-- Loading -->
     <div v-else-if="loading && clusterRollouts.length === 0" class="flex items-center justify-center py-20">
-      <Loader2 class="h-6 w-6 animate-spin text-sky-500" />
+      <Loader2 class="h-6 w-6 animate-spin text-info" />
     </div>
 
     <!-- No rollouts -->
-    <div v-else-if="clusterRollouts.length === 0 && !loading" class="flex flex-col items-center justify-center py-20 text-slate-500">
+    <div v-else-if="clusterRollouts.length === 0 && !loading" class="flex flex-col items-center justify-center py-20 text-muted-foreground">
       <Box class="h-10 w-10 mb-3 opacity-30" />
       <p class="text-sm">{{ t('deployment.noRollouts') }}</p>
     </div>
@@ -529,7 +529,7 @@ onUnmounted(() => {
         <Collapsible :open="expandedRows.has(rowKey(cr))" @update:open="toggleRow(cr)">
           <!-- Main row -->
           <CollapsibleTrigger as-child>
-            <div class="group relative flex items-center gap-3 px-4 py-2.5 rounded-lg bg-white/60 backdrop-blur-sm border border-slate-200 hover:border-slate-300 transition-colors cursor-pointer overflow-hidden">
+            <div class="group relative flex items-center gap-3 px-4 py-2.5 rounded-lg bg-panel/$1 backdrop-blur-sm border border-border hover:border-border transition-colors cursor-pointer overflow-hidden">
               <!-- Rollback progress bar (appears for ~15s after rollback is triggered) -->
               <div
                 v-if="rollingBack.has(rowKey(cr))"
@@ -538,25 +538,25 @@ onUnmounted(() => {
               <!-- Expand icon -->
               <component
                 :is="expandedRows.has(rowKey(cr)) ? ChevronDown : ChevronRight"
-                class="h-3.5 w-3.5 text-slate-500 shrink-0"
+                class="h-3.5 w-3.5 text-muted-foreground shrink-0"
               />
 
               <!-- Name + namespace + cluster -->
               <div class="min-w-0 flex-1 flex items-center gap-1.5 overflow-hidden">
-                <span class="text-sm font-medium text-slate-700 truncate">{{ cr.rollout.name }}</span>
-                <span class="text-xs text-slate-500 shrink-0">{{ cr.rollout.namespace }}</span>
-                <span v-if="selectedClusterIds.length > 1" class="text-[11px] text-slate-400 truncate shrink-0">@ {{ cr.clusterName }}</span>
+                <span class="text-sm font-medium text-foreground truncate">{{ cr.rollout.name }}</span>
+                <span class="text-xs text-muted-foreground shrink-0">{{ cr.rollout.namespace }}</span>
+                <span v-if="selectedClusterIds.length > 1" class="text-[11px] text-muted-foreground truncate shrink-0">@ {{ cr.clusterName }}</span>
               </div>
 
               <!-- Strategy -->
-              <Badge variant="outline" class="text-xs px-2 py-0.5 border-slate-200 text-slate-500 shrink-0 hidden sm:inline-flex">
+              <Badge variant="outline" class="text-xs px-2 py-0.5 border-border text-muted-foreground shrink-0 hidden sm:inline-flex">
                 {{ cr.rollout.strategy }}
               </Badge>
 
               <!-- Rolling-back indicator -->
               <Badge
                 v-if="rollingBack.has(rowKey(cr))"
-                class="text-[10px] px-2 py-0.5 bg-rose-500/10 text-rose-600 border border-rose-500/20 shrink-0"
+                class="text-[10px] px-2 py-0.5 bg-destructive/10 text-destructive border border-destructive/40/20 shrink-0"
               >
                 <Loader2 class="h-3 w-3 mr-1 animate-spin" />
                 {{ t('deployment.rollingBack') }}
@@ -571,18 +571,18 @@ onUnmounted(() => {
               <!-- Replicas -->
               <Tooltip>
                 <TooltipTrigger as-child>
-                  <div class="text-xs text-slate-500 shrink-0 tabular-nums">
+                  <div class="text-xs text-muted-foreground shrink-0 tabular-nums">
                     {{ replicasLabel(cr.rollout) }}
                   </div>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   <p class="text-xs">{{ cr.rollout.ready_replicas }} ready / {{ cr.rollout.desired_replicas }} desired</p>
-                  <p v-if="cr.rollout.updated_replicas !== cr.rollout.ready_replicas" class="text-xs text-slate-500">{{ cr.rollout.updated_replicas }} updated (canary)</p>
+                  <p v-if="cr.rollout.updated_replicas !== cr.rollout.ready_replicas" class="text-xs text-muted-foreground">{{ cr.rollout.updated_replicas }} updated (canary)</p>
                 </TooltipContent>
               </Tooltip>
 
               <!-- Steps -->
-              <div v-if="cr.rollout.total_steps" class="text-xs text-slate-500 shrink-0 tabular-nums">
+              <div v-if="cr.rollout.total_steps" class="text-xs text-muted-foreground shrink-0 tabular-nums">
                 {{ (cr.rollout.current_step ?? 0) + 1 }}/{{ cr.rollout.total_steps }}
               </div>
 
@@ -602,7 +602,7 @@ onUnmounted(() => {
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger as-child>
-                      <Button variant="ghost" size="sm" class="h-7 px-2.5 text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10" @click="promoteRollout(cr, true)">
+                      <Button variant="ghost" size="sm" class="h-7 px-2.5 text-xs text-success hover:text-success hover:bg-success/10" @click="promoteRollout(cr, true)">
                         <Play class="h-3.5 w-3.5 mr-1" /> Full
                       </Button>
                     </TooltipTrigger>
@@ -611,7 +611,7 @@ onUnmounted(() => {
                 </template>
                 <Tooltip v-if="cr.rollout.status === 'Progressing' || cr.rollout.status === 'Paused'">
                   <TooltipTrigger as-child>
-                    <Button variant="ghost" size="sm" class="h-7 w-7 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10" @click="confirmRollback(cr)">
+                    <Button variant="ghost" size="sm" class="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10" @click="confirmRollback(cr)">
                       <RotateCcw class="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
@@ -621,7 +621,7 @@ onUnmounted(() => {
                   <TooltipTrigger as-child>
                     <Button
                       variant="ghost" size="sm"
-                      class="h-7 w-7 p-0 text-slate-500 hover:text-slate-700 hover:bg-slate-500/10"
+                      class="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-panel/10"
                       :disabled="cr.rollout.status === 'Progressing' || cr.rollout.status === 'Paused'"
                       @click="openStrategyDialog(cr)"
                     >
@@ -642,49 +642,49 @@ onUnmounted(() => {
 
           <!-- Expanded detail -->
           <CollapsibleContent>
-            <div class="ml-6 mr-2 mb-2 mt-1 p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-4">
+            <div class="ml-6 mr-2 mb-2 mt-1 p-4 rounded-lg bg-muted border border-border space-y-4">
               <template v-if="rowDetails.has(rowKey(cr))">
                 <!-- Canary Steps -->
                 <div v-if="rowDetails.get(rowKey(cr))!.detail.canary_steps.length > 0">
-                  <p class="text-xs text-slate-500 font-medium mb-2.5">{{ t('deployment.canarySteps') }}</p>
+                  <p class="text-xs text-muted-foreground font-medium mb-2.5">{{ t('deployment.canarySteps') }}</p>
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <template v-for="step in rowDetails.get(rowKey(cr))!.detail.canary_steps" :key="step.index">
                       <div
                         :class="[
                           'px-2.5 py-1 rounded text-xs font-medium border transition-all flex items-center gap-1',
                           step.completed
-                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
+                            ? 'bg-success/15 text-success border-success/40/20'
                             : step.index === (cr.rollout.current_step ?? -1)
                               ? 'bg-blue-500/20 text-blue-300 border-blue-500/30 animate-pulse'
-                              : 'bg-slate-100 text-slate-500 border-slate-200'
+                              : 'bg-muted text-muted-foreground border-border'
                         ]"
                       >
                         <Pause v-if="step.action === 'pause'" class="h-3 w-3" />
                         {{ step.action === 'setWeight' ? `${step.value}%` : step.action === 'pause' ? (String(step.value) === '"indefinite"' || step.value === 'indefinite' ? 'Pause' : `Pause ${step.value}`) : step.action }}
                       </div>
-                      <span v-if="step.index < rowDetails.get(rowKey(cr))!.detail.canary_steps.length - 1" class="text-slate-300">→</span>
+                      <span v-if="step.index < rowDetails.get(rowKey(cr))!.detail.canary_steps.length - 1" class="text-muted-foreground/80">→</span>
                     </template>
                   </div>
                 </div>
 
                 <!-- Containers -->
                 <div v-if="rowDetails.get(rowKey(cr))!.detail.containers.length > 0">
-                  <p class="text-xs text-slate-500 font-medium mb-1.5">{{ t('deployment.containers') }}</p>
-                  <div v-for="c in rowDetails.get(rowKey(cr))!.detail.containers" :key="c.name" class="text-xs text-slate-500 py-0.5">
-                    <span class="text-slate-700 font-medium">{{ c.name }}</span>
-                    <span class="text-slate-400 mx-1.5">→</span>
-                    <code class="text-slate-600 text-[11px]">{{ c.image }}</code>
+                  <p class="text-xs text-muted-foreground font-medium mb-1.5">{{ t('deployment.containers') }}</p>
+                  <div v-for="c in rowDetails.get(rowKey(cr))!.detail.containers" :key="c.name" class="text-xs text-muted-foreground py-0.5">
+                    <span class="text-foreground font-medium">{{ c.name }}</span>
+                    <span class="text-muted-foreground mx-1.5">→</span>
+                    <code class="text-muted-foreground text-[11px]">{{ c.image }}</code>
                   </div>
                 </div>
 
                 <!-- Analysis Runs -->
                 <div v-if="rowDetails.get(rowKey(cr))!.analysis.length > 0">
-                  <p class="text-xs text-slate-500 font-medium mb-1.5">{{ t('deployment.analysisRuns') }}</p>
+                  <p class="text-xs text-muted-foreground font-medium mb-1.5">{{ t('deployment.analysisRuns') }}</p>
                   <div v-for="ar in rowDetails.get(rowKey(cr))!.analysis" :key="ar.name" class="flex items-center gap-2 text-xs">
-                    <BarChart3 class="h-3.5 w-3.5 text-slate-400" />
-                    <span class="text-slate-700">{{ ar.name }}</span>
+                    <BarChart3 class="h-3.5 w-3.5 text-muted-foreground" />
+                    <span class="text-foreground">{{ ar.name }}</span>
                     <Badge :class="['text-[10px] px-1.5 py-0', analysisPhaseColor(ar.phase)]">{{ ar.phase }}</Badge>
-                    <span v-for="m in ar.metrics" :key="m.name" class="text-slate-500">
+                    <span v-for="m in ar.metrics" :key="m.name" class="text-muted-foreground">
                       {{ m.name }}: <span :class="analysisPhaseColor(m.phase)">{{ m.value || m.phase }}</span>
                     </span>
                   </div>
@@ -692,7 +692,7 @@ onUnmounted(() => {
               </template>
 
               <div v-else class="flex items-center justify-center py-4">
-                <Loader2 class="h-5 w-5 animate-spin text-slate-500" />
+                <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
             </div>
           </CollapsibleContent>
@@ -714,12 +714,12 @@ onUnmounted(() => {
       <DialogContent class="max-w-md">
         <DialogHeader>
           <DialogTitle class="flex items-center gap-2">
-            <Settings2 class="h-4 w-4 text-sky-600" />
+            <Settings2 class="h-4 w-4 text-info" />
             {{ t('deployment.changeStrategy') }}
           </DialogTitle>
           <DialogDescription v-if="strategyTarget">
             {{ strategyTarget.rollout.namespace }}/{{ strategyTarget.rollout.name }}
-            <Badge variant="outline" class="ml-2 text-[10px] px-1.5 py-0 border-slate-200 text-slate-500">
+            <Badge variant="outline" class="ml-2 text-[10px] px-1.5 py-0 border-border text-muted-foreground">
               {{ t('deployment.currentStrategy') }}: {{ strategyTarget.rollout.strategy }}
             </Badge>
           </DialogDescription>
@@ -728,43 +728,43 @@ onUnmounted(() => {
         <div class="space-y-4 py-2">
           <!-- Strategy type selector -->
           <div class="space-y-1.5">
-            <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wider">{{ t('deployment.strategyType') }}</label>
+            <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{{ t('deployment.strategyType') }}</label>
             <Select v-model="strategyType">
-              <SelectTrigger class="h-9 bg-white border-slate-200 text-slate-700">
+              <SelectTrigger class="h-9 bg-background border-border text-foreground">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent class="bg-white border-slate-200">
-                <SelectItem value="canary" class="text-slate-700">
+              <SelectContent class="bg-background border-border">
+                <SelectItem value="canary" class="text-foreground">
                   <span class="flex items-center gap-2">🐤 {{ t('deployment.canary') }}</span>
                 </SelectItem>
-                <SelectItem value="blueGreen" class="text-slate-700">
+                <SelectItem value="blueGreen" class="text-foreground">
                   <span class="flex items-center gap-2">🔵🟢 {{ t('deployment.blueGreen') }}</span>
                 </SelectItem>
-                <SelectItem value="rollingUpdate" class="text-slate-700">
+                <SelectItem value="rollingUpdate" class="text-foreground">
                   <span class="flex items-center gap-2">🔄 {{ t('deployment.rollingUpdate') }}</span>
                 </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          <Separator class="bg-slate-200" />
+          <Separator class="bg-muted" />
 
           <!-- Canary options -->
           <div v-if="strategyType === 'canary'" class="space-y-3">
             <div class="space-y-1.5">
-              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wider">{{ t('deployment.canaryTemplate') }}</label>
+              <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{{ t('deployment.canaryTemplate') }}</label>
               <Select v-model="canaryTemplate">
-                <SelectTrigger class="h-9 bg-white border-slate-200 text-slate-700">
+                <SelectTrigger class="h-9 bg-background border-border text-foreground">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent class="bg-white border-slate-200">
-                  <SelectItem value="conservative" class="text-slate-700">
+                <SelectContent class="bg-background border-border">
+                  <SelectItem value="conservative" class="text-foreground">
                     {{ t('deployment.conservative') }}
                   </SelectItem>
-                  <SelectItem value="aggressive" class="text-slate-700">
+                  <SelectItem value="aggressive" class="text-foreground">
                     {{ t('deployment.aggressive') }}
                   </SelectItem>
-                  <SelectItem value="custom" class="text-slate-700">
+                  <SelectItem value="custom" class="text-foreground">
                     {{ t('deployment.custom') }}
                   </SelectItem>
                 </SelectContent>
@@ -773,15 +773,15 @@ onUnmounted(() => {
             <!-- Steps preview -->
             <div v-if="canaryTemplate !== 'custom'" class="flex items-center gap-1.5 flex-wrap px-1">
               <template v-for="(step, i) in canaryTemplateSteps" :key="i">
-                <div class="px-2 py-1 rounded text-xs font-medium border bg-slate-100 text-slate-500 border-slate-200 flex items-center gap-1">
+                <div class="px-2 py-1 rounded text-xs font-medium border bg-muted text-muted-foreground border-border flex items-center gap-1">
                   <Pause v-if="step.pause !== undefined" class="h-3 w-3" />
                   {{ step.setWeight ? `${step.setWeight}%` : step.pause?.duration ? `Pause ${step.pause.duration}` : 'Pause ∞' }}
                 </div>
-                <span v-if="i < canaryTemplateSteps.length - 1" class="text-slate-300">→</span>
+                <span v-if="i < canaryTemplateSteps.length - 1" class="text-muted-foreground/80">→</span>
               </template>
-              <div class="px-2 py-1 rounded text-xs font-medium border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">100%</div>
+              <div class="px-2 py-1 rounded text-xs font-medium border bg-success/10 text-success border-success/40/20">100%</div>
             </div>
-            <p v-else class="text-[11px] text-slate-500 px-1">
+            <p v-else class="text-[11px] text-muted-foreground px-1">
               No predefined steps — the rollout will proceed immediately to 100%.
             </p>
           </div>
@@ -789,35 +789,35 @@ onUnmounted(() => {
           <!-- Blue-Green options -->
           <div v-else-if="strategyType === 'blueGreen'" class="space-y-3">
             <!-- Warning banner -->
-            <div class="flex gap-2.5 p-3 rounded-lg bg-amber-500/5 border border-amber-500/15">
-              <Info class="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-              <p class="text-[11px] leading-relaxed text-amber-300/90">
+            <div class="flex gap-2.5 p-3 rounded-lg bg-warning/5 border border-warning/40/15">
+              <Info class="h-4 w-4 text-warning shrink-0 mt-0.5" />
+              <p class="text-[11px] leading-relaxed text-warning/90">
                 {{ t('deployment.blueGreenWarning') }}
               </p>
             </div>
 
             <div class="space-y-1.5">
-              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wider">{{ t('deployment.activeService') }}</label>
+              <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{{ t('deployment.activeService') }}</label>
               <Input
                 v-model="bgActiveService"
-                class="h-9 bg-white border-slate-200 text-slate-700 text-sm"
+                class="h-9 bg-background border-border text-foreground text-sm"
                 placeholder="my-app-active"
               />
             </div>
             <div class="space-y-1.5">
-              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wider">{{ t('deployment.previewService') }}</label>
+              <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{{ t('deployment.previewService') }}</label>
               <Input
                 v-model="bgPreviewService"
-                class="h-9 bg-white border-slate-200 text-slate-700 text-sm"
+                class="h-9 bg-background border-border text-foreground text-sm"
                 placeholder="my-app-preview"
               />
-              <p class="text-[10px] text-slate-400">Auto-created if not existing</p>
+              <p class="text-[10px] text-muted-foreground">Auto-created if not existing</p>
             </div>
             <div class="flex items-center justify-between">
-              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wider">{{ t('deployment.autoPromotion') }}</label>
+              <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{{ t('deployment.autoPromotion') }}</label>
               <Switch
                 :checked="bgAutoPromotion"
-                class="data-[state=checked]:bg-sky-500"
+                class="data-[state=checked]:bg-info"
                 @update:checked="(v: boolean) => bgAutoPromotion = v"
               />
             </div>
@@ -841,7 +841,7 @@ onUnmounted(() => {
           <Button
             size="sm"
             :disabled="strategySubmitting || (strategyType === 'blueGreen' && (!bgActiveService || !bgPreviewService))"
-            class="bg-gradient-to-r from-sky-500 to-violet-500 text-white hover:brightness-110"
+            class="bg-gradient-to-r from-sky-500 to-violet-500 text-foreground hover:brightness-110"
             @click="submitStrategy"
           >
             <Loader2 v-if="strategySubmitting" class="h-3.5 w-3.5 mr-1.5 animate-spin" />

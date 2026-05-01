@@ -25,6 +25,7 @@
     "deployments": "Deployments",
     "issues": "Issues",
     "settings": "Settings",
+    "selectTheme": "Select theme",
     "expandAll": "Expand All",
     "collapseAll": "Collapse All",
     "groups": {
@@ -682,8 +683,11 @@
     "confirmDelete": "Are you sure? This action cannot be undone."
   },
   "theme": {
+    "title": "Theme",
     "light": "Light",
     "dark": "Dark",
+    "aurora": "Aurora Dark",
+    "auroraDesc": "AWS Q Developer style",
     "system": "System"
   },
   "deployment": {

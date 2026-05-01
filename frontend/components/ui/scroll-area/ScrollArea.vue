@@ -12,7 +12,7 @@ defineProps<{ class?: HTMLAttributes['class'] }>()
       <slot />
     </ScrollAreaViewport>
     <ScrollAreaScrollbar orientation="vertical" class="flex touch-none select-none transition-colors h-full w-2.5 border-l border-l-transparent p-[1px]">
-      <ScrollAreaThumb class="relative flex-1 rounded-full bg-slate-300/70 hover:bg-slate-400/80 transition-colors" />
+      <ScrollAreaThumb class="relative flex-1 rounded-full bg-muted-foreground/30 hover:bg-muted-foreground/50 transition-colors" />
     </ScrollAreaScrollbar>
   </ScrollAreaRoot>
 </template>

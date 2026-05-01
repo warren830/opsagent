@@ -400,7 +400,7 @@ const signalIcon = { metrics: Activity, logs: FileText, traces: GitBranch }
             class="shrink-0 p-0.5 rounded hover:bg-secondary/50 transition-colors"
             @click="copyWebhookUrl(getWebhookUrl(cfg.provider), cfg.id)"
           >
-            <Check v-if="copied === cfg.id" class="h-3 w-3 text-green-500" />
+            <Check v-if="copied === cfg.id" class="h-3 w-3 text-success" />
             <Copy v-else class="h-3 w-3 text-muted-foreground/40" />
           </button>
         </div>
@@ -504,7 +504,7 @@ const signalIcon = { metrics: Activity, logs: FileText, traces: GitBranch }
             <div class="flex items-center gap-2">
               <code class="flex-1 text-xs text-primary font-mono break-all select-all">{{ getWebhookUrl(formProvider) }}</code>
               <Button type="button" variant="ghost" size="icon-sm" @click="copyWebhookUrl(getWebhookUrl(formProvider), 'form')">
-                <Check v-if="copied === 'form'" class="h-3.5 w-3.5 text-green-500" />
+                <Check v-if="copied === 'form'" class="h-3.5 w-3.5 text-success" />
                 <Copy v-else class="h-3.5 w-3.5" />
               </Button>
             </div>

@@ -25,6 +25,7 @@
     "deployments": "部署",
     "issues": "问题",
     "settings": "设置",
+    "selectTheme": "选择主题",
     "expandAll": "展开全部",
     "collapseAll": "收拢全部",
     "groups": {
@@ -681,8 +682,11 @@
     "confirmDelete": "确认删除？此操作不可撤销。"
   },
   "theme": {
+    "title": "主题",
     "light": "浅色",
     "dark": "深色",
+    "aurora": "Aurora 深色",
+    "auroraDesc": "AWS Q Developer 风格",
     "system": "跟随系统"
   },
   "deployment": {

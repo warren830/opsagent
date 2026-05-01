@@ -87,7 +87,7 @@ impl AppConfig {
             .unwrap_or_else(|_| "postgresql://ops:ops_dev@localhost:5432/ops".to_string());
 
         let allowed_origins: Vec<String> = env::var("ALLOWED_ORIGINS")
-            .unwrap_or_else(|_| "http://localhost:3000".to_string())
+            .unwrap_or_else(|_| "http://localhost:3003".to_string())
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
@@ -107,7 +107,7 @@ impl AppConfig {
         Self {
             env,
             backend_port: env::var("BACKEND_PORT")
-                .unwrap_or_else(|_| "3080".to_string())
+                .unwrap_or_else(|_| "8003".to_string())
                 .parse()
                 .expect("BACKEND_PORT must be a valid port number"),
             database_url,

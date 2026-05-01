@@ -76,7 +76,7 @@ const isCloud = computed(() => form.value.mode === 'cloud')
           {{ isCloud ? t('telemetry.helmInstallHintCloud') : t('telemetry.helmInstallHint') }}
         </span>
       </div>
-      <code class="block text-xs text-emerald-400 font-mono bg-black/30 rounded px-2.5 py-1.5 select-all">{{ t('telemetry.helmInstallCmd') }}</code>
+      <code class="block text-xs text-success font-mono bg-black/30 rounded px-2.5 py-1.5 select-all">{{ t('telemetry.helmInstallCmd') }}</code>
     </div>
 
     <!-- Signal Sources (shared) -->

@@ -407,6 +407,39 @@ pub async fn discover_all_clusters(
     let discovered = *total_discovered.lock().await;
     let final_errors = shared_errors.lock().await.clone();
 
+    // Reconcile pass: any `is_discovered=true` cluster we didn't touch during
+    // this run (last_seen_at older than 1 hour — grace window for transient
+    // AWS API flakes) is very likely gone from AWS. Mark `stale` instead of
+    // deleting so history survives and the UI can show an "offline" badge;
+    // the user confirms before a hard-delete.
+    let reconcile_result = match tenant_id {
+        Some(tid) => sqlx::query(
+            r#"UPDATE clusters
+               SET status = 'stale', updated_at = NOW()
+               WHERE is_discovered = true
+                 AND tenant_id IS NOT DISTINCT FROM $1
+                 AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '1 hour')
+                 AND status != 'stale'"#,
+        )
+        .bind(tid)
+        .execute(pool)
+        .await,
+        None => sqlx::query(
+            r#"UPDATE clusters
+               SET status = 'stale', updated_at = NOW()
+               WHERE is_discovered = true
+                 AND (last_seen_at IS NULL OR last_seen_at < NOW() - INTERVAL '1 hour')
+                 AND status != 'stale'"#,
+        )
+        .execute(pool)
+        .await,
+    };
+    if let Ok(res) = reconcile_result
+        && res.rows_affected() > 0
+    {
+        tracing::info!("Reconciled {} stale clusters", res.rows_affected());
+    }
+
     Ok(DiscoverResult {
         discovered,
         errors: final_errors,

@@ -26,7 +26,7 @@ pub fn test_config() -> AppConfig {
         jwt_secret: TEST_JWT_SECRET.to_string(),
         jwt_access_token_expire_minutes: 30,
         jwt_refresh_token_expire_days: 7,
-        allowed_origins: vec!["http://localhost:3000".to_string()],
+        allowed_origins: vec!["http://localhost:3003".to_string()],
         claude_bin: "echo".to_string(),
         claude_timeout_ms: 1000,
         claude_model: "test".to_string(),

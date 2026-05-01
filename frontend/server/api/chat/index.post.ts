@@ -5,7 +5,7 @@
  */
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
-  const backendUrl = 'http://localhost:3080/api/chat'
+  const backendUrl = 'http://localhost:8003/api/chat'
 
   // Forward cookies for auth
   const cookie = getHeader(event, 'cookie') || ''

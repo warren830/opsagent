@@ -359,14 +359,14 @@ async function submitInline() {
         <Badge
           v-else-if="(row as Skill).tenant_id"
           variant="secondary"
-          class="text-[10px] bg-sky-500/10 text-sky-600 border-sky-500/20"
+          class="text-[10px] bg-info/10 text-info border-info/40/20"
         >
           {{ t('skill.scopeTenant') }}
         </Badge>
         <Badge
           v-else
           variant="secondary"
-          class="text-[10px] bg-green-500/10 text-green-400 border-green-500/20"
+          class="text-[10px] bg-success/10 text-success border-success/20"
         >
           {{ t('skill.scopeGlobal') }}
         </Badge>

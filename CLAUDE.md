@@ -174,7 +174,7 @@ The AI agent discovers infrastructure context dynamically via internal APIs. **N
 
 All protected APIs require `Authorization: Bearer $TOKEN`. Obtain a token via:
 ```bash
-curl -s http://localhost:3080/api/auth/login -H "Content-Type: application/json" \
+curl -s http://localhost:8003/api/auth/login -H "Content-Type: application/json" \
   -d '{"username":"...","password":"..."}' | jq -r .token
 ```
 

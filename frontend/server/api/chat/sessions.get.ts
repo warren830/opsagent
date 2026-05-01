@@ -2,7 +2,7 @@
  * Proxy for /api/chat/sessions — forward to Rust backend
  */
 export default defineEventHandler(async (event) => {
-  const backendUrl = 'http://localhost:3080/api/chat/sessions'
+  const backendUrl = 'http://localhost:8003/api/chat/sessions'
   const cookie = getHeader(event, 'cookie') || ''
 
   const response = await fetch(backendUrl, {

@@ -237,6 +237,8 @@ function toggleChat() {
             </TooltipTrigger>
             <TooltipContent side="right" :side-offset="8">{{ t('nav.settings') }}</TooltipContent>
           </Tooltip>
+
+          <LayoutThemeSwitcher collapsed />
         </template>
 
         <!-- === Expanded: full nav === -->
@@ -325,6 +327,8 @@ function toggleChat() {
             <Settings class="h-4 w-4 shrink-0" />
             <span>{{ t('nav.settings') }}</span>
           </NuxtLink>
+
+          <LayoutThemeSwitcher />
         </template>
       </div>
     </ScrollArea>

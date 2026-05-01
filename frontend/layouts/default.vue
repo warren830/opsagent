@@ -3,13 +3,28 @@
 // Layouts can't set page meta (Vue compiler hint: only pages may call it).
 const chatFullscreen = useState('chatFullscreen', () => false)
 const mobileSidebarOpen = useState('mobileSidebarOpen', () => false)
+
+// Theme + surface mode drive decoration intensity.
+// useTheme applies <html data-theme="aurora">; useSurfaceMode toggles
+// <html data-surface="focus"> based on the route.
+const { theme } = useTheme()
+useSurfaceMode()
 </script>
 
 <template>
   <div class="relative min-h-screen overflow-hidden">
     <!-- Decorative background layers -->
-    <LayoutAuroraBackground />
-    <LayoutCursorGlow />
+    <!-- Light (Sky & Lavender): full-viewport aurora + cursor glow -->
+    <template v-if="theme === 'light'">
+      <LayoutAuroraBackground />
+      <LayoutCursorGlow />
+    </template>
+    <!-- Aurora (dark): cold-black base + mesh texture + bottom halo -->
+    <template v-else>
+      <div class="fixed inset-0 -z-20 pointer-events-none bg-background" aria-hidden="true" />
+      <LayoutMeshTexture />
+      <LayoutAuroraHalo />
+    </template>
 
     <!-- Floating Glass Islands grid -->
     <div class="relative z-10 flex h-screen gap-2.5 p-2.5">

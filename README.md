@@ -122,7 +122,7 @@ loops/
 # Local development (PostgreSQL + Rust backend + Nuxt frontend)
 ./scripts/local-dev.sh
 
-# Open http://localhost:3000 — login: admin / admin123
+# Open http://localhost:3003 — login: admin / admin123
 ```
 
 See [Local Development Guide](docs/local-development.md) for detailed setup.

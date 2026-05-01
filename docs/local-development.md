@@ -30,9 +30,9 @@ This script will:
 Once everything is running:
 
 ```
-Frontend:  http://localhost:3000
-Backend:   http://localhost:3080
-Health:    http://localhost:3080/health
+Frontend:  http://localhost:3003
+Backend:   http://localhost:8003
+Health:    http://localhost:8003/health
 Login:     admin / admin123
 ```
 
@@ -59,7 +59,7 @@ The defaults work out of the box for local development. Key settings:
 | `JWT_SECRET` | `dev-secret-minimum-32-characters-long-change-in-prod` | JWT signing key |
 | `BACKEND_PORT` | `3080` | Rust server port |
 | `FRONTEND_PORT` | `3000` | Nuxt dev server port |
-| `ALLOWED_ORIGINS` | `http://localhost:3000` | CORS allowed origins |
+| `ALLOWED_ORIGINS` | `http://localhost:3003` | CORS allowed origins |
 | `RUST_LOG` | `ops=debug,tower_http=debug` | Log level |
 
 ### Step 2: Start Database
@@ -90,7 +90,7 @@ First run will:
 - Download and compile all Rust dependencies (~2-5 min)
 - Run database migrations automatically
 - Seed a default admin user (`admin` / `admin123`)
-- Start the server on `http://localhost:3080`
+- Start the server on `http://localhost:8003`
 
 You should see:
 
@@ -110,24 +110,24 @@ npm install   # First time only
 npm run dev
 ```
 
-The Nuxt dev server starts on `http://localhost:3000` with:
+The Nuxt dev server starts on `http://localhost:3003` with:
 - Hot module replacement (HMR)
-- API proxy: `/api/**` → `http://localhost:3080/api/**`
+- API proxy: `/api/**` → `http://localhost:8003/api/**`
 - Vue DevTools enabled
 
 ### Step 5: Verify
 
 ```bash
 # Health check
-curl http://localhost:3080/health
+curl http://localhost:8003/health
 
 # Login (get JWT token)
-curl -s -X POST http://localhost:3080/api/auth/login \
+curl -s -X POST http://localhost:8003/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin123"}' | jq .
 
 # Or open browser
-open http://localhost:3000
+open http://localhost:3003
 ```
 
 ---
@@ -246,12 +246,12 @@ Or via API directly:
 
 ```bash
 # 1. Get JWT token
-TOKEN=$(curl -s -X POST http://localhost:3080/api/auth/login \
+TOKEN=$(curl -s -X POST http://localhost:8003/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin123"}' | jq -r '.token')
 
 # 2. Create user
-curl -s -X POST http://localhost:3080/api/users \
+curl -s -X POST http://localhost:8003/api/users \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{

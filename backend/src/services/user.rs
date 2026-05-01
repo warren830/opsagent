@@ -165,7 +165,7 @@ fn build_invite_link(config: &AppConfig, token: &Uuid) -> String {
         .allowed_origins
         .first()
         .cloned()
-        .unwrap_or_else(|| "http://localhost:3000".to_string());
+        .unwrap_or_else(|| "http://localhost:3003".to_string());
     format!("{}/auth/invite?token={}", base, token)
 }
 

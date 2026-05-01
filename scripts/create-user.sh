@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-API_BASE="${API_BASE:-http://localhost:3080}"
+API_BASE="${API_BASE:-http://localhost:8003}"
 ROLE="${1:-super_admin}"
 USERNAME="${2:-admin}"
 

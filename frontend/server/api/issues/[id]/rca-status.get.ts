@@ -3,7 +3,7 @@
  */
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
-  const backendUrl = `http://localhost:3080/api/issues/${id}/rca/status`
+  const backendUrl = `http://localhost:8003/api/issues/${id}/rca/status`
 
   const cookie = getHeader(event, 'cookie') || ''
 

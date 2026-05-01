@@ -493,7 +493,7 @@ async function revokeAccess(userId: string) {
           :title="t('account.testConnection')"
           @click="testConnection(row as Account)"
         >
-          <Zap class="h-3 w-3" :class="{ 'animate-pulse text-yellow-500': testingId === (row as Account).id }" />
+          <Zap class="h-3 w-3" :class="{ 'animate-pulse text-warning': testingId === (row as Account).id }" />
         </Button>
         <Button
           v-if="(row as Account).provider === 'aws' && !(row as Account).is_mock"
@@ -796,7 +796,7 @@ async function revokeAccess(userId: string) {
             </div>
             <p class="text-[11px] text-muted-foreground pl-7">{{ t('account.guideStep1Desc') }}</p>
             <div class="relative pl-7">
-              <pre class="rounded-md bg-slate-900 p-3 text-[11px] font-mono overflow-x-auto text-emerald-300 leading-relaxed">aws iam create-role \
+              <pre class="rounded-md bg-panel p-3 text-[11px] font-mono overflow-x-auto text-success leading-relaxed">aws iam create-role \
   --role-name OpsRole \
   --assume-role-policy-document '{
     "Version": "2012-10-17",
@@ -808,8 +808,8 @@ async function revokeAccess(userId: string) {
       "Action": ["sts:AssumeRole", "sts:TagSession"]
     }]
   }'</pre>
-              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s1')">
-                <Check v-if="copiedBlock === 's1'" class="h-3.5 w-3.5 text-emerald-400" />
+              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-panel/$1 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s1')">
+                <Check v-if="copiedBlock === 's1'" class="h-3.5 w-3.5 text-success" />
                 <Copy v-else class="h-3.5 w-3.5" />
               </button>
             </div>
@@ -827,11 +827,11 @@ async function revokeAccess(userId: string) {
             </div>
             <p class="text-[11px] text-muted-foreground pl-7">{{ t('account.guideStep2Desc') }}</p>
             <div class="relative pl-7">
-              <pre class="rounded-md bg-slate-900 p-3 text-[11px] font-mono overflow-x-auto text-emerald-300 leading-relaxed">aws iam attach-role-policy \
+              <pre class="rounded-md bg-panel p-3 text-[11px] font-mono overflow-x-auto text-success leading-relaxed">aws iam attach-role-policy \
   --role-name OpsRole \
   --policy-arn arn:aws:iam::aws:policy/ReadOnlyAccess</pre>
-              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s2')">
-                <Check v-if="copiedBlock === 's2'" class="h-3.5 w-3.5 text-emerald-400" />
+              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-panel/$1 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s2')">
+                <Check v-if="copiedBlock === 's2'" class="h-3.5 w-3.5 text-success" />
                 <Copy v-else class="h-3.5 w-3.5" />
               </button>
             </div>
@@ -847,10 +847,10 @@ async function revokeAccess(userId: string) {
               <h3 class="text-xs font-semibold">{{ t('account.guideStep3') }}</h3>
             </div>
             <div class="relative pl-7">
-              <pre class="rounded-md bg-slate-900 p-3 text-[11px] font-mono overflow-x-auto text-emerald-300 leading-relaxed">aws iam get-role --role-name OpsRole \
+              <pre class="rounded-md bg-panel p-3 text-[11px] font-mono overflow-x-auto text-success leading-relaxed">aws iam get-role --role-name OpsRole \
   --query 'Role.Arn' --output text</pre>
-              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s3')">
-                <Check v-if="copiedBlock === 's3'" class="h-3.5 w-3.5 text-emerald-400" />
+              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-panel/$1 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s3')">
+                <Check v-if="copiedBlock === 's3'" class="h-3.5 w-3.5 text-success" />
                 <Copy v-else class="h-3.5 w-3.5" />
               </button>
             </div>
@@ -861,8 +861,8 @@ async function revokeAccess(userId: string) {
           </div>
 
           <!-- Security tip -->
-          <div class="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] text-muted-foreground">
-            <Shield class="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+          <div class="flex items-start gap-2 rounded-lg border border-warning/40/20 bg-warning/5 p-3 text-[11px] text-muted-foreground">
+            <Shield class="h-3.5 w-3.5 shrink-0 mt-0.5 text-warning" />
             <div class="space-y-1">
               <p class="font-medium text-foreground/80">{{ t('account.guideSecurityTitle') }}</p>
               <ul class="space-y-0.5 list-disc pl-3.5 text-[10px]">
