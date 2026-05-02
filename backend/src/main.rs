@@ -558,6 +558,11 @@ fn build_router(state: AppState) -> Router {
             "/api/catalog/discover/k8s",
             post(handlers::catalog::discover_k8s),
         )
+        // Change events (W10 Joint Integration — global change stream)
+        .route(
+            "/api/change-events",
+            get(handlers::change_events::list),
+        )
         // SLO engine
         .route(
             "/api/slos",

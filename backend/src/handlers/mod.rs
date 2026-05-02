@@ -4,6 +4,7 @@ pub mod approval;
 pub mod argocd_webhook;
 pub mod auth;
 pub mod catalog;
+pub mod change_events;
 pub mod channel;
 pub mod chat;
 pub mod cloud_account;

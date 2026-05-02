@@ -151,10 +151,64 @@ pub async fn receive(
     )
     .await;
 
+    // W10: also append to the global change_events stream, independent of
+    // whether an incident was open. The per-incident fan-out above covers
+    // "what happened during the war room"; this row powers "what recently
+    // changed for service X?" regardless of incident status.
+    let (service_id, service_tenant) = resolve_service_for_app(&state.pool, &payload.app_name).await;
+    let ce_actor = serde_json::json!({
+        "type": "system",
+        "display_name": "argocd",
+        "source": "argocd_webhook",
+    });
+    let ce_kind = match action {
+        "argocd_sync_success"
+        | "argocd_sync_degraded"
+        | "argocd_progressing"
+        | "argocd_out_of_sync"
+        | "argocd_health_degraded" => crate::models::change_event::KIND_DEPLOY,
+        _ => crate::models::change_event::KIND_DEPLOY,
+    };
+    crate::services::change_events::record_best_effort(
+        &state.pool,
+        service_tenant,
+        ce_kind,
+        service_id,
+        ce_actor,
+        format!(
+            "Deploy {} to {} ({})",
+            payload.app_name, namespace, action
+        ),
+        detail.clone(),
+        crate::models::change_event::SOURCE_ARGOCD,
+        payload.revision.clone(),
+    )
+    .await;
+
     Ok(Json(serde_json::json!({
         "status": "ok",
         "action": action,
         "app": payload.app_name,
         "cluster_matched": cluster_id.is_some(),
     })))
+}
+
+/// Best-effort resolution of an ArgoCD app / rollout / workload name to a
+/// `catalog_entities` row. Returns `(service_id, tenant_id)`. Either side
+/// may be `None` — a missing catalog row is fine, the `change_events` row
+/// is still written without the service linkage.
+async fn resolve_service_for_app(
+    pool: &sqlx::PgPool,
+    name: &str,
+) -> (Option<Uuid>, Option<Uuid>) {
+    match sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT id, tenant_id FROM catalog_entities WHERE name = $1 LIMIT 1",
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some((id, t))) => (Some(id), Some(t)),
+        _ => (None, None),
+    }
 }

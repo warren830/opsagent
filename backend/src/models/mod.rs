@@ -2,6 +2,7 @@ pub mod account_access;
 pub mod approval;
 pub mod catalog;
 pub mod channel;
+pub mod change_event;
 pub mod cloud_account;
 pub mod cluster;
 pub mod dashboard;
