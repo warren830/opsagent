@@ -188,6 +188,47 @@ pub struct UpdateSloRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Query DTOs for W2 Mimir proxy endpoints.
+// ---------------------------------------------------------------------------
+
+/// Payload for `POST /api/slos/preview`.
+///
+/// Given two raw PromQL strings (good / total events), the handler asks Mimir
+/// for a `window_days` time series of the SLI ratio — used by the frontend
+/// form before persisting an SLO.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PreviewRequest {
+    pub good_events_query: String,
+    pub total_events_query: String,
+    pub window_days: i32,
+    #[serde(default)]
+    pub step: Option<String>,
+}
+
+/// Query parameters for `GET /api/slos/:id/sli`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SliQuery {
+    #[serde(default = "default_sli_window")]
+    pub window: String,
+    #[serde(default = "default_sli_step")]
+    pub step: String,
+}
+
+fn default_sli_window() -> String {
+    "28d".to_string()
+}
+
+fn default_sli_step() -> String {
+    "5m".to_string()
+}
+
+/// Query parameters for `GET /api/slos/:id/budget/history`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BudgetHistoryQuery {
+    pub days: Option<i32>,
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

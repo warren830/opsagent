@@ -459,6 +459,26 @@ fn build_router(state: AppState) -> Router {
         // Catalog (W0 stub — list + get only; full CRUD lands in feat/catalog-mvp)
         .route("/api/catalog/entities", get(handlers::catalog::list))
         .route("/api/catalog/entities/{id}", get(handlers::catalog::get))
+        // SLO engine
+        .route(
+            "/api/slos",
+            get(handlers::slo::list).post(handlers::slo::create),
+        )
+        .route("/api/slos/preview", post(handlers::slo::preview))
+        .route(
+            "/api/slos/{id}",
+            get(handlers::slo::get)
+                .put(handlers::slo::update)
+                .delete(handlers::slo::delete),
+        )
+        .route("/api/slos/{id}/enable", post(handlers::slo::enable))
+        .route("/api/slos/{id}/disable", post(handlers::slo::disable))
+        .route("/api/slos/{id}/sli", get(handlers::slo::sli))
+        .route("/api/slos/{id}/budget", get(handlers::slo::budget))
+        .route(
+            "/api/slos/{id}/budget/history",
+            get(handlers::slo::budget_history),
+        )
         .layer(axum_middleware::from_fn_with_state(
             jwt_secret,
             middleware::auth::auth_middleware,

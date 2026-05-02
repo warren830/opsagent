@@ -5,3 +5,4 @@
 //! land in later units of the SLO MVP (W3).
 
 pub mod budget_calc;
+pub mod mimir_client;
