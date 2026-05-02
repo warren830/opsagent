@@ -115,6 +115,49 @@ impl CatalogEntity {
     }
 }
 
+/// Request payload for `POST /api/catalog/entities`.
+///
+/// `lifecycle` is optional at the wire level; the handler falls back to
+/// `"experimental"` when absent to match the database column default.
+#[derive(Debug, Deserialize)]
+pub struct CreateEntityRequest {
+    pub kind: String,
+    pub name: String,
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub lifecycle: Option<String>,
+    pub owner_group_id: Option<Uuid>,
+    pub system_id: Option<Uuid>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub annotations: serde_json::Value,
+    pub source_url: Option<String>,
+    pub source_ref: Option<String>,
+    #[serde(default)]
+    pub spec: serde_json::Value,
+}
+
+/// Request payload for `PUT /api/catalog/entities/{id}`.
+///
+/// Every field is optional; the handler applies partial updates using
+/// `COALESCE($N, column)`. `kind`, `tenant_id`, and immutable audit fields
+/// are intentionally omitted — renaming a kind is not supported via update.
+#[derive(Debug, Deserialize)]
+pub struct UpdateEntityRequest {
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    pub lifecycle: Option<String>,
+    pub owner_group_id: Option<Uuid>,
+    pub system_id: Option<Uuid>,
+    pub tags: Option<Vec<String>>,
+    pub annotations: Option<serde_json::Value>,
+    pub source_url: Option<String>,
+    pub source_ref: Option<String>,
+    pub spec: Option<serde_json::Value>,
+}
+
 /// Typed edge between two `catalog_entities`. The combination
 /// (`from_id`, `to_id`, `relation_type`) is unique; deletion of either
 /// endpoint cascades to the relation row.
