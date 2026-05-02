@@ -80,6 +80,32 @@ pub async fn promote(
     )
     .await;
 
+    // W10: also record in the global change-events stream so the agent can
+    // correlate this rollout action with non-incident SLO burns / alerts.
+    let (service_id, service_tenant) = resolve_service_id(&state.pool, &name).await;
+    let ce_actor = serde_json::json!({
+        "type": "user",
+        "id": auth_user.user_id,
+        "display_name": auth_user.username,
+    });
+    crate::services::change_events::record_best_effort(
+        &state.pool,
+        service_tenant.or(auth_user.tenant_id),
+        crate::models::change_event::KIND_DEPLOY,
+        service_id,
+        ce_actor,
+        summary.clone(),
+        serde_json::json!({
+            "cluster_id": cluster_id,
+            "namespace": ns,
+            "rollout_name": name,
+            "full": req.full,
+        }),
+        crate::models::change_event::SOURCE_ROLLOUT_API,
+        None,
+    )
+    .await;
+
     Ok(Json(result))
 }
 
@@ -110,7 +136,51 @@ pub async fn rollback(
     )
     .await;
 
+    // W10: also record on the global change-events stream.
+    let (service_id, service_tenant) = resolve_service_id(&state.pool, &name).await;
+    let ce_actor = serde_json::json!({
+        "type": "user",
+        "id": auth_user.user_id,
+        "display_name": auth_user.username,
+    });
+    crate::services::change_events::record_best_effort(
+        &state.pool,
+        service_tenant.or(auth_user.tenant_id),
+        crate::models::change_event::KIND_ROLLBACK,
+        service_id,
+        ce_actor,
+        summary,
+        serde_json::json!({
+            "cluster_id": cluster_id,
+            "namespace": ns,
+            "rollout_name": name,
+        }),
+        crate::models::change_event::SOURCE_ROLLOUT_API,
+        None,
+    )
+    .await;
+
     Ok(Json(result))
+}
+
+/// Best-effort lookup: map a rollout/workload name to the first matching
+/// `catalog_entities` row. Returns `(service_id, tenant_id)` so the caller
+/// can wire the `change_events.tenant_id` column; when the name is not in
+/// the catalog we still record with `NULL` service_id.
+async fn resolve_service_id(
+    pool: &sqlx::PgPool,
+    name: &str,
+) -> (Option<Uuid>, Option<Uuid>) {
+    match sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT id, tenant_id FROM catalog_entities WHERE name = $1 LIMIT 1",
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some((id, t))) => (Some(id), Some(t)),
+        _ => (None, None),
+    }
 }
 
 // ─── POST /api/clusters/{id}/rollouts/{ns}/{name}/strategy ──────────────────

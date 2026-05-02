@@ -3,6 +3,7 @@ pub mod agent;
 pub mod alerts;
 pub mod catalog;
 pub mod approval;
+pub mod change_events;
 pub mod channel;
 pub mod cloud_account;
 pub mod cluster;

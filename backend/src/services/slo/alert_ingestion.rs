@@ -140,17 +140,26 @@ pub async fn ingest_slo_burn_alert(
 /// `uniq_slo_burn_open` ensures that flapping or duplicate Alertmanager
 /// retries collapse silently — `ON CONFLICT DO NOTHING` returns 0 rows
 /// affected instead of an error.
+///
+/// W10: on a successful (non-duplicate) insert we also:
+///   1. Append a `change_events` row so the agent can correlate this burn
+///      with non-incident deploy/config changes.
+///   2. For `severity='page'` burns, auto-create an incident via the
+///      standard `create_incident_with_automation` pipeline. A per-SLO
+///      "last hour" dedup guard prevents a flapping alert from spawning
+///      a herd of incidents.
 async fn insert_open_burn(pool: &PgPool, burn: &SloBurnLabels, issue_id: Option<Uuid>) {
     // `threshold` is stored for audit but we don't have the objective_pct
     // here; record `burn_multiplier` and let readers compute the product if
     // needed. A follow-up can backfill from the SLO row; flagging as 0.0
     // means "threshold unknown at ingestion time".
-    let result = sqlx::query(
+    let result = sqlx::query_scalar::<_, Uuid>(
         r#"INSERT INTO slo_burn_events
                (slo_id, severity, window, burn_rate, threshold, issue_id)
            VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (slo_id, window) WHERE resolved_at IS NULL
-               DO NOTHING"#,
+               DO NOTHING
+           RETURNING id"#,
     )
     .bind(burn.slo_id)
     .bind(&burn.severity)
@@ -158,19 +167,65 @@ async fn insert_open_burn(pool: &PgPool, burn: &SloBurnLabels, issue_id: Option<
     .bind(burn.burn_multiplier)
     .bind(0.0_f64)
     .bind(issue_id)
-    .execute(pool)
+    .fetch_optional(pool)
     .await;
 
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
+        Ok(Some(burn_event_id)) => {
             tracing::info!(
                 slo_id = %burn.slo_id,
                 window = %burn.window,
                 severity = %burn.severity,
                 "Recorded SLO burn event"
             );
+
+            // Resolve SLO → (tenant_id, component_id, name) for both the
+            // change_events row and the optional incident creation.
+            let slo_ctx = fetch_slo_context(pool, burn.slo_id).await;
+
+            // Always append to change_events, even for ticket-severity
+            // burns: lower-priority burns are still useful context when
+            // someone asks "what changed?" later.
+            let summary = format!(
+                "SLO {} burning at {:.1}x over {}",
+                slo_ctx
+                    .as_ref()
+                    .map(|c| c.name.clone())
+                    .unwrap_or_else(|| burn.slo_id.to_string()),
+                burn.burn_multiplier,
+                burn.window,
+            );
+            let actor = serde_json::json!({
+                "type": "system",
+                "display_name": "slo_engine",
+                "source": "alert_ingestion",
+            });
+            let payload = serde_json::json!({
+                "slo_id": burn.slo_id,
+                "burn_window": burn.window,
+                "burn_multiplier": burn.burn_multiplier,
+                "severity": burn.severity,
+                "issue_id": issue_id,
+            });
+            crate::services::change_events::record_best_effort(
+                pool,
+                slo_ctx.as_ref().and_then(|c| c.tenant_id),
+                crate::models::change_event::KIND_SLO_BURN,
+                slo_ctx.as_ref().and_then(|c| c.component_id),
+                actor,
+                summary.clone(),
+                payload,
+                crate::models::change_event::SOURCE_SLO_BURN,
+                Some(burn_event_id.to_string()),
+            )
+            .await;
+
+            // Only a `page` severity burn should promote to an incident.
+            if burn.severity == crate::models::slo::BURN_SEVERITY_PAGE {
+                spawn_incident_from_burn(pool, burn, burn_event_id, issue_id, slo_ctx).await;
+            }
         }
-        Ok(_) => {
+        Ok(None) => {
             tracing::debug!(
                 slo_id = %burn.slo_id,
                 window = %burn.window,
@@ -185,6 +240,176 @@ async fn insert_open_burn(pool: &PgPool, burn: &SloBurnLabels, issue_id: Option<
                 "Failed to insert SLO burn event"
             );
         }
+    }
+}
+
+/// Convenience aggregate used by the W10 change_events / incident hookup.
+#[derive(Debug, Clone)]
+struct SloContext {
+    name: String,
+    tenant_id: Option<Uuid>,
+    component_id: Option<Uuid>,
+}
+
+async fn fetch_slo_context(pool: &PgPool, slo_id: Uuid) -> Option<SloContext> {
+    match sqlx::query_as::<_, (String, Uuid, Option<Uuid>)>(
+        "SELECT name, tenant_id, component_id FROM slos WHERE id = $1",
+    )
+    .bind(slo_id)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some((name, tenant_id, component_id))) => Some(SloContext {
+            name,
+            tenant_id: Some(tenant_id),
+            component_id,
+        }),
+        _ => None,
+    }
+}
+
+/// For `page`-severity burns, spawn a background task that creates an
+/// incident via the standard `create_incident_with_automation` pipeline —
+/// same code path as a manual `POST /api/incidents`, so the war-room
+/// automation (timeline seed + async Slack + async Jira) fires
+/// automatically.
+///
+/// Dedup: if an incident tagged with this `slo_id` in its labels was
+/// created in the last hour and is not yet closed, we skip. This prevents
+/// a flapping alert from spawning a herd of incidents while still allowing
+/// a legitimate re-fire once the previous one is closed.
+async fn spawn_incident_from_burn(
+    pool: &PgPool,
+    burn: &SloBurnLabels,
+    burn_event_id: Uuid,
+    source_issue_id: Option<Uuid>,
+    slo_ctx: Option<SloContext>,
+) {
+    // Fire-and-forget dedup check + incident creation. The create path
+    // itself already spawns its own background work; we just need to
+    // detach the DB round-trips here so the webhook handler is not blocked.
+    let pool_bg = pool.clone();
+    let burn = burn.clone();
+    let slo_ctx = slo_ctx.clone();
+    tokio::spawn(async move {
+        if should_skip_duplicate_incident(&pool_bg, burn.slo_id).await {
+            tracing::info!(
+                slo_id = %burn.slo_id,
+                window = %burn.window,
+                "SLO page burn: recent active incident exists, skipping auto-incident"
+            );
+            return;
+        }
+
+        let affected = slo_ctx
+            .as_ref()
+            .and_then(|c| c.component_id)
+            .map(|c| vec![c])
+            .unwrap_or_default();
+        let slo_name = slo_ctx
+            .as_ref()
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| burn.slo_id.to_string());
+        let tenant_id = slo_ctx.as_ref().and_then(|c| c.tenant_id);
+
+        let req = crate::models::incident::CreateIncidentRequest {
+            title: format!("SLO burn: {} at {:.1}x", slo_name, burn.burn_multiplier),
+            severity: crate::models::incident::SEVERITY_SEV2.to_string(),
+            status: None,
+            detection_source: crate::models::incident::DETECTION_SOURCE_SLO_BURN.to_string(),
+            impact_summary: Some(format!(
+                "Error budget burning at {:.1}x over {} window",
+                burn.burn_multiplier, burn.window
+            )),
+            affected_component_ids: affected,
+            affected_customer_tier: None,
+            source_issue_id,
+            started_at: chrono::Utc::now(),
+            commander_user_id: None,
+            scribe_user_id: None,
+            bridge_url: None,
+            labels: Some(serde_json::json!({
+                "slo_id": burn.slo_id,
+                "burn_window": burn.window,
+                "burn_multiplier": burn.burn_multiplier,
+            })),
+            tenant_id,
+        };
+
+        // The lifecycle module needs the TimelineBus; we rebuild a local
+        // instance because `alert_ingestion` is called from places that
+        // don't carry AppState. The bus is an in-process broadcast channel
+        // — creating a throwaway one means these automation events won't
+        // reach live SSE subscribers, but the timeline row (the durable
+        // piece) still lands. Wiring the shared bus through is a W11
+        // follow-up.
+        let bus = std::sync::Arc::new(
+            crate::services::incident::timeline_bus::TimelineBus::default(),
+        );
+        if let Err(e) = crate::services::incident::lifecycle::create_incident_with_automation(
+            &pool_bg,
+            bus,
+            tenant_id,
+            crate::services::incident::lifecycle::IncidentSource::SloBurn {
+                slo_burn_event_id: burn_event_id,
+            },
+            req,
+        )
+        .await
+        {
+            tracing::warn!(
+                slo_id = %burn.slo_id,
+                error = %e,
+                "SLO page burn: auto-incident creation failed"
+            );
+        }
+    });
+}
+
+/// Dedup guard: `true` if an incident tagged with this SLO id was created
+/// within the last hour and is not yet closed. See `should_skip_for_slo`
+/// for the pure-logic test fixture covering this rule.
+async fn should_skip_duplicate_incident(pool: &PgPool, slo_id: Uuid) -> bool {
+    match sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS(
+               SELECT 1 FROM incidents
+               WHERE labels->>'slo_id' = $1
+                 AND status <> 'closed'
+                 AND created_at > NOW() - interval '1 hour'
+           )"#,
+    )
+    .bind(slo_id.to_string())
+    .fetch_one(pool)
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            // Fail open: if the dedup query errors, we'd rather create a
+            // duplicate than silently drop a real page.
+            tracing::warn!(
+                slo_id = %slo_id,
+                error = %e,
+                "SLO page burn: dedup check failed, proceeding with incident creation"
+            );
+            false
+        }
+    }
+}
+
+/// Pure-logic variant of [`should_skip_duplicate_incident`] used in unit
+/// tests. Given the most recent incident row that labels this SLO, decide
+/// whether a new page-burn should be suppressed. Kept separate so the test
+/// matrix can run without a Postgres pool.
+#[cfg(test)]
+fn should_skip_for_slo_row(
+    now: chrono::DateTime<chrono::Utc>,
+    most_recent_for_slo: Option<(chrono::DateTime<chrono::Utc>, &str)>,
+) -> bool {
+    match most_recent_for_slo {
+        Some((created_at, status)) if status != "closed" => {
+            now.signed_duration_since(created_at).num_seconds() < 3600
+        }
+        _ => false,
     }
 }
 
@@ -338,5 +563,59 @@ mod tests {
         });
         let burn = extract_slo_labels(Some(&labels)).expect("should extract");
         assert_eq!(burn.burn_multiplier, 0.0);
+    }
+
+    // ------------------------------------------------------------------
+    // W10 dedup-rule unit tests — pure logic covering
+    // `should_skip_for_slo_row`. The DB variant is exercised via
+    // integration tests; here we pin the decision matrix.
+    // ------------------------------------------------------------------
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn dedup_skips_when_recent_active_incident_exists() {
+        let now = Utc::now();
+        let recent_open = Some((now - Duration::minutes(10), "investigating"));
+        assert!(
+            should_skip_for_slo_row(now, recent_open),
+            "recent active incident must suppress the auto-create path"
+        );
+    }
+
+    #[test]
+    fn dedup_proceeds_when_no_prior_incident() {
+        let now = Utc::now();
+        assert!(
+            !should_skip_for_slo_row(now, None),
+            "no prior incident means we must create one"
+        );
+    }
+
+    #[test]
+    fn dedup_proceeds_when_prior_incident_is_closed() {
+        let now = Utc::now();
+        let closed_recent = Some((now - Duration::minutes(10), "closed"));
+        assert!(
+            !should_skip_for_slo_row(now, closed_recent),
+            "closed incidents must not block a re-fire"
+        );
+    }
+
+    #[test]
+    fn dedup_proceeds_when_prior_incident_is_older_than_one_hour() {
+        let now = Utc::now();
+        let stale_open = Some((now - Duration::minutes(61), "mitigated"));
+        assert!(
+            !should_skip_for_slo_row(now, stale_open),
+            "incidents older than 1h must not block a re-fire"
+        );
+    }
+
+    #[test]
+    fn dedup_skips_exactly_under_one_hour_boundary() {
+        let now = Utc::now();
+        // 59m59s → still within the 1h window → skip.
+        let under = Some((now - Duration::seconds(3599), "acknowledged"));
+        assert!(should_skip_for_slo_row(now, under));
     }
 }

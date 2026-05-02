@@ -545,6 +545,33 @@ pub async fn import_yaml(
     .fetch_one(&state.pool)
     .await?;
 
+    // W10: emit a change_events row so "what touched the catalog?" shows
+    // up in the global stream alongside deploys and SLO burns. The service
+    // linkage is intentionally null — an import acts on many entities at
+    // once and the `catalog_import_runs.id` in the correlation_id lets a
+    // curious operator drill in.
+    crate::services::change_events::record_best_effort(
+        &state.pool,
+        Some(tenant_id),
+        crate::models::change_event::KIND_CATALOG_IMPORT,
+        None,
+        serde_json::json!({
+            "type": "user",
+            "id": auth_user.user_id,
+            "display_name": auth_user.username,
+        }),
+        format!("Imported {} entities, updated {}", created, updated),
+        serde_json::json!({
+            "run_id": run_id,
+            "source": IMPORT_SOURCE_MANUAL,
+            "entities_created": created,
+            "entities_updated": updated,
+        }),
+        crate::models::change_event::SOURCE_IMPORT_RUN,
+        Some(run_id.to_string()),
+    )
+    .await;
+
     Ok(Json(ImportYamlResult {
         run_id,
         entities_created: created,
@@ -672,6 +699,33 @@ pub async fn discover_k8s(
     .bind(&errors_json)
     .fetch_one(&state.pool)
     .await?;
+
+    // W10: mirror the yaml-import path into the global stream.
+    crate::services::change_events::record_best_effort(
+        &state.pool,
+        Some(tenant_id),
+        crate::models::change_event::KIND_CATALOG_IMPORT,
+        None,
+        serde_json::json!({
+            "type": "user",
+            "id": auth_user.user_id,
+            "display_name": auth_user.username,
+        }),
+        format!(
+            "Discovered {} entities, updated {} (cluster {})",
+            created, updated, req.cluster_id
+        ),
+        serde_json::json!({
+            "run_id": run_id,
+            "source": IMPORT_SOURCE_K8S_DISCOVERY,
+            "cluster_id": req.cluster_id,
+            "entities_created": created,
+            "entities_updated": updated,
+        }),
+        crate::models::change_event::SOURCE_IMPORT_RUN,
+        Some(run_id.to_string()),
+    )
+    .await;
 
     Ok(Json(DiscoverK8sResult {
         run_id,
