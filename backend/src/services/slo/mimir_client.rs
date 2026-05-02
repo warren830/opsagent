@@ -131,6 +131,76 @@ pub async fn query_range(
         .map_err(|e| AppError::HttpClient(format!("Mimir query_range bad JSON: {}", e)))
 }
 
+/// Fire a `/api/v1/query` instant request and return the parsed JSON body.
+///
+/// Used by the snapshot scheduler and other one-shot readers that don't need
+/// a time series. `time` is UNIX seconds; pass `None` to let Mimir pick
+/// "now". The returned JSON is the raw Prometheus `data` envelope.
+pub async fn query_instant(
+    endpoint: &MetricsEndpoint,
+    query: &str,
+    time: Option<i64>,
+) -> AppResult<Value> {
+    let client = Client::new();
+    let url = format!("{}/api/v1/query", endpoint.url.trim_end_matches('/'));
+
+    let time_s = time.map(|t| t.to_string());
+    let mut form: Vec<(&str, &str)> = vec![("query", query)];
+    if let Some(ref t) = time_s {
+        form.push(("time", t.as_str()));
+    }
+
+    let mut req = client.post(&url).form(&form);
+    if let Some((user, token)) = &endpoint.basic_auth {
+        req = req.basic_auth(user, Some(token));
+    }
+
+    let response = req
+        .send()
+        .await
+        .map_err(|e| AppError::HttpClient(format!("Mimir query_instant failed: {}", e)))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::HttpClient(format!(
+            "Mimir query_instant returned {}: {}",
+            status, body
+        )));
+    }
+
+    response
+        .json::<Value>()
+        .await
+        .map_err(|e| AppError::HttpClient(format!("Mimir query_instant bad JSON: {}", e)))
+}
+
+/// Extract the first scalar value from a Prometheus `query` (instant) response.
+///
+/// Prometheus wraps instant results as either `vector` (one sample per series)
+/// or `scalar` (`[timestamp, "value"]`). Returns `None` for empty results or
+/// unparseable values — callers should treat that as "no data yet".
+pub fn first_scalar(result: &Value) -> Option<f64> {
+    let data = result.get("data")?;
+    let result_type = data.get("resultType")?.as_str()?;
+    let payload = data.get("result")?;
+
+    match result_type {
+        "vector" => {
+            // [{ metric: {...}, value: [ts, "val"] }, ...]
+            let first = payload.as_array()?.first()?;
+            let value = first.get("value")?.as_array()?;
+            value.get(1)?.as_str()?.parse::<f64>().ok()
+        }
+        "scalar" => {
+            // [ts, "val"]
+            let arr = payload.as_array()?;
+            arr.get(1)?.as_str()?.parse::<f64>().ok()
+        }
+        _ => None,
+    }
+}
+
 /// Parse a Prometheus duration suffix (`s`, `m`, `h`, `d`) into seconds.
 ///
 /// Used by the preview and SLI endpoints so handlers can accept strings like
@@ -190,5 +260,49 @@ mod tests {
         assert!(parse_duration_to_seconds("-5m").is_err());
         assert!(parse_duration_to_seconds("5x").is_err());
         assert!(parse_duration_to_seconds("abc").is_err());
+    }
+
+    #[test]
+    fn first_scalar_extracts_vector_value() {
+        let body = serde_json::json!({
+            "status": "success",
+            "data": {
+                "resultType": "vector",
+                "result": [
+                    { "metric": {}, "value": [1714574400, "0.99973"] }
+                ]
+            }
+        });
+        let v = first_scalar(&body).expect("has value");
+        assert!((v - 0.99973).abs() < 1e-9);
+    }
+
+    #[test]
+    fn first_scalar_extracts_scalar_value() {
+        let body = serde_json::json!({
+            "status": "success",
+            "data": {
+                "resultType": "scalar",
+                "result": [1714574400, "42.5"]
+            }
+        });
+        assert_eq!(first_scalar(&body).unwrap(), 42.5);
+    }
+
+    #[test]
+    fn first_scalar_returns_none_on_empty_or_bad_shapes() {
+        let empty = serde_json::json!({
+            "status": "success",
+            "data": { "resultType": "vector", "result": [] }
+        });
+        assert!(first_scalar(&empty).is_none());
+
+        let missing = serde_json::json!({"status": "success"});
+        assert!(first_scalar(&missing).is_none());
+
+        let matrix = serde_json::json!({
+            "data": { "resultType": "matrix", "result": [] }
+        });
+        assert!(first_scalar(&matrix).is_none());
     }
 }

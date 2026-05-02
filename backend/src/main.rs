@@ -160,6 +160,17 @@ async fn main() {
         tokio::spawn(services::rollout_watcher::run_rollout_watcher(watcher_pool));
     }
 
+    // Spawn SLO snapshot scheduler — captures one `error_budget_snapshots`
+    // row per enabled SLO every `SLO_SNAPSHOT_INTERVAL_SECS` (default 300s).
+    if std::env::var("SKIP_SLO_SNAPSHOT").unwrap_or_default() != "true" {
+        let snapshot_pool = state.pool.clone();
+        tokio::spawn(services::slo::snapshot_runner::run_snapshot_loop(
+            snapshot_pool,
+        ));
+    } else {
+        tracing::info!("SLO snapshot scheduler disabled (SKIP_SLO_SNAPSHOT=true)");
+    }
+
     // Build CORS layer
     let cors = middleware::cors::build_cors_layer(&config);
 

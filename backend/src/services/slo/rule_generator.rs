@@ -35,8 +35,10 @@ pub fn ruler_namespace() -> &'static str {
 /// Short, human-readable SLO id suffix used inside recording-rule metric names.
 ///
 /// Takes the first 8 hex chars of the UUID (without dashes) — balance of
-/// collision safety vs. readability in PromQL.
-fn short_id(slo_id: &Uuid) -> String {
+/// collision safety vs. readability in PromQL. Pub so the snapshot scheduler
+/// can reconstruct the recording-rule metric name without re-rendering the
+/// full YAML.
+pub fn short_id(slo_id: &Uuid) -> String {
     let simple = slo_id.simple().to_string();
     simple.chars().take(8).collect()
 }
@@ -47,7 +49,7 @@ pub fn group_name(slo_id: &Uuid) -> String {
     format!("slo_{}", short_id(slo_id))
 }
 
-/// Short id exposed for tests / callers that want to construct PromQL by hand.
+/// Alias kept for the test suite; prefer [`short_id`] in new code.
 #[cfg(test)]
 pub fn slo_short_id(slo_id: &Uuid) -> String {
     short_id(slo_id)
