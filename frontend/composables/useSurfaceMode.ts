@@ -12,17 +12,19 @@
  * ⚠️ USER CONTRIBUTION POINT below — see `isFocusRoute()` TODO.
  */
 
-// The focus-mode prefix set. Everything under these routes is a candidate
-// for focus mode (subject to the rules in isFocusRoute below).
+// The focus-mode prefix set. Only TRULY data-dense pages belong here —
+// routes where halo + mesh would materially hurt readability (log streams,
+// metric dashboards, topology canvases).
+//
+// Admin/list pages (/clusters, /accounts, /deployments) were previously
+// here but they're table-based, not stream-based — suppressing the halo
+// made them feel dead without a real readability payoff. Removed.
 const FOCUS_PREFIXES = [
   '/logs',
   '/telemetry',
   '/metrics',
   '/topology',
   '/issues',
-  '/clusters',      // list-type (kept per user's "列表型页面" call-out)
-  '/accounts',      // list-type
-  '/deployments',   // list-type
 ]
 
 // Sub-path suffixes that should ESCAPE focus mode even when the parent is a

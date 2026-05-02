@@ -91,17 +91,36 @@ function layoutGraph(apiNodes: TopoNode[], apiEdges: TopoEdge[]) {
   const edges: any[] = []
   const ROW_H = 80
   const COL_X = { ingress: 40, service: 280, workload: 540 }
-  let groupY = 0
+  const ZONE_W = 740
+  const ZONE_GAP_X = 40
+  const ZONE_GAP_Y = 24
+  // Namespaces are laid out in a 2-col grid so the whole topology fills
+  // wide viewports instead of collapsing to a tall narrow strip under
+  // Vue Flow's fit-view-on-init. When there's only 1 ns we fall back to
+  // single column (no wasted gap).
+  const NS_COLS = nsGroups.size > 1 ? 2 : 1
+  // Track the height of the tallest zone in each row so the next row
+  // starts below the tallest zone of the previous row.
+  const rowHeights: number[] = []
+  let nsIdx = 0
 
   for (const [key, group] of nsGroups) {
     const maxRows = Math.max(group.ingresses.length, group.services.length, group.workloads.length, 1)
     const groupHeight = maxRows * ROW_H + 60
 
+    const colIdx = nsIdx % NS_COLS
+    const rowIdx = Math.floor(nsIdx / NS_COLS)
+    rowHeights[rowIdx] = Math.max(rowHeights[rowIdx] || 0, groupHeight)
+    // Running Y = sum of previous row heights + their gaps.
+    const groupY = rowHeights.slice(0, rowIdx).reduce((a, h) => a + h + ZONE_GAP_Y, 0)
+    const groupX = colIdx * (ZONE_W + ZONE_GAP_X)
+    nsIdx++
+
     // Zone background (non-interactive)
     nodes.push({
       id: `zone-${key}`,
       type: 'group',
-      position: { x: 0, y: groupY },
+      position: { x: groupX, y: groupY },
       draggable: false,
       selectable: false,
       connectable: false,
@@ -125,7 +144,7 @@ function layoutGraph(apiNodes: TopoNode[], apiEdges: TopoEdge[]) {
     nodes.push({
       id: labelId,
       type: 'group',
-      position: { x: 8, y: groupY + 6 },
+      position: { x: groupX + 8, y: groupY + 6 },
       draggable: false,
       selectable: false,
       connectable: false,
@@ -151,7 +170,7 @@ function layoutGraph(apiNodes: TopoNode[], apiEdges: TopoEdge[]) {
         id: n.id,
         type: 'topology',
         draggable: false,
-        position: { x: COL_X.ingress, y: groupY + baseY + i * ROW_H },
+        position: { x: groupX + COL_X.ingress, y: groupY + baseY + i * ROW_H },
         data: { label: n.label, subtitle: n.subtitle, kind: n.kind, status: n.status, replicas: n.replicas, namespace: n.namespace, cluster: n.cluster },
       })
     })
@@ -162,7 +181,7 @@ function layoutGraph(apiNodes: TopoNode[], apiEdges: TopoEdge[]) {
         id: n.id,
         type: 'topology',
         draggable: false,
-        position: { x: COL_X.service, y: groupY + baseY + i * ROW_H },
+        position: { x: groupX + COL_X.service, y: groupY + baseY + i * ROW_H },
         data: { label: n.label, subtitle: n.subtitle, kind: n.kind, status: n.status, replicas: n.replicas, namespace: n.namespace, cluster: n.cluster },
       })
     })
@@ -173,12 +192,13 @@ function layoutGraph(apiNodes: TopoNode[], apiEdges: TopoEdge[]) {
         id: n.id,
         type: 'topology',
         draggable: false,
-        position: { x: COL_X.workload, y: groupY + baseY + i * ROW_H },
+        position: { x: groupX + COL_X.workload, y: groupY + baseY + i * ROW_H },
         data: { label: n.label, subtitle: n.subtitle, kind: n.kind, status: n.status, replicas: n.replicas, namespace: n.namespace, cluster: n.cluster },
       })
     })
 
-    groupY += groupHeight + 20
+    // groupY for this iteration was computed from rowHeights at the top —
+    // no accumulator update needed (rowHeights tracks the max per row).
   }
 
   // Build edges with styles
