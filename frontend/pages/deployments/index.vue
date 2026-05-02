@@ -529,7 +529,7 @@ onUnmounted(() => {
         <Collapsible :open="expandedRows.has(rowKey(cr))" @update:open="toggleRow(cr)">
           <!-- Main row -->
           <CollapsibleTrigger as-child>
-            <div class="group relative flex items-center gap-3 px-4 py-2.5 rounded-lg bg-panel/$1 backdrop-blur-sm border border-border hover:border-border transition-colors cursor-pointer overflow-hidden">
+            <div class="group relative flex items-center gap-3 px-4 py-2.5 rounded-lg bg-panel/60 backdrop-blur-sm border border-border hover:border-border transition-colors cursor-pointer overflow-hidden">
               <!-- Rollback progress bar (appears for ~15s after rollback is triggered) -->
               <div
                 v-if="rollingBack.has(rowKey(cr))"

@@ -808,7 +808,7 @@ async function revokeAccess(userId: string) {
       "Action": ["sts:AssumeRole", "sts:TagSession"]
     }]
   }'</pre>
-              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-panel/$1 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s1')">
+              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-accent/60 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s1')">
                 <Check v-if="copiedBlock === 's1'" class="h-3.5 w-3.5 text-success" />
                 <Copy v-else class="h-3.5 w-3.5" />
               </button>
@@ -830,7 +830,7 @@ async function revokeAccess(userId: string) {
               <pre class="rounded-md bg-panel p-3 text-[11px] font-mono overflow-x-auto text-success leading-relaxed">aws iam attach-role-policy \
   --role-name OpsRole \
   --policy-arn arn:aws:iam::aws:policy/ReadOnlyAccess</pre>
-              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-panel/$1 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s2')">
+              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-accent/60 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s2')">
                 <Check v-if="copiedBlock === 's2'" class="h-3.5 w-3.5 text-success" />
                 <Copy v-else class="h-3.5 w-3.5" />
               </button>
@@ -849,7 +849,7 @@ async function revokeAccess(userId: string) {
             <div class="relative pl-7">
               <pre class="rounded-md bg-panel p-3 text-[11px] font-mono overflow-x-auto text-success leading-relaxed">aws iam get-role --role-name OpsRole \
   --query 'Role.Arn' --output text</pre>
-              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-panel/$1 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s3')">
+              <button type="button" class="absolute top-2 right-2 p-1 rounded hover:bg-accent/60 text-muted-foreground hover:text-foreground transition-colors" @click="copyCode('s3')">
                 <Check v-if="copiedBlock === 's3'" class="h-3.5 w-3.5 text-success" />
                 <Copy v-else class="h-3.5 w-3.5" />
               </button>

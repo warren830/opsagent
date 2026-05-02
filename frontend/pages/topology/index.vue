@@ -153,11 +153,11 @@ function layoutGraph(apiNodes: TopoNode[], apiEdges: TopoEdge[]) {
         width: 'auto', height: 'auto',
         background: 'transparent', border: 'none', pointerEvents: 'none',
         // Read the muted-foreground token so the label adapts to both Sky &
-        // Lavender (light) and Aurora (dark). 0.85 alpha keeps it secondary
-        // but clearly readable on dark base (#0A0B10).
-        fontSize: '10px', fontWeight: '600',
-        color: 'hsl(var(--muted-foreground) / 0.85)',
-        textTransform: 'uppercase', letterSpacing: '0.1em',
+        // Lavender (light) and Aurora (dark). Pushed up to full 0.95 alpha
+        // plus 12px so it reads cleanly on the aurora near-black base.
+        fontSize: '12px', fontWeight: '600',
+        color: 'hsl(var(--muted-foreground) / 0.95)',
+        textTransform: 'uppercase', letterSpacing: '0.08em',
       },
       data: { label: `${group.namespace} @ ${group.cluster}` },
     })
@@ -354,9 +354,9 @@ const statusLegend = [
             return v('--muted-foreground')
           }"
           :mask-color="'hsl(var(--muted-foreground) / 0.2)'"
-          class="!bg-panel/$1 !backdrop-blur-md !border-border !rounded-lg"
+          class="!bg-panel/80 !backdrop-blur-md !border !border-border !rounded-lg"
         />
-        <Controls class="!bg-panel/$1 !backdrop-blur-md !border-border !rounded-lg" />
+        <Controls class="!bg-panel/80 !backdrop-blur-md !border !border-border !rounded-lg" />
       </VueFlow>
     </div>
   </div>

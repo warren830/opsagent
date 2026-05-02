@@ -24,10 +24,10 @@ const kindConfig: Record<string, { icon: any; border: string; tint: string; icon
 }
 
 const statusDot: Record<string, string> = {
-  healthy:  'bg-success shadow-emerald-500/50',
-  warning:  'bg-warning shadow-amber-500/50',
-  critical: 'bg-destructive shadow-red-500/50 animate-pulse',
-  unknown:  'bg-muted shadow-slate-400/40',
+  healthy:  'bg-success shadow-success/60',
+  warning:  'bg-warning shadow-warning/60',
+  critical: 'bg-destructive shadow-destructive/60 animate-pulse',
+  unknown:  'bg-muted shadow-muted-foreground/40',
 }
 
 const config = computed(() => kindConfig[props.data.kind] || kindConfig.deployment)
@@ -36,10 +36,10 @@ const dot = computed(() => statusDot[props.data.status] || statusDot.unknown)
 
 <template>
   <div
-    class="group relative rounded-lg border px-3 py-2 min-w-[130px] max-w-[180px] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg cursor-pointer bg-panel/$1 backdrop-blur-md bg-gradient-to-br to-white/95 shadow-[0_4px_14px_rgba(100,140,200,0.08)]"
+    class="group relative rounded-lg border px-3 py-2 min-w-[160px] max-w-[220px] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg cursor-pointer bg-panel bg-gradient-to-br to-transparent shadow-sm"
     :class="[config.border, config.tint]"
   >
-    <!-- Handles (light, barely visible dots) -->
+    <!-- Handles (subtle dots, token-driven) -->
     <Handle type="target" :position="Position.Left" class="!w-2 !h-2 !bg-muted !border-border" />
     <Handle type="source" :position="Position.Right" class="!w-2 !h-2 !bg-muted !border-border" />
     <Handle type="target" :position="Position.Top" class="!w-2 !h-2 !bg-muted !border-border" />
@@ -53,17 +53,17 @@ const dot = computed(() => statusDot[props.data.status] || statusDot.unknown)
 
     <!-- Content -->
     <div class="flex items-center gap-2">
-      <div class="shrink-0 rounded-md p-1" :class="config.iconBg">
-        <component :is="config.icon" class="h-3.5 w-3.5" :class="config.iconFg" />
+      <div class="shrink-0 rounded-md p-1.5" :class="config.iconBg">
+        <component :is="config.icon" class="h-4 w-4" :class="config.iconFg" />
       </div>
       <div class="min-w-0 flex-1">
-        <div class="text-[11px] font-semibold text-foreground truncate leading-tight">{{ data.label }}</div>
-        <div v-if="data.subtitle" class="text-[9px] text-muted-foreground truncate leading-tight">{{ data.subtitle }}</div>
+        <div class="text-[13px] font-semibold text-foreground truncate leading-tight">{{ data.label }}</div>
+        <div v-if="data.subtitle" class="mt-0.5 text-[11px] text-muted-foreground truncate leading-tight">{{ data.subtitle }}</div>
       </div>
     </div>
 
     <!-- Replicas tag -->
-    <div v-if="data.replicas" class="mt-1 text-[8px] font-mono px-1 py-0.5 rounded bg-muted text-muted-foreground text-center tabular-nums">
+    <div v-if="data.replicas" class="mt-1.5 text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-center tabular-nums">
       {{ data.replicas }}
     </div>
   </div>
