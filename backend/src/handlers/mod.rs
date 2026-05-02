@@ -11,6 +11,7 @@ pub mod cluster;
 pub mod dashboard;
 pub mod glossary;
 pub mod health;
+pub mod incident;
 pub mod issue;
 pub mod jira;
 pub mod knowledge;

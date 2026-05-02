@@ -277,6 +277,67 @@ pub struct AddParticipantRequest {
     pub added_via: Option<String>,
 }
 
+/// Query params for `GET /api/incidents`. All fields optional; `active_only`
+/// filters out closed incidents when true.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListIncidentsQuery {
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub severity: Option<String>,
+    #[serde(default)]
+    pub component_id: Option<Uuid>,
+    #[serde(default)]
+    pub active_only: bool,
+}
+
+/// Editable metadata fields for `PATCH /api/incidents/:id`. Status, severity
+/// and `number` are NOT here — they have dedicated endpoints (transition,
+/// change_severity) and `number` is immutable.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateIncidentRequest {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub impact_summary: Option<String>,
+    #[serde(default)]
+    pub affected_component_ids: Option<Vec<Uuid>>,
+    #[serde(default)]
+    pub affected_customer_tier: Option<String>,
+    #[serde(default)]
+    pub commander_user_id: Option<Uuid>,
+    #[serde(default)]
+    pub scribe_user_id: Option<Uuid>,
+    #[serde(default)]
+    pub labels: Option<serde_json::Value>,
+    #[serde(default)]
+    pub root_cause: Option<String>,
+    #[serde(default)]
+    pub root_cause_category: Option<String>,
+}
+
+/// Query params for `GET /api/incidents/:id/timeline`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TimelineQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub after: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub kind: Option<String>,
+}
+
+/// Response for `GET /api/incidents/:id` — the incident plus the last 20
+/// timeline events, all participants, and the last 5 stakeholder updates.
+#[derive(Debug, Clone, Serialize)]
+pub struct IncidentDetail {
+    #[serde(flatten)]
+    pub incident: Incident,
+    pub timeline: Vec<IncidentTimelineEvent>,
+    pub participants: Vec<IncidentParticipant>,
+    pub recent_updates: Vec<IncidentUpdate>,
+}
+
 // ---------------------------------------------------------------------------
 // Tests.
 // ---------------------------------------------------------------------------

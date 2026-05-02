@@ -5,3 +5,4 @@
 //! `postmortem_drafter.rs`.
 
 pub mod state_machine;
+pub mod timeline;

@@ -368,6 +368,36 @@ fn build_router(state: AppState) -> Router {
         )
         .route("/api/issues/{id}/rca", post(handlers::issue::start_rca))
         .route("/api/issues/{id}/rca/status", get(handlers::issue::rca_status))
+        // Incident Command
+        .route(
+            "/api/incidents",
+            get(handlers::incident::list).post(handlers::incident::create),
+        )
+        .route("/api/incidents/active", get(handlers::incident::list_active))
+        .route(
+            "/api/incidents/{id}",
+            get(handlers::incident::get).patch(handlers::incident::update),
+        )
+        .route(
+            "/api/incidents/{id}/transition",
+            post(handlers::incident::transition),
+        )
+        .route(
+            "/api/incidents/{id}/severity",
+            post(handlers::incident::change_severity),
+        )
+        .route(
+            "/api/incidents/{id}/participants",
+            post(handlers::incident::add_participant),
+        )
+        .route(
+            "/api/incidents/{id}/participants/{user_id}/{role}",
+            delete(handlers::incident::remove_participant),
+        )
+        .route(
+            "/api/incidents/{id}/timeline",
+            get(handlers::incident::list_timeline),
+        )
         // Knowledge
         .route(
             "/api/knowledge",
