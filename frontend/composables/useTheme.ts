@@ -38,8 +38,24 @@ export const useTheme = () => {
     setTheme(theme.value === 'aurora' ? 'light' : 'aurora')
   }
 
-  // Apply <html data-theme="..."> reactively, client-only.
-  // SSR renders `data-theme` via a plugin on initial paint (see plugins/theme.client.ts).
+  // Emit <html data-theme="..."> during SSR so the initial HTML already
+  // carries the correct theme attribute. This is what eliminates the
+  // flash-of-light-theme on refresh — without it, the browser paints the
+  // light-theme tokens for one frame before client hydration swaps in the
+  // cookie-driven theme.
+  //
+  // Using useHead with htmlAttrs merges the attribute into Nuxt's rendered
+  // <html>. For the light default we omit the attribute entirely (keeps the
+  // HTML clean and lets :root apply naturally).
+  useHead({
+    htmlAttrs: computed(() =>
+      theme.value === 'aurora' ? { 'data-theme': 'aurora' } : {},
+    ),
+  })
+
+  // Client-side keep-in-sync: when setTheme runs, useHead will queue the
+  // attribute update, but we also mirror it directly on document to make
+  // same-tick style application guaranteed (useHead uses a microtask tick).
   if (import.meta.client) {
     watchEffect(() => applyToDocument(theme.value))
   }
