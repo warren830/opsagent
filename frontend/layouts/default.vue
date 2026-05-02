@@ -35,7 +35,7 @@ useSurfaceMode()
     <template v-else>
       <div class="fixed inset-0 -z-20 pointer-events-none bg-background" aria-hidden="true" />
       <LayoutMeshTexture />
-      <LayoutAuroraHexgrid />
+      <!-- LayoutAuroraHexgrid removed — pending redesign -->
       <LayoutAuroraHalo />
       <LayoutAuroraHaloWisps />
       <LayoutAuroraCornerGlow />
