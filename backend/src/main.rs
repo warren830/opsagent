@@ -456,9 +456,34 @@ fn build_router(state: AppState) -> Router {
         )
         // Dashboard
         .route("/api/dashboard/stats", get(handlers::dashboard::stats))
-        // Catalog (W0 stub — list + get only; full CRUD lands in feat/catalog-mvp)
-        .route("/api/catalog/entities", get(handlers::catalog::list))
-        .route("/api/catalog/entities/{id}", get(handlers::catalog::get))
+        // Catalog (W1 — entity CRUD + per-entity relations listing)
+        .route(
+            "/api/catalog/entities",
+            get(handlers::catalog::list).post(handlers::catalog::create),
+        )
+        .route(
+            "/api/catalog/entities/{id}",
+            get(handlers::catalog::get)
+                .put(handlers::catalog::update)
+                .delete(handlers::catalog::delete),
+        )
+        .route(
+            "/api/catalog/entities/{id}/relations",
+            get(handlers::catalog::list_relations),
+        )
+        .route(
+            "/api/catalog/entities/{id}/graph",
+            get(handlers::catalog::get_graph),
+        )
+        // Catalog (W2 — YAML import + K8s auto-discovery)
+        .route(
+            "/api/catalog/import/yaml",
+            post(handlers::catalog::import_yaml),
+        )
+        .route(
+            "/api/catalog/discover/k8s",
+            post(handlers::catalog::discover_k8s),
+        )
         .layer(axum_middleware::from_fn_with_state(
             jwt_secret,
             middleware::auth::auth_middleware,

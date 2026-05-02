@@ -1,6 +1,7 @@
 pub mod account_access;
 pub mod agent;
 pub mod alerts;
+pub mod catalog;
 pub mod approval;
 pub mod channel;
 pub mod cloud_account;
