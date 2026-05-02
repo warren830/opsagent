@@ -19,18 +19,30 @@ useSurfaceMode()
       <LayoutAuroraBackground />
       <LayoutCursorGlow />
     </template>
-    <!-- Aurora (dark): 4-layer atmospheric stack
-         z-20 : solid cold-black base
-         z-10 : mesh (dot+triangle circuit texture) + halo (bottom aurora)
-                + corner glows (top-left indigo, top-right teal)
-         z-9  : vignette (edge darkening, above halo but below content)
-         z-0+ : everything else sits over this composite -->
+    <!-- Aurora (dark): 7-layer cinematic atmosphere.
+         Order matters — later entries paint over earlier.
+
+         z-20  : solid cold-black base (#0A0B10)
+         z-10  : mesh (triangles + vertex dots)
+         z-10  : stars (scattered bright points, upper viewport)
+         z-10  : halo (bottom aurora band, 4-layer radial)
+         z-10  : halo wisps (turbulence — small spots, reverse drift)
+         z-10  : corner glows (top-left indigo, top-right teal)
+         z-9   : vignette (edge darkening)
+         z-8   : noise (film grain, mix-blend overlay — blends into all below)
+         z-0+  : app content
+
+         Each layer individually is subtle (4-20% contribution).
+         Together they produce "filmic sci-fi" depth instead of "digital UI". -->
     <template v-else>
       <div class="fixed inset-0 -z-20 pointer-events-none bg-background" aria-hidden="true" />
       <LayoutMeshTexture />
+      <LayoutAuroraStars />
       <LayoutAuroraHalo />
+      <LayoutAuroraHaloWisps />
       <LayoutAuroraCornerGlow />
       <LayoutAuroraVignette />
+      <LayoutAuroraNoise />
     </template>
 
     <!-- Floating Glass Islands grid -->
