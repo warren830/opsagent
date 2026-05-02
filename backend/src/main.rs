@@ -471,6 +471,15 @@ fn build_router(state: AppState) -> Router {
             "/api/catalog/entities/{id}/relations",
             get(handlers::catalog::list_relations),
         )
+        // Catalog (W2 — YAML import + K8s auto-discovery)
+        .route(
+            "/api/catalog/import/yaml",
+            post(handlers::catalog::import_yaml),
+        )
+        .route(
+            "/api/catalog/discover/k8s",
+            post(handlers::catalog::discover_k8s),
+        )
         .layer(axum_middleware::from_fn_with_state(
             jwt_secret,
             middleware::auth::auth_middleware,

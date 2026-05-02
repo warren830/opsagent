@@ -219,6 +219,32 @@ impl CatalogImportRun {
     }
 }
 
+/// Request payload for `POST /api/catalog/discover/k8s`.
+#[derive(Debug, Deserialize)]
+pub struct DiscoverK8sRequest {
+    pub cluster_id: Uuid,
+}
+
+/// Response shape shared by both import endpoints. `run_id` points to
+/// the `catalog_import_runs` audit record; `errors` is a best-effort
+/// list of per-entity failure messages so callers can surface partial
+/// success in the UI.
+#[derive(Debug, Serialize)]
+pub struct ImportYamlResult {
+    pub run_id: Uuid,
+    pub entities_created: i32,
+    pub entities_updated: i32,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DiscoverK8sResult {
+    pub run_id: Uuid,
+    pub entities_created: i32,
+    pub entities_updated: i32,
+    pub errors: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
