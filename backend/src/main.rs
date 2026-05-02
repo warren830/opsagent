@@ -368,6 +368,11 @@ fn build_router(state: AppState) -> Router {
         )
         .route("/api/issues/{id}/rca", post(handlers::issue::start_rca))
         .route("/api/issues/{id}/rca/status", get(handlers::issue::rca_status))
+        // Promote an issue into a full Incident (see `handlers::issue::promote_to_incident`)
+        .route(
+            "/api/issues/{id}/promote",
+            post(handlers::issue::promote_to_incident),
+        )
         // Incident Command
         .route(
             "/api/incidents",

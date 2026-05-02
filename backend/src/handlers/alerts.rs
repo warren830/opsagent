@@ -6,6 +6,20 @@ use crate::AppState;
 use crate::error::AppResult;
 use crate::services;
 
+// W3 TODO — auto-promote tier0 critical alerts to Incident.
+//
+// The hook point is `services::alerts::upsert_issue` at the moment an
+// issue is created. When (a) severity == "critical" AND (b) the issue has
+// at least one `affected_component_id` mapped to a `tier: tier0` component
+// (annotation + label), we should `tokio::spawn` a call equivalent to the
+// `POST /api/issues/:id/promote` handler path.
+//
+// The tenant-level auto_promote_rule is not yet in settings, so MVP keeps
+// this wired manually: operators call `/api/issues/:id/promote` from the
+// UI. The scaffolding (`lifecycle::create_incident_with_automation` +
+// `handlers::issue::promote_to_incident`) already supports programmatic
+// auto-promote — W4/W5 will flip the switch.
+
 // ─── Grafana ──────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
