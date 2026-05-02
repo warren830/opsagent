@@ -23,6 +23,7 @@
     "pipeline": "Code Repos",
     "telemetry": "Telemetry",
     "deployments": "Deployments",
+    "slos": "SLOs",
     "issues": "Issues",
     "catalog": "Service Catalog",
     "settings": "Settings",
@@ -810,5 +811,81 @@
     "currentStrategy": "Current Strategy",
     "applyStrategy": "Apply Strategy",
     "strategyDisabledDuringRollout": "Cannot change strategy during active rollout"
+  },
+  "slo": {
+    "title": "SLOs",
+    "subtitle": "Service Level Objectives and error budget health",
+    "newSlo": "New SLO",
+    "editSlo": "Edit SLO",
+    "searchPlaceholder": "Search by name or type",
+    "filterByComponent": "Filter by component",
+    "allComponents": "All components",
+    "includeDisabled": "Show disabled",
+    "emptyState": "No SLOs yet — create one to start tracking error budget.",
+    "noSnapshot": "Awaiting snapshot",
+    "currentSli": "Current SLI",
+    "snapshotAt": "Captured {time}",
+    "rulesHash": "Rules hash",
+    "syncRules": "Sync rules",
+    "enable": "Enable",
+    "disable": "Disable",
+    "deleteConfirm": "Delete this SLO? Snapshots and burn events will also be removed.",
+    "created": "SLO created",
+    "updated": "SLO updated",
+    "noBurnEvents": "No burn events in the recent history window.",
+    "burnsOngoing": "ongoing",
+    "burnsPeak": "peak",
+    "formHelp": "Define a PromQL-based SLI (good/total events) and an objective percentage.",
+    "preview": "Preview",
+    "testPreview": "Test Preview",
+    "previewHint": "Run a 30d PromQL check to validate your good/total queries before saving.",
+    "previewNoData": "No data points returned — check the PromQL expressions.",
+    "previewQueryRequired": "Both good and total queries are required to run a preview.",
+    "previewSummary": "{points} data points · avg SLI = {avg}%",
+    "col": {
+      "name": "Name",
+      "component": "Service",
+      "target": "Target",
+      "sli": "SLI 28d",
+      "budget": "Budget",
+      "burn1h": "Burn 1h",
+      "burn6h": "Burn 6h",
+      "enabled": "Enabled"
+    },
+    "field": {
+      "name": "Name",
+      "description": "Description",
+      "descriptionPlaceholder": "One-line rationale for this SLO",
+      "component": "Service",
+      "componentPlaceholder": "Link to a catalog component (optional)",
+      "sliType": "SLI type",
+      "objectivePct": "Target %",
+      "windowDays": "Window",
+      "goodQuery": "Good events PromQL",
+      "totalQuery": "Total events PromQL",
+      "enabled": "Enabled",
+      "policy": "Burn rate policy"
+    },
+    "sliType": {
+      "availability": "Availability",
+      "latency": "Latency",
+      "errorRate": "Error rate",
+      "custom": "Custom"
+    },
+    "tab": {
+      "sli": "SLI time series",
+      "budget": "Budget history",
+      "burns": "Burn events"
+    },
+    "sections": {
+      "definition": "Definition",
+      "currentBudget": "Current budget",
+      "burnRates": "Burn rates"
+    },
+    "charts": {
+      "sliTitle": "SLI ratio (last 28d)",
+      "budgetTitle": "Budget remaining (last 90d)",
+      "burnsTitle": "Recent burn events"
+    }
   }
 }

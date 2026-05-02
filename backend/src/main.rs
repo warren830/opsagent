@@ -160,6 +160,17 @@ async fn main() {
         tokio::spawn(services::rollout_watcher::run_rollout_watcher(watcher_pool));
     }
 
+    // Spawn SLO snapshot scheduler — captures one `error_budget_snapshots`
+    // row per enabled SLO every `SLO_SNAPSHOT_INTERVAL_SECS` (default 300s).
+    if std::env::var("SKIP_SLO_SNAPSHOT").unwrap_or_default() != "true" {
+        let snapshot_pool = state.pool.clone();
+        tokio::spawn(services::slo::snapshot_runner::run_snapshot_loop(
+            snapshot_pool,
+        ));
+    } else {
+        tracing::info!("SLO snapshot scheduler disabled (SKIP_SLO_SNAPSHOT=true)");
+    }
+
     // Build CORS layer
     let cors = middleware::cors::build_cors_layer(&config);
 
@@ -344,6 +355,8 @@ fn build_router(state: AppState) -> Router {
         .route("/api/deployment-events", get(handlers::rollout::list_events))
         // MCP Rollout endpoint (JSON-RPC from Claude CLI)
         .route("/api/mcp/rollouts", post(handlers::mcp_rollout::handle))
+        // MCP SLO endpoint (JSON-RPC — slo_query + slo_forecast for the agent)
+        .route("/api/mcp/slo", post(handlers::mcp_slo::handle))
         // Resources / Security Insights
         .route("/api/resources", get(handlers::resource::list))
         .route("/api/resources/scan", post(handlers::resource::scan))
@@ -484,6 +497,27 @@ fn build_router(state: AppState) -> Router {
             "/api/catalog/discover/k8s",
             post(handlers::catalog::discover_k8s),
         )
+        // SLO engine
+        .route(
+            "/api/slos",
+            get(handlers::slo::list).post(handlers::slo::create),
+        )
+        .route("/api/slos/preview", post(handlers::slo::preview))
+        .route(
+            "/api/slos/{id}",
+            get(handlers::slo::get)
+                .put(handlers::slo::update)
+                .delete(handlers::slo::delete),
+        )
+        .route("/api/slos/{id}/enable", post(handlers::slo::enable))
+        .route("/api/slos/{id}/disable", post(handlers::slo::disable))
+        .route("/api/slos/{id}/sli", get(handlers::slo::sli))
+        .route("/api/slos/{id}/budget", get(handlers::slo::budget))
+        .route(
+            "/api/slos/{id}/budget/history",
+            get(handlers::slo::budget_history),
+        )
+        .route("/api/slos/{id}/sync-rules", post(handlers::slo::sync_rules))
         .layer(axum_middleware::from_fn_with_state(
             jwt_secret,
             middleware::auth::auth_middleware,

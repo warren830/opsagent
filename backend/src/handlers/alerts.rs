@@ -1,10 +1,35 @@
 use axum::{Json, extract::State};
 use serde::Deserialize;
+use sqlx::PgPool;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use crate::AppState;
 use crate::error::AppResult;
 use crate::services;
+
+/// Look up the `id` of the open issue we just upserted so we can link it to
+/// an `slo_burn_events` row. Matches by `(source, fingerprint)` — the same
+/// tuple `upsert_issue` uses for its own dedup check — and returns `None`
+/// if no open row exists (e.g. a resolving alert or a failed insert).
+///
+/// Kept here rather than in `services::alerts` because the SLO ingestion is
+/// the only caller today; can be hoisted if another handler needs it.
+async fn find_open_issue_id(pool: &PgPool, source: &str, fingerprint: &str) -> Option<Uuid> {
+    sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT id FROM issues
+           WHERE source = $1 AND status != 'resolved'
+             AND rca_result @> $2::jsonb
+           ORDER BY created_at DESC
+           LIMIT 1"#,
+    )
+    .bind(source)
+    .bind(serde_json::json!({"fingerprint": fingerprint}).to_string())
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+}
 
 // ─── Grafana ──────────────────────────────────────────────────
 
@@ -87,6 +112,8 @@ pub async fn receive(
             "annotations": annotations,
         });
 
+        let is_resolved = alert_status == "resolved";
+
         let (c, r) = services::alerts::upsert_issue(
             &state.pool,
             "grafana",
@@ -95,13 +122,33 @@ pub async fn receive(
             description.unwrap_or(""),
             services::alerts::normalize_severity(severity_raw),
             &meta,
-            alert_status == "resolved",
+            is_resolved,
             "incident",
             Some(&rca_ctx),
         )
         .await;
         created += c;
         resolved += r;
+
+        // If the alert carries SLO burn labels (see `rule_generator`), ingest
+        // it into `slo_burn_events`. The issue link is best-effort: on
+        // `resolved` the lookup returns `None` (the issue is already closed),
+        // which is fine — resolve_open_burn matches by (slo_id, window).
+        let issue_id = if is_resolved {
+            None
+        } else {
+            find_open_issue_id(&state.pool, "grafana", fingerprint).await
+        };
+        if let Err(e) = services::slo::alert_ingestion::ingest_slo_burn_alert(
+            &state.pool,
+            labels,
+            is_resolved,
+            issue_id,
+        )
+        .await
+        {
+            tracing::warn!("SLO burn ingestion (grafana) failed: {}", e);
+        }
     }
 
     Ok(Json(serde_json::json!({
@@ -188,6 +235,25 @@ pub async fn receive_datadog(
         Some(&rca_ctx),
     )
     .await;
+
+    // SLO burn ingestion — no-op for standard Datadog payloads (which don't
+    // carry an `slo_id` label), but enabled for the case where Datadog is
+    // configured to proxy Mimir-generated alerts that do.
+    let issue_id = if is_resolved {
+        None
+    } else {
+        find_open_issue_id(&state.pool, "datadog", alert_id).await
+    };
+    if let Err(e) = services::slo::alert_ingestion::ingest_slo_burn_alert(
+        &state.pool,
+        Some(&meta),
+        is_resolved,
+        issue_id,
+    )
+    .await
+    {
+        tracing::warn!("SLO burn ingestion (datadog) failed: {}", e);
+    }
 
     Ok(Json(serde_json::json!({
         "status": "ok",
@@ -277,6 +343,25 @@ pub async fn receive_dynatrace(
         Some(&rca_ctx),
     )
     .await;
+
+    // SLO burn ingestion — same philosophy as the Datadog handler. No-op for
+    // native Dynatrace payloads, active when Dynatrace is wired to proxy SLO
+    // burn alerts that include the Mimir-style labels.
+    let issue_id = if is_resolved {
+        None
+    } else {
+        find_open_issue_id(&state.pool, "dynatrace", problem_id).await
+    };
+    if let Err(e) = services::slo::alert_ingestion::ingest_slo_burn_alert(
+        &state.pool,
+        Some(&meta),
+        is_resolved,
+        issue_id,
+    )
+    .await
+    {
+        tracing::warn!("SLO burn ingestion (dynatrace) failed: {}", e);
+    }
 
     Ok(Json(serde_json::json!({
         "status": "ok",

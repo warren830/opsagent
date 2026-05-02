@@ -33,3 +33,4 @@ pub mod rollout_guard;
 pub mod rollout_watcher;
 pub mod scheduler;
 pub mod skill;
+pub mod slo;

@@ -50,7 +50,7 @@ impl RcaRegistry {
 }
 
 /// Build the RCA prompt with issue context and available telemetry endpoints.
-fn build_rca_prompt(issue: &Issue) -> String {
+fn build_rca_prompt(issue: &Issue, slo_context: &str) -> String {
     let description = issue.description.as_deref().unwrap_or("N/A");
     let meta = issue
         .rca_result
@@ -72,7 +72,7 @@ fn build_rca_prompt(issue: &Issue) -> String {
 {meta}
 ```
 - **创建时间**: {created_at}
-
+{slo_context}
 ## 集群上下文
 - 命名空间 `rca` 包含三个服务: `rca-demo`（订单服务，告警主体）、`payment-service`、`inventory-service`（金丝雀部署，由 Argo Rollouts 管理）
 - 监控栈: Mimir (PromQL 指标) / Loki (LogQL 日志) / Tempo (TraceQL 链路)
@@ -118,7 +118,108 @@ fn build_rca_prompt(issue: &Issue) -> String {
         description = description,
         meta = meta,
         created_at = issue.created_at,
+        slo_context = slo_context,
     )
+}
+
+/// Fetch the SLO health context for an issue's affected components and render
+/// it as a short Markdown block. Returns an empty string when the issue has
+/// no linked components or no SLOs are attached to them — callers can always
+/// embed the return value unconditionally.
+///
+/// The block is intentionally compact (one line per SLO) so it fits cleanly
+/// inside the RCA system prompt without crowding out the telemetry rules.
+async fn build_slo_context(pool: &PgPool, issue_id: Uuid) -> String {
+    // `affected_component_ids` was added by the catalog W0 spec-lock migration;
+    // read it directly rather than widening the `Issue` struct — this keeps
+    // the RCA path insulated from future catalog-side field churn.
+    let component_ids: Vec<Uuid> =
+        match sqlx::query_scalar::<_, Vec<Uuid>>("SELECT affected_component_ids FROM issues WHERE id = $1")
+            .bind(issue_id)
+            .fetch_optional(pool)
+            .await
+        {
+            Ok(Some(ids)) => ids,
+            _ => return String::new(),
+        };
+    if component_ids.is_empty() {
+        return String::new();
+    }
+
+    // Join SLOs to their latest budget snapshot in a single round trip.
+    // We pick the most recent snapshot per SLO via a LATERAL subquery so the
+    // result set stays small even when snapshots accumulate.
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,          // slo name
+            f64,             // objective_pct
+            i32,             // window_days
+            Option<String>,  // component display/name
+            Option<f64>,     // burn_rate_1h
+            Option<f64>,     // budget_remaining_pct
+            Option<f64>,     // budget_consumed_minutes
+            Option<f64>,     // budget_total_minutes
+        ),
+    >(
+        r#"
+        SELECT s.name,
+               s.objective_pct,
+               s.window_days,
+               COALESCE(c.display_name, c.name) AS component_label,
+               snap.burn_rate_1h,
+               snap.budget_remaining_pct,
+               snap.budget_consumed_minutes,
+               snap.budget_total_minutes
+          FROM slos s
+     LEFT JOIN catalog_entities c ON c.id = s.component_id
+     LEFT JOIN LATERAL (
+                 SELECT burn_rate_1h,
+                        budget_remaining_pct,
+                        budget_consumed_minutes,
+                        budget_total_minutes
+                   FROM error_budget_snapshots
+                  WHERE slo_id = s.id
+               ORDER BY captured_at DESC
+                  LIMIT 1
+               ) snap ON TRUE
+         WHERE s.enabled = TRUE
+           AND s.component_id = ANY($1)
+         ORDER BY snap.burn_rate_1h DESC NULLS LAST
+         LIMIT 8
+        "#,
+    )
+    .bind(&component_ids)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    if rows.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::from("\n## 关联 SLO 与错误预算状态\n");
+    for (name, obj, window, comp, burn, remaining, consumed, total) in rows {
+        let comp_part = comp
+            .map(|c| format!("[{c}] "))
+            .unwrap_or_default();
+        let burn_part = match burn {
+            Some(b) if b.is_finite() => format!("{:.2}x burn (1h)", b),
+            _ => "burn rate unavailable".to_string(),
+        };
+        let budget_part = match (remaining, consumed, total) {
+            (Some(r), Some(c), Some(t)) if t > 0.0 => {
+                format!("预算剩余 {:.1}% ({:.1}/{:.1} min)", r, c, t)
+            }
+            _ => "无预算快照".to_string(),
+        };
+        out.push_str(&format!(
+            "- {comp_part}**{name}** ({:.2}% / {window}d): {burn_part}, {budget_part}\n",
+            obj
+        ));
+    }
+    out.push('\n');
+    out
 }
 
 /// Load default LLM provider env vars (so RCA uses the same Bedrock/gateway
@@ -174,7 +275,8 @@ pub async fn run_rca(pool: PgPool, config: Arc<AppConfig>, registry: Arc<RcaRegi
     // Register broadcast channel
     let (tx, _rx) = registry.register(issue_id).await;
 
-    let prompt = build_rca_prompt(&issue);
+    let slo_context = build_slo_context(&pool, issue_id).await;
+    let prompt = build_rca_prompt(&issue, &slo_context);
     let provider_envs = load_default_provider_envs(&pool).await;
 
     let agent = crate::services::agent::claude::ClaudeAgent {
