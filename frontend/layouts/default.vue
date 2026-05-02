@@ -32,15 +32,15 @@ useSurfaceMode()
          z-9   : vignette (edge darkening)
          z-8   : noise (film grain, mix-blend overlay)
          z-0+  : app content -->
+    <!-- Aurora (dark): return to the reference's minimalism.
+         3 elements only — cold-black base, triangle mesh, bottom halo.
+         Everything I (Claude) added on top (corner glows, wisps,
+         vignette, noise, hexgrid, stars) is OFF. The reference gets
+         its depth from a saturated single-layer halo, not from layering. -->
     <template v-else>
       <div class="fixed inset-0 -z-20 pointer-events-none bg-background" aria-hidden="true" />
       <LayoutMeshTexture />
-      <!-- LayoutAuroraHexgrid removed — pending redesign -->
       <LayoutAuroraHalo />
-      <LayoutAuroraHaloWisps />
-      <LayoutAuroraCornerGlow />
-      <LayoutAuroraVignette />
-      <LayoutAuroraNoise />
     </template>
 
     <!-- Floating Glass Islands grid -->

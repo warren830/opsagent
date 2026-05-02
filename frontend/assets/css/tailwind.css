@@ -216,39 +216,35 @@
   }
 
   /* ─── Aurora halo (dark theme signature) ─── */
-  /* Bottom 45vh band with 4 layered radial gradients for depth. Heavier
-     blur + richer alpha make it read as an "aurora borealis" rather than
-     a flat brand stripe. Intensity multiplied by --halo-dim. */
+  /* Reference-style single-layer halo: 3 saturated radial blooms
+     (pink-purple / teal / indigo) seeded just below the viewport so
+     they feel like light rising from off-screen. Large ellipses (90%
+     width × 110% height) overlap in the middle for color mixing.
+     Heavy 56px blur makes the boundaries dissolve into the base.
+     This is the "big soft key light" — single-source, not multi-layer. */
   .aurora-halo {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    height: 45vh;
+    height: 60vh;
     z-index: -10;
     pointer-events: none;
     opacity: var(--halo-dim, 0);
     transition: opacity 600ms var(--motion-ease-smooth);
     background:
-      /* Layer 1: upward "spike" — gives vertical lift */
-      radial-gradient(ellipse 28% 60% at 50% 140%,
-        hsl(var(--aurora-teal) / 0.32) 0%,
-        transparent 65%),
-      /* Layer 2: left pink-purple bloom */
-      radial-gradient(ellipse 65% 130% at 18% 115%,
-        hsl(var(--aurora-pink) / 0.55) 0%,
+      radial-gradient(ellipse 90% 110% at 18% 115%,
+        hsl(var(--aurora-pink) / 0.58) 0%,
         transparent 55%),
-      /* Layer 3: center teal */
-      radial-gradient(ellipse 72% 120% at 50% 115%,
-        hsl(var(--aurora-teal) / 0.48) 0%,
+      radial-gradient(ellipse 100% 120% at 50% 120%,
+        hsl(var(--aurora-teal) / 0.52) 0%,
         transparent 58%),
-      /* Layer 4: right indigo bloom */
-      radial-gradient(ellipse 65% 130% at 82% 115%,
-        hsl(var(--aurora-indigo) / 0.52) 0%,
+      radial-gradient(ellipse 90% 110% at 82% 115%,
+        hsl(var(--aurora-indigo) / 0.58) 0%,
         transparent 55%);
-    filter: blur(48px);
-    will-change: transform, opacity;
-    animation: aurora-drift 45s var(--motion-ease-smooth) infinite;
+    filter: blur(56px);
+    will-change: opacity;
+    animation: aurora-drift 60s var(--motion-ease-smooth) infinite;
   }
 
   /* Top-right ambient glow — teal, very subtle */
