@@ -229,6 +229,25 @@ pub struct BudgetHistoryQuery {
 }
 
 // ---------------------------------------------------------------------------
+// Response DTOs — W3 ruler sync endpoints.
+// ---------------------------------------------------------------------------
+
+/// Response payload for `POST /api/slos/:id/sync-rules` and also embedded in
+/// create/update responses to surface ruler state back to the UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncResult {
+    pub slo_id: Uuid,
+    /// `true` when the rule group was pushed to Mimir successfully.
+    pub synced: bool,
+    /// Hash of the pushed rule group YAML. `None` when the sync was skipped
+    /// (e.g. no Mimir backend configured).
+    pub recording_rules_hash: Option<String>,
+    /// Human-readable description of what happened — rendered in the UI
+    /// toast.
+    pub message: String,
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

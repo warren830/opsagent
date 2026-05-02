@@ -22,10 +22,11 @@ use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::slo::{
     BudgetHistoryQuery, CreateSloRequest, ErrorBudgetSnapshot, PreviewRequest, Slo, SliQuery,
-    UpdateSloRequest,
+    SyncResult, UpdateSloRequest,
 };
 use crate::services::common::require_non_empty;
 use crate::services::slo::mimir_client::{self, MetricsEndpoint};
+use crate::services::slo::{rule_generator, ruler_client};
 
 // ---------------------------------------------------------------------------
 // List / Get
@@ -133,6 +134,10 @@ pub async fn create(
         AppError::Database(e)
     })?;
 
+    // Best-effort rule push — the SLO row is already committed, so any
+    // failure here only logs and is recoverable via /sync-rules.
+    let row = sync_and_persist(&state, row, false).await;
+
     Ok(Json(row))
 }
 
@@ -187,6 +192,10 @@ pub async fn update(
         AppError::Database(e)
     })?;
 
+    // Re-render and push rules only when the hash changes — the generator is
+    // deterministic so an unchanged name/query pair is cheap to skip.
+    let row = sync_and_persist(&state, row, false).await;
+
     Ok(Json(row))
 }
 
@@ -196,7 +205,14 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let _ = fetch_slo(&state, &auth_user, id).await?;
+    let slo = fetch_slo(&state, &auth_user, id).await?;
+
+    // Delete rules first so a DB cascade doesn't orphan the ruler group. If
+    // Mimir isn't reachable we still DB-delete; the orphan is cleanable via
+    // the next sync-rules cycle against any other SLO.
+    if let Err(e) = remove_rules(&state, &slo).await {
+        tracing::warn!(slo_id = %slo.id, error = %e, "Mimir ruler delete_rules failed; continuing with DB delete");
+    }
 
     sqlx::query("DELETE FROM slos WHERE id = $1")
         .bind(id)
@@ -245,6 +261,23 @@ async fn set_enabled(
     .bind(enabled)
     .fetch_one(&state.pool)
     .await?;
+
+    // Enabled → push rules; disabled → drop them. Both best-effort.
+    let row = if enabled {
+        sync_and_persist(state, row, false).await
+    } else {
+        if let Err(e) = remove_rules(state, &row).await {
+            tracing::warn!(slo_id = %row.id, error = %e, "disable: ruler delete_rules failed");
+        }
+        // Clear hash so a subsequent enable re-pushes unconditionally.
+        match clear_rules_hash(state, row.id).await {
+            Ok(cleared) => cleared,
+            Err(e) => {
+                tracing::warn!(slo_id = %row.id, error = %e, "failed to clear recording_rules_hash");
+                row
+            }
+        }
+    };
     Ok(Json(row))
 }
 
@@ -396,6 +429,165 @@ pub async fn budget_history(
     .await?;
 
     Ok(Json(rows))
+}
+
+// ---------------------------------------------------------------------------
+// Ruler sync endpoint + helpers
+// ---------------------------------------------------------------------------
+
+/// POST /api/slos/:id/sync-rules — manually re-render and push rules.
+///
+/// The caller gets back a [`SyncResult`] so the UI can show whether Mimir
+/// accepted the update, was skipped (no telemetry backend), or failed.
+pub async fn sync_rules(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<SyncResult>> {
+    let slo = fetch_slo(&state, &auth_user, id).await?;
+    let result = push_rules(&state, &slo).await;
+    // Persist hash on success so drift detection has the right baseline.
+    if let Some(ref hash) = result.recording_rules_hash {
+        if let Err(e) = write_rules_hash(&state, slo.id, hash).await {
+            tracing::warn!(slo_id = %slo.id, error = %e, "failed to persist recording_rules_hash after manual sync");
+        }
+    }
+    Ok(Json(result))
+}
+
+/// Render the SLO's rule group, push it to Mimir if configured, and return a
+/// SyncResult describing what happened. Does NOT touch the DB — callers
+/// decide whether to persist the hash.
+async fn push_rules(state: &AppState, slo: &Slo) -> SyncResult {
+    if !slo.enabled {
+        return SyncResult {
+            slo_id: slo.id,
+            synced: false,
+            recording_rules_hash: None,
+            message: "SLO is disabled; rules not pushed.".to_string(),
+        };
+    }
+    let yaml = rule_generator::render_rule_group(slo);
+    let hash = rule_generator::rules_hash(&yaml);
+    let namespace = rule_generator::ruler_namespace();
+
+    let cfg = match ruler_client::resolve_ruler_config(&state.pool, Some(slo.tenant_id)).await {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            return SyncResult {
+                slo_id: slo.id,
+                synced: false,
+                recording_rules_hash: None,
+                message: "No Mimir metrics backend configured; rules were not pushed.".to_string(),
+            };
+        }
+        Err(e) => {
+            tracing::warn!(slo_id = %slo.id, error = %e, "resolve_ruler_config failed");
+            return SyncResult {
+                slo_id: slo.id,
+                synced: false,
+                recording_rules_hash: None,
+                message: format!("Telemetry lookup failed: {}", e),
+            };
+        }
+    };
+
+    let client = match ruler_client::RulerClient::from_telemetry_config(&cfg) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(slo_id = %slo.id, error = %e, "ruler client build failed");
+            return SyncResult {
+                slo_id: slo.id,
+                synced: false,
+                recording_rules_hash: None,
+                message: format!("Ruler configuration invalid: {}", e),
+            };
+        }
+    };
+
+    match client.upsert_rules(namespace, &yaml).await {
+        Ok(()) => SyncResult {
+            slo_id: slo.id,
+            synced: true,
+            recording_rules_hash: Some(hash),
+            message: "Rules pushed to Mimir.".to_string(),
+        },
+        Err(e) => {
+            tracing::warn!(slo_id = %slo.id, error = %e, "Mimir ruler upsert failed");
+            SyncResult {
+                slo_id: slo.id,
+                synced: false,
+                recording_rules_hash: None,
+                message: format!("Mimir ruler rejected the rules: {}", e),
+            }
+        }
+    }
+}
+
+/// Delete the rule group for this SLO from Mimir. Returns `Ok` on success or
+/// when the backend isn't configured.
+async fn remove_rules(state: &AppState, slo: &Slo) -> AppResult<()> {
+    let cfg = match ruler_client::resolve_ruler_config(&state.pool, Some(slo.tenant_id)).await? {
+        Some(c) => c,
+        None => return Ok(()),
+    };
+    let client = ruler_client::RulerClient::from_telemetry_config(&cfg)?;
+    let group = rule_generator::group_name(&slo.id);
+    client
+        .delete_rules(rule_generator::ruler_namespace(), &group)
+        .await
+}
+
+/// Push rules and, on success, persist the returned hash to the SLO row.
+/// When the hash already matches the stored one, skip the push entirely —
+/// this is the drift-detection fast path.
+async fn sync_and_persist(state: &AppState, slo: Slo, force: bool) -> Slo {
+    // Fast-path drift check: same hash → no-op.
+    if !force {
+        let rendered = rule_generator::render_rule_group(&slo);
+        let new_hash = rule_generator::rules_hash(&rendered);
+        if slo.recording_rules_hash.as_deref() == Some(&new_hash) {
+            return slo;
+        }
+    }
+
+    let result = push_rules(state, &slo).await;
+    if let Some(ref hash) = result.recording_rules_hash {
+        match write_rules_hash(state, slo.id, hash).await {
+            Ok(updated) => updated,
+            Err(e) => {
+                tracing::warn!(slo_id = %slo.id, error = %e, "failed to persist recording_rules_hash");
+                slo
+            }
+        }
+    } else {
+        slo
+    }
+}
+
+async fn write_rules_hash(state: &AppState, id: Uuid, hash: &str) -> AppResult<Slo> {
+    let row = sqlx::query_as::<_, Slo>(
+        r#"UPDATE slos SET recording_rules_hash = $2, updated_at = NOW()
+           WHERE id = $1
+           RETURNING *"#,
+    )
+    .bind(id)
+    .bind(hash)
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(row)
+}
+
+async fn clear_rules_hash(state: &AppState, id: Uuid) -> AppResult<Slo> {
+    let row = sqlx::query_as::<_, Slo>(
+        r#"UPDATE slos SET recording_rules_hash = NULL, updated_at = NOW()
+           WHERE id = $1
+           RETURNING *"#,
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(row)
 }
 
 // ---------------------------------------------------------------------------

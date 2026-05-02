@@ -479,6 +479,7 @@ fn build_router(state: AppState) -> Router {
             "/api/slos/{id}/budget/history",
             get(handlers::slo::budget_history),
         )
+        .route("/api/slos/{id}/sync-rules", post(handlers::slo::sync_rules))
         .layer(axum_middleware::from_fn_with_state(
             jwt_secret,
             middleware::auth::auth_middleware,
