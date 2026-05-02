@@ -43,6 +43,43 @@ pub const ALL_LIFECYCLES: &[&str] = &[
     LIFECYCLE_RETIRED,
 ];
 
+/// Valid `relation_type` values (mirrors the CHECK constraint in migration
+/// `20260503000001_catalog_relations.sql`).
+pub const RELATION_OWNS: &str = "owns";
+pub const RELATION_PROVIDES: &str = "provides";
+pub const RELATION_CONSUMES: &str = "consumes";
+pub const RELATION_DEPENDS_ON: &str = "depends_on";
+pub const RELATION_PART_OF: &str = "part_of";
+pub const RELATION_DEPLOYED_ON: &str = "deployed_on";
+
+pub const ALL_RELATION_TYPES: &[&str] = &[
+    RELATION_OWNS,
+    RELATION_PROVIDES,
+    RELATION_CONSUMES,
+    RELATION_DEPENDS_ON,
+    RELATION_PART_OF,
+    RELATION_DEPLOYED_ON,
+];
+
+/// Valid `role` values for group membership.
+pub const ROLE_OWNER: &str = "owner";
+pub const ROLE_MEMBER: &str = "member";
+
+pub const ALL_ROLES: &[&str] = &[ROLE_OWNER, ROLE_MEMBER];
+
+/// Valid `source` values for catalog import runs.
+pub const IMPORT_SOURCE_MANUAL: &str = "manual";
+pub const IMPORT_SOURCE_GITHUB_ORG: &str = "github_org";
+pub const IMPORT_SOURCE_GIT_URL: &str = "git_url";
+pub const IMPORT_SOURCE_K8S_DISCOVERY: &str = "k8s_discovery";
+
+pub const ALL_IMPORT_SOURCES: &[&str] = &[
+    IMPORT_SOURCE_MANUAL,
+    IMPORT_SOURCE_GITHUB_ORG,
+    IMPORT_SOURCE_GIT_URL,
+    IMPORT_SOURCE_K8S_DISCOVERY,
+];
+
 /// Single-table entity record. The `kind` column discriminates between
 /// System / Component / API / Resource / Group; kind-specific fields live
 /// inside `spec` (JSONB) so the schema stays stable as the Catalog evolves.
@@ -75,6 +112,67 @@ impl CatalogEntity {
     /// Returns true if the given `lifecycle` value is valid.
     pub fn is_valid_lifecycle(lifecycle: &str) -> bool {
         ALL_LIFECYCLES.contains(&lifecycle)
+    }
+}
+
+/// Typed edge between two `catalog_entities`. The combination
+/// (`from_id`, `to_id`, `relation_type`) is unique; deletion of either
+/// endpoint cascades to the relation row.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct CatalogRelation {
+    pub id: Uuid,
+    pub from_id: Uuid,
+    pub to_id: Uuid,
+    pub relation_type: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl CatalogRelation {
+    /// Returns true if the given `relation_type` value is one of the six
+    /// valid types.
+    pub fn is_valid_relation_type(relation_type: &str) -> bool {
+        ALL_RELATION_TYPES.contains(&relation_type)
+    }
+}
+
+/// Membership link between a Group entity (`catalog_entities.kind = 'group'`)
+/// and a platform `users` row. Primary key is the composite
+/// (`group_id`, `user_id`).
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct CatalogGroupMember {
+    pub group_id: Uuid,
+    pub user_id: Uuid,
+    pub role: String,
+}
+
+impl CatalogGroupMember {
+    /// Returns true if the given `role` value is valid.
+    pub fn is_valid_role(role: &str) -> bool {
+        ALL_ROLES.contains(&role)
+    }
+}
+
+/// Audit record of a single catalog import run (YAML upload, GitHub org
+/// sync, K8s discovery pass, etc.). `errors` is a JSON array of per-entity
+/// failure descriptors; `completed_at` is NULL while the run is in flight.
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct CatalogImportRun {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub source: String,
+    pub source_ref: Option<String>,
+    pub entities_created: i32,
+    pub entities_updated: i32,
+    pub errors: serde_json::Value,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+impl CatalogImportRun {
+    /// Returns true if the given `source` value is one of the four supported
+    /// import sources.
+    pub fn is_valid_source(source: &str) -> bool {
+        ALL_IMPORT_SOURCES.contains(&source)
     }
 }
 
@@ -135,5 +233,80 @@ mod tests {
         assert_eq!(parsed.name, original.name);
         assert_eq!(parsed.tags.len(), 2);
         assert_eq!(parsed.annotations, original.annotations);
+    }
+
+    #[test]
+    fn relation_type_validation_accepts_all_six_types() {
+        assert!(CatalogRelation::is_valid_relation_type(RELATION_OWNS));
+        assert!(CatalogRelation::is_valid_relation_type(RELATION_PROVIDES));
+        assert!(CatalogRelation::is_valid_relation_type(RELATION_CONSUMES));
+        assert!(CatalogRelation::is_valid_relation_type(RELATION_DEPENDS_ON));
+        assert!(CatalogRelation::is_valid_relation_type(RELATION_PART_OF));
+        assert!(CatalogRelation::is_valid_relation_type(RELATION_DEPLOYED_ON));
+
+        assert!(!CatalogRelation::is_valid_relation_type("depends-on"));
+        assert!(!CatalogRelation::is_valid_relation_type(""));
+        assert!(!CatalogRelation::is_valid_relation_type("OWNS"));
+    }
+
+    #[test]
+    fn role_validation_accepts_owner_and_member() {
+        assert!(CatalogGroupMember::is_valid_role(ROLE_OWNER));
+        assert!(CatalogGroupMember::is_valid_role(ROLE_MEMBER));
+
+        assert!(!CatalogGroupMember::is_valid_role("admin"));
+        assert!(!CatalogGroupMember::is_valid_role(""));
+        assert!(!CatalogGroupMember::is_valid_role("Owner"));
+    }
+
+    #[test]
+    fn catalog_relation_serde_roundtrip() {
+        let original = CatalogRelation {
+            id: Uuid::new_v4(),
+            from_id: Uuid::new_v4(),
+            to_id: Uuid::new_v4(),
+            relation_type: RELATION_DEPENDS_ON.to_string(),
+            created_at: Utc::now(),
+        };
+
+        let json = serde_json::to_string(&original).expect("serialize");
+        let parsed: CatalogRelation = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(parsed.id, original.id);
+        assert_eq!(parsed.from_id, original.from_id);
+        assert_eq!(parsed.to_id, original.to_id);
+        assert_eq!(parsed.relation_type, RELATION_DEPENDS_ON);
+    }
+
+    #[test]
+    fn catalog_import_run_serde_roundtrip() {
+        let original = CatalogImportRun {
+            id: Uuid::new_v4(),
+            tenant_id: Uuid::new_v4(),
+            source: IMPORT_SOURCE_GITHUB_ORG.to_string(),
+            source_ref: Some("acme/backstage-catalog".into()),
+            entities_created: 12,
+            entities_updated: 3,
+            errors: serde_json::json!([
+                {"name": "broken-service", "reason": "missing kind"}
+            ]),
+            started_at: Utc::now(),
+            completed_at: Some(Utc::now()),
+        };
+
+        let json = serde_json::to_string(&original).expect("serialize");
+        let parsed: CatalogImportRun = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(parsed.id, original.id);
+        assert_eq!(parsed.tenant_id, original.tenant_id);
+        assert_eq!(parsed.source, IMPORT_SOURCE_GITHUB_ORG);
+        assert_eq!(parsed.entities_created, 12);
+        assert_eq!(parsed.entities_updated, 3);
+        assert_eq!(parsed.errors, original.errors);
+        assert!(parsed.completed_at.is_some());
+
+        assert!(CatalogImportRun::is_valid_source(IMPORT_SOURCE_MANUAL));
+        assert!(CatalogImportRun::is_valid_source(IMPORT_SOURCE_K8S_DISCOVERY));
+        assert!(!CatalogImportRun::is_valid_source("csv"));
     }
 }
