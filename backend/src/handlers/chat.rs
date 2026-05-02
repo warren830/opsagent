@@ -4,6 +4,7 @@ use axum::{
     response::sse::{Event, Sse},
 };
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -15,6 +16,8 @@ use crate::error::{AppError, AppResult};
 use crate::middleware::auth::{AuthUser, Claims};
 use crate::services::agent::{Agent, AgentEvent, AgentSessionConfig, ImageData as AgentImageData};
 use crate::services::claude::{AgentPermission, ClaudeService, StreamChunk};
+use crate::services::incident::timeline as incident_timeline;
+use crate::services::incident::timeline_bus::TimelineBus;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -54,6 +57,99 @@ pub struct ChatRequest {
     /// Disabled MCP tools in "serverId:toolName" format → mapped to mcp__serverName__toolName
     #[serde(default)]
     pub disabled_mcp_tools: Option<Vec<String>>,
+    /// If set, this chat session is bound to an incident — Claude tool
+    /// calls will be forwarded onto the incident timeline (W4).
+    #[serde(default)]
+    pub incident_id: Option<uuid::Uuid>,
+}
+
+/// If the chat session at `claude_session_id` is bound to an incident,
+/// mirror the Claude tool-call as a timeline event. Best-effort — all
+/// failures log and return silently so the chat stream never stalls.
+///
+/// Called from inside the SSE loop for each `ToolUse` / `ToolResult`
+/// chunk. The cost is one SELECT + (if bound) one INSERT + a broadcast
+/// publish — negligible relative to a tool round-trip.
+async fn maybe_record_agent_timeline(
+    pool: &PgPool,
+    bus: &TimelineBus,
+    claude_session_id: &str,
+    tool_name: &str,
+    content_summary: &str,
+    event_kind: &str, // "tool_use" or "tool_result"
+) {
+    if claude_session_id.is_empty() {
+        return;
+    }
+    let bound: Option<(Option<String>, Option<uuid::Uuid>)> = match sqlx::query_as(
+        r#"SELECT context_type, context_id FROM claude_sessions
+           WHERE claude_session_id = $1"#,
+    )
+    .bind(claude_session_id)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(row) => row,
+        Err(e) => {
+            tracing::warn!("chat timeline: session lookup failed: {}", e);
+            return;
+        }
+    };
+    let (Some(ctype), Some(cid)) = bound.unwrap_or((None, None)) else {
+        return;
+    };
+    if ctype != "incident" {
+        return;
+    }
+    // Trim long payloads so the timeline doesn't accumulate MB of JSON.
+    let trimmed = if content_summary.len() > 2000 {
+        format!("{}…[truncated]", &content_summary[..2000])
+    } else {
+        content_summary.to_string()
+    };
+    let actor = incident_timeline::agent_actor("claude", claude_session_id);
+    let summary = format!("Agent {}: {}", event_kind, tool_name);
+    let payload = serde_json::json!({
+        "tool_name": tool_name,
+        "event_kind": event_kind,
+        "content": trimmed,
+    });
+    if let Err(e) = incident_timeline::record_event(
+        pool,
+        bus,
+        cid,
+        incident_timeline::KIND_CHAT_TOOL_CALL,
+        actor,
+        &summary,
+        payload,
+    )
+    .await
+    {
+        tracing::warn!("chat timeline: record_event failed: {}", e);
+    }
+}
+
+/// If `incident_id` is set on the inbound request, stamp the session row
+/// once so future tool calls are self-identifying. Idempotent — runs on
+/// every chunk but only touches the DB when needed.
+async fn bind_session_to_incident(pool: &PgPool, claude_session_id: &str, incident_id: uuid::Uuid) {
+    if claude_session_id.is_empty() {
+        return;
+    }
+    if let Err(e) = sqlx::query(
+        r#"UPDATE claude_sessions
+             SET context_type = 'incident', context_id = $2
+           WHERE claude_session_id = $1
+             AND (context_type IS DISTINCT FROM 'incident'
+                  OR context_id IS DISTINCT FROM $2)"#,
+    )
+    .bind(claude_session_id)
+    .bind(incident_id)
+    .execute(pool)
+    .await
+    {
+        tracing::warn!("chat timeline: failed to bind session to incident: {}", e);
+    }
 }
 
 type SseEventStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
@@ -140,6 +236,10 @@ pub async fn stream(
     let tenant_id = auth_user.tenant_id;
     let pool = state.pool.clone();
     let message_text = req.message.clone();
+    // W4: forward tool calls to the bound incident timeline when the
+    // caller asked for it via `incident_id`.
+    let bound_incident_id: Option<uuid::Uuid> = req.incident_id;
+    let timeline_bus: Arc<TimelineBus> = state.timeline_bus.clone();
 
     // Build env vars: provider config + AWS credentials from cloud accounts
     let mut all_env_vars = provider.env_vars;
@@ -280,6 +380,15 @@ pub async fn stream(
                                     let _ = ClaudeService::backfill_message_session(&pool2, id, &sid2).await;
                                 }
                             });
+                            // W4: bind session to incident so subsequent
+                            // tool calls mirror onto the incident timeline.
+                            if let Some(inc_id) = bound_incident_id {
+                                let pool2 = pool.clone();
+                                let sid2 = sid.clone();
+                                tokio::spawn(async move {
+                                    bind_session_to_incident(&pool2, &sid2, inc_id).await;
+                                });
+                            }
                         }
                         AgentEvent::Done { session_id: Some(sid), .. } => {
                             let pool2 = pool.clone();
@@ -333,9 +442,34 @@ pub async fn stream(
                         }
                         AgentEvent::ToolUse { tool_name, content } => {
                             spawn_save(pool.clone(), stream_session_id.clone(), seq.clone(), content.clone(), "tool_use", Some(tool_name.clone()));
+                            // W4: mirror tool call into bound incident timeline (if any).
+                            let pool2 = pool.clone();
+                            let bus2 = timeline_bus.clone();
+                            let ssid = stream_session_id.clone();
+                            let tool = tool_name.clone();
+                            let content2 = content.clone();
+                            tokio::spawn(async move {
+                                let sid = ssid.lock().await.clone().unwrap_or_default();
+                                maybe_record_agent_timeline(
+                                    &pool2, &bus2, &sid, &tool, &content2, "tool_use",
+                                )
+                                .await;
+                            });
                         }
                         AgentEvent::ToolResult { tool_name, content } => {
                             spawn_save(pool.clone(), stream_session_id.clone(), seq.clone(), content.clone(), "tool_result", Some(tool_name.clone()));
+                            let pool2 = pool.clone();
+                            let bus2 = timeline_bus.clone();
+                            let ssid = stream_session_id.clone();
+                            let tool = tool_name.clone();
+                            let content2 = content.clone();
+                            tokio::spawn(async move {
+                                let sid = ssid.lock().await.clone().unwrap_or_default();
+                                maybe_record_agent_timeline(
+                                    &pool2, &bus2, &sid, &tool, &content2, "tool_result",
+                                )
+                                .await;
+                            });
                         }
                         AgentEvent::Done { duration_ms, .. } => {
                             let text_id = current_text_msg_id.clone();

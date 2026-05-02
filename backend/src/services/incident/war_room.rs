@@ -8,12 +8,13 @@
 
 use chrono::Utc;
 use sqlx::PgPool;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::models::channel::Channel;
 use crate::models::incident::Incident;
 use crate::models::user::User;
-use crate::services::incident::{slack_helper, timeline};
+use crate::services::incident::{slack_helper, timeline, timeline_bus::TimelineBus};
 use crate::services::jira::JiraClient;
 
 pub struct WarRoomResult {
@@ -25,7 +26,11 @@ pub struct WarRoomResult {
 /// Full pipeline: channel → invites → Jira → DB writeback → timeline event.
 /// Errors are collected into `WarRoomResult::errors` and logged at WARN
 /// level; the caller does not need to branch on them.
-pub async fn spawn_war_room(pool: &PgPool, incident_id: Uuid) -> WarRoomResult {
+pub async fn spawn_war_room(
+    pool: &PgPool,
+    bus: Arc<TimelineBus>,
+    incident_id: Uuid,
+) -> WarRoomResult {
     let mut result = WarRoomResult {
         channel_ref: None,
         jira_key: None,
@@ -189,6 +194,7 @@ pub async fn spawn_war_room(pool: &PgPool, incident_id: Uuid) -> WarRoomResult {
 
     if let Err(e) = timeline::record_event(
         pool,
+        &bus,
         incident_id,
         timeline::KIND_STATUS_CHANGED,
         actor,

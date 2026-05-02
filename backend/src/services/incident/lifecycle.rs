@@ -8,11 +8,12 @@
 //! < 300ms perceived latency per AGENT_BRIEF W3).
 
 use sqlx::PgPool;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::incident::{self, CreateIncidentRequest, Incident};
-use crate::services::incident::{timeline, war_room};
+use crate::services::incident::{timeline, timeline_bus::TimelineBus, war_room};
 
 /// What triggered the incident. `create_from_source` uses it to seed the
 /// timeline + stamp the `detection_source` column.
@@ -57,6 +58,7 @@ impl IncidentSource {
 /// failure (if any) is logged but does not propagate.
 pub async fn create_incident_with_automation(
     pool: &PgPool,
+    bus: Arc<TimelineBus>,
     tenant_id: Option<Uuid>,
     source: IncidentSource,
     req: CreateIncidentRequest,
@@ -110,6 +112,7 @@ pub async fn create_incident_with_automation(
     let actor = source.actor();
     if let Err(e) = timeline::record_event(
         pool,
+        &bus,
         row.id,
         timeline::KIND_STATUS_CHANGED,
         actor,
@@ -130,9 +133,10 @@ pub async fn create_incident_with_automation(
     // Fire-and-forget: slack + jira happen after the handler has already
     // responded. Any error is logged inside `spawn_war_room`.
     let pool_bg = pool.clone();
+    let bus_bg = bus.clone();
     let incident_id = row.id;
     tokio::spawn(async move {
-        let result = war_room::spawn_war_room(&pool_bg, incident_id).await;
+        let result = war_room::spawn_war_room(&pool_bg, bus_bg, incident_id).await;
         if !result.errors.is_empty() {
             tracing::warn!(
                 "war_room automation produced {} warning(s) for incident {}: {:?}",

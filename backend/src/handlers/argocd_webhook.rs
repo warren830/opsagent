@@ -95,7 +95,7 @@ pub async fn receive(
             namespace,
             &payload.app_name,
             action,
-            detail,
+            detail.clone(),
             None, // no user — automated event
             None, // tenant determined by cluster
         )
@@ -122,6 +122,34 @@ pub async fn receive(
             tracing::error!("Failed to record ArgoCD event: {}", e);
         }
     }
+
+    // W4: fan this event out to any active incident whose affected
+    // components include the ArgoCD app. Non-blocking — logs on failure.
+    let timeline_kind = match action {
+        "argocd_sync_success" => crate::services::incident::timeline::KIND_DEPLOY_SUCCEEDED,
+        "argocd_sync_degraded"
+        | "argocd_health_degraded"
+        | "argocd_out_of_sync" => crate::services::incident::timeline::KIND_DEPLOY_FAILED,
+        "argocd_progressing" => crate::services::incident::timeline::KIND_DEPLOY_STARTED,
+        _ => crate::services::incident::timeline::KIND_DEPLOYMENT,
+    };
+    let actor = crate::services::incident::timeline::system_actor("argocd_webhook");
+    let summary = format!(
+        "ArgoCD {} for {} (rev {})",
+        action,
+        payload.app_name,
+        payload.revision.as_deref().unwrap_or("?")
+    );
+    crate::services::incident::timeline::fanout_deploy_event_to_incidents(
+        &state.pool,
+        &state.timeline_bus,
+        &payload.app_name,
+        timeline_kind,
+        actor,
+        &summary,
+        detail.clone(),
+    )
+    .await;
 
     Ok(Json(serde_json::json!({
         "status": "ok",

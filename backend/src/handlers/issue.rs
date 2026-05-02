@@ -340,6 +340,7 @@ pub async fn promote_to_incident(
 
     let incident = lifecycle::create_incident_with_automation(
         &state.pool,
+        state.timeline_bus.clone(),
         issue.tenant_id,
         IncidentSource::Alert { issue_id: issue.id },
         create_req,

@@ -41,6 +41,7 @@ async fn main() {
         pool,
         config: config.clone(),
         rca_registry: std::sync::Arc::new(services::rca::RcaRegistry::new()),
+        timeline_bus: std::sync::Arc::new(services::incident::timeline_bus::TimelineBus::new()),
     };
 
     // Spawn token cleanup task (every 6 hours)
@@ -402,6 +403,10 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/api/incidents/{id}/timeline",
             get(handlers::incident::list_timeline),
+        )
+        .route(
+            "/api/incidents/{id}/timeline/stream",
+            get(handlers::incident::stream_timeline),
         )
         // Knowledge
         .route(

@@ -8,4 +8,5 @@ pub mod lifecycle;
 pub mod slack_helper;
 pub mod state_machine;
 pub mod timeline;
+pub mod timeline_bus;
 pub mod war_room;

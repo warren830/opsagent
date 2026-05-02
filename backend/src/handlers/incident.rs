@@ -21,8 +21,13 @@
 use axum::{
     Json,
     extract::{Path, Query, State},
+    response::sse::{Event, Sse},
 };
 use chrono::Utc;
+use std::convert::Infallible;
+use std::pin::Pin;
+use std::time::Duration;
+use tokio_stream::{Stream, StreamExt, wrappers::BroadcastStream};
 use uuid::Uuid;
 
 use crate::AppState;
@@ -34,6 +39,8 @@ use crate::models::incident::{
     SeverityChangeRequest, TimelineQuery, TransitionRequest, UpdateIncidentRequest,
 };
 use crate::services::incident::{state_machine, timeline};
+
+type SseEventStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
 
 // ---------------------------------------------------------------------------
 // Helpers — tenant-scoped fetch + auth guard.
@@ -262,6 +269,7 @@ pub async fn create(
     let actor = timeline::user_actor(auth_user.user_id, &auth_user.username);
     if let Err(e) = timeline::record_event(
         &state.pool,
+        &state.timeline_bus,
         row.id,
         timeline::KIND_STATUS_CHANGED,
         actor,
@@ -388,6 +396,7 @@ pub async fn transition(
     let summary = format!("Status: {} → {}", current.status, req.to_status);
     if let Err(e) = timeline::record_event(
         &state.pool,
+        &state.timeline_bus,
         id,
         timeline::KIND_STATUS_CHANGED,
         actor,
@@ -468,6 +477,7 @@ pub async fn change_severity(
     );
     if let Err(e) = timeline::record_event(
         &state.pool,
+        &state.timeline_bus,
         id,
         timeline::KIND_SEVERITY_CHANGED,
         actor,
@@ -542,6 +552,7 @@ pub async fn add_participant(
     let summary = format!("Joined as {}", req.role);
     if let Err(e) = timeline::record_event(
         &state.pool,
+        &state.timeline_bus,
         id,
         timeline::KIND_PARTICIPANT_JOIN,
         actor,
@@ -593,6 +604,7 @@ pub async fn remove_participant(
     let summary = format!("Left as {role}");
     if let Err(e) = timeline::record_event(
         &state.pool,
+        &state.timeline_bus,
         id,
         timeline::KIND_PARTICIPANT_LEAVE,
         actor,
@@ -640,4 +652,95 @@ pub async fn list_timeline(
     .await?;
 
     Ok(Json(rows))
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/incidents/:id/timeline/stream (W4)
+// ---------------------------------------------------------------------------
+/// SSE endpoint that first flushes the most recent 50 timeline events
+/// (oldest-first) and then keeps the connection open, pushing new events
+/// live as writers publish onto `TimelineBus`.
+///
+/// SSE event name: `timeline.event`. Each `data` frame is the full
+/// `IncidentTimelineEvent` JSON.
+///
+/// If the broadcast channel lags (a slow subscriber), a synthetic
+/// `stream.lagged` event is emitted so the client knows to reload from
+/// the paginated endpoint. The stream keeps running.
+pub async fn stream_timeline(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Sse<axum::response::sse::KeepAliveStream<SseEventStream>>> {
+    // Auth + tenant check. We intentionally load the full row to fail
+    // early if the incident was deleted.
+    let _inc = fetch_and_check(&state, &auth_user, id).await?;
+
+    // Subscribe BEFORE reading the backlog. Otherwise a race: a publish
+    // that lands between the SELECT and subscribe would be lost.
+    let rx = state.timeline_bus.subscribe();
+
+    // Backlog — 50 most recent events, in chronological order so the
+    // client can append them as they arrive.
+    let backlog = sqlx::query_as::<_, IncidentTimelineEvent>(
+        r#"SELECT * FROM incident_timeline_events
+           WHERE incident_id = $1
+           ORDER BY occurred_at DESC
+           LIMIT 50"#,
+    )
+    .bind(id)
+    .fetch_all(&state.pool)
+    .await?;
+    // Reverse into chronological order for easy client-side append.
+    let mut backlog = backlog;
+    backlog.reverse();
+    let backlog_ids: std::collections::HashSet<Uuid> =
+        backlog.iter().map(|e| e.id).collect();
+
+    let incident_id = id;
+
+    let stream = async_stream::stream! {
+        // 1. Flush backlog.
+        for ev in backlog {
+            let data = serde_json::to_string(&ev).unwrap_or_default();
+            yield Ok::<_, Infallible>(
+                Event::default().event("timeline.event").data(data),
+            );
+        }
+
+        // 2. Subscribe + filter loop.
+        let mut bs = BroadcastStream::new(rx);
+        while let Some(result) = bs.next().await {
+            match result {
+                Ok(broadcast) => {
+                    if broadcast.incident_id != incident_id {
+                        continue;
+                    }
+                    // Dedup: skip any event whose id we already flushed.
+                    if backlog_ids.contains(&broadcast.event.id) {
+                        continue;
+                    }
+                    let data = serde_json::to_string(&broadcast.event).unwrap_or_default();
+                    yield Ok::<_, Infallible>(
+                        Event::default().event("timeline.event").data(data),
+                    );
+                }
+                Err(_lag) => {
+                    // Subscriber fell behind. Notify the client and keep going.
+                    yield Ok::<_, Infallible>(
+                        Event::default()
+                            .event("stream.lagged")
+                            .data(r#"{"hint":"reload_backlog"}"#),
+                    );
+                }
+            }
+        }
+    };
+
+    let boxed: SseEventStream = Box::pin(stream);
+    Ok(Sse::new(boxed).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("ping"),
+    ))
 }
