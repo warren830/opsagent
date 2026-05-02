@@ -19,11 +19,18 @@ useSurfaceMode()
       <LayoutAuroraBackground />
       <LayoutCursorGlow />
     </template>
-    <!-- Aurora (dark): cold-black base + mesh texture + bottom halo -->
+    <!-- Aurora (dark): 4-layer atmospheric stack
+         z-20 : solid cold-black base
+         z-10 : mesh (dot+triangle circuit texture) + halo (bottom aurora)
+                + corner glows (top-left indigo, top-right teal)
+         z-9  : vignette (edge darkening, above halo but below content)
+         z-0+ : everything else sits over this composite -->
     <template v-else>
       <div class="fixed inset-0 -z-20 pointer-events-none bg-background" aria-hidden="true" />
       <LayoutMeshTexture />
       <LayoutAuroraHalo />
+      <LayoutAuroraCornerGlow />
+      <LayoutAuroraVignette />
     </template>
 
     <!-- Floating Glass Islands grid -->

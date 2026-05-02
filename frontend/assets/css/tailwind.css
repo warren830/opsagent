@@ -136,10 +136,13 @@
     --glass-blur-subtle: 0px;
   }
 
-  /* Focus surface variant — data-dense routes suppress decoration */
+  /* Focus surface variant — data-dense routes calm the MESH but keep the
+     halo + corner glows at full strength so the brand signal stays
+     present across the whole app. Mesh suppression is what stops pixel
+     noise bleeding through log streams / metric grids. */
   [data-theme="aurora"][data-surface="focus"] {
-    --halo-dim: 0.27;                       /* ~45% → ~12% effective */
-    --mesh-opacity: 0.01;
+    --halo-dim: 0.85;                       /* nearly full — just a touch calmer */
+    --mesh-opacity: 0.008;                  /* mesh near-invisible */
   }
 }
 
@@ -213,36 +216,92 @@
   }
 
   /* ─── Aurora halo (dark theme signature) ─── */
-  /* Bottom-30-35vh gradient band: pink-purple → teal → indigo.
-     Intensity multiplied by --halo-dim (1 default, 0.27 in focus mode).
-     Self-positioning (fixed) so consumers just render <LayoutAuroraHalo />. */
+  /* Bottom 45vh band with 4 layered radial gradients for depth. Heavier
+     blur + richer alpha make it read as an "aurora borealis" rather than
+     a flat brand stripe. Intensity multiplied by --halo-dim. */
   .aurora-halo {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    height: 35vh;
+    height: 45vh;
     z-index: -10;
     pointer-events: none;
     opacity: var(--halo-dim, 0);
     transition: opacity 600ms var(--motion-ease-smooth);
     background:
-      radial-gradient(ellipse 55% 100% at 18% 100%,
-        hsl(var(--aurora-pink) / 0.38) 0%,
-        transparent 55%),
-      radial-gradient(ellipse 55% 100% at 50% 100%,
+      /* Layer 1: upward "spike" — gives vertical lift */
+      radial-gradient(ellipse 28% 60% at 50% 140%,
         hsl(var(--aurora-teal) / 0.32) 0%,
-        transparent 60%),
-      radial-gradient(ellipse 55% 100% at 82% 100%,
-        hsl(var(--aurora-indigo) / 0.34) 0%,
+        transparent 65%),
+      /* Layer 2: left pink-purple bloom */
+      radial-gradient(ellipse 65% 130% at 18% 115%,
+        hsl(var(--aurora-pink) / 0.55) 0%,
+        transparent 55%),
+      /* Layer 3: center teal */
+      radial-gradient(ellipse 72% 120% at 50% 115%,
+        hsl(var(--aurora-teal) / 0.48) 0%,
+        transparent 58%),
+      /* Layer 4: right indigo bloom */
+      radial-gradient(ellipse 65% 130% at 82% 115%,
+        hsl(var(--aurora-indigo) / 0.52) 0%,
         transparent 55%);
-    filter: blur(28px);
-    will-change: transform;
+    filter: blur(48px);
+    will-change: transform, opacity;
     animation: aurora-drift 45s var(--motion-ease-smooth) infinite;
   }
 
-  /* Isometric triangle mesh texture (SVG data URI, stroke-only).
-     Full viewport. Self-positioning (fixed). */
+  /* Top-right ambient glow — teal, very subtle */
+  .aurora-corner-tr {
+    position: fixed;
+    top: -10vh;
+    right: -10vw;
+    width: 55vw;
+    height: 55vh;
+    z-index: -10;
+    pointer-events: none;
+    opacity: calc(var(--halo-dim, 0) * 0.7);
+    transition: opacity 800ms var(--motion-ease-smooth);
+    background: radial-gradient(ellipse at top right,
+      hsl(var(--aurora-teal) / 0.22) 0%,
+      transparent 60%);
+    filter: blur(60px);
+  }
+
+  /* Top-left ambient glow — indigo, very subtle */
+  .aurora-corner-tl {
+    position: fixed;
+    top: -10vh;
+    left: -10vw;
+    width: 55vw;
+    height: 55vh;
+    z-index: -10;
+    pointer-events: none;
+    opacity: calc(var(--halo-dim, 0) * 0.55);
+    transition: opacity 800ms var(--motion-ease-smooth);
+    background: radial-gradient(ellipse at top left,
+      hsl(var(--aurora-indigo) / 0.20) 0%,
+      transparent 60%);
+    filter: blur(60px);
+  }
+
+  /* Vignette — subtle darkening at viewport edges to focus center content
+     and add cinematic depth. Sits above halo but below content. */
+  .aurora-vignette {
+    position: fixed;
+    inset: 0;
+    z-index: -9;
+    pointer-events: none;
+    opacity: var(--halo-dim, 0);
+    transition: opacity 600ms var(--motion-ease-smooth);
+    background: radial-gradient(ellipse at center,
+      transparent 45%,
+      hsl(var(--background) / 0.55) 100%);
+  }
+
+  /* Isometric triangle + dot mesh — "circuit board" feel.
+     Two stacked SVG layers: triangle strokes + vertex dots. Dots are ~2x
+     brighter than strokes, giving that "data nodes on a grid" subtext. */
   .mesh-texture {
     position: fixed;
     inset: 0;
@@ -250,9 +309,11 @@
     pointer-events: none;
     opacity: var(--mesh-opacity, 0);
     transition: opacity 600ms var(--motion-ease-smooth);
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='48' viewBox='0 0 56 48'><g fill='none' stroke='%23ffffff' stroke-width='0.6'><path d='M0 48 L28 0 L56 48 Z'/><path d='M28 0 L56 0 L42 24 Z'/><path d='M0 0 L28 0 L14 24 Z'/></g></svg>");
-    background-size: 56px 48px;
-    background-repeat: repeat;
+    background-image:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='56' viewBox='0 0 64 56'><g fill='%23ffffff'><circle cx='0' cy='0' r='1'/><circle cx='32' cy='0' r='1'/><circle cx='64' cy='0' r='1'/><circle cx='16' cy='28' r='1'/><circle cx='48' cy='28' r='1'/><circle cx='0' cy='56' r='1'/><circle cx='32' cy='56' r='1'/><circle cx='64' cy='56' r='1'/></g></svg>"),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='56' viewBox='0 0 64 56'><g fill='none' stroke='%23ffffff' stroke-width='0.5' opacity='0.5'><path d='M0 56 L32 0 L64 56 Z'/><path d='M32 0 L64 0 L48 28 Z'/><path d='M0 0 L32 0 L16 28 Z'/></g></svg>");
+    background-size: 64px 56px, 64px 56px;
+    background-repeat: repeat, repeat;
   }
 
   /* Double-layer focus ring for dark theme (1px solid + 3px aurora glow) */
