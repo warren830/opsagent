@@ -16,6 +16,7 @@ pub mod jira;
 pub mod knowledge;
 pub mod mcp;
 pub mod mcp_rollout;
+pub mod mcp_slo;
 pub mod oauth;
 pub mod pipeline;
 pub mod provider;

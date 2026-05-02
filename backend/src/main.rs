@@ -355,6 +355,8 @@ fn build_router(state: AppState) -> Router {
         .route("/api/deployment-events", get(handlers::rollout::list_events))
         // MCP Rollout endpoint (JSON-RPC from Claude CLI)
         .route("/api/mcp/rollouts", post(handlers::mcp_rollout::handle))
+        // MCP SLO endpoint (JSON-RPC — slo_query + slo_forecast for the agent)
+        .route("/api/mcp/slo", post(handlers::mcp_slo::handle))
         // Resources / Security Insights
         .route("/api/resources", get(handlers::resource::list))
         .route("/api/resources/scan", post(handlers::resource::scan))

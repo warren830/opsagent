@@ -23,6 +23,7 @@
     "pipeline": "代码仓库",
     "telemetry": "可观测性",
     "deployments": "部署",
+    "slos": "SLO",
     "issues": "问题",
     "settings": "设置",
     "selectTheme": "选择主题",
@@ -752,5 +753,81 @@
     "currentStrategy": "当前策略",
     "applyStrategy": "应用策略",
     "strategyDisabledDuringRollout": "发布进行中无法切换策略"
+  },
+  "slo": {
+    "title": "SLO",
+    "subtitle": "服务等级目标与错误预算健康度",
+    "newSlo": "新建 SLO",
+    "editSlo": "编辑 SLO",
+    "searchPlaceholder": "按名称或类型搜索",
+    "filterByComponent": "按服务过滤",
+    "allComponents": "全部服务",
+    "includeDisabled": "显示已禁用",
+    "emptyState": "暂无 SLO — 创建一个开始跟踪错误预算。",
+    "noSnapshot": "等待快照",
+    "currentSli": "当前 SLI",
+    "snapshotAt": "采集于 {time}",
+    "rulesHash": "规则哈希",
+    "syncRules": "同步规则",
+    "enable": "启用",
+    "disable": "禁用",
+    "deleteConfirm": "删除此 SLO? 相关的快照和燃烧事件也会一并删除。",
+    "created": "SLO 已创建",
+    "updated": "SLO 已更新",
+    "noBurnEvents": "近期窗口内没有错误预算燃烧事件。",
+    "burnsOngoing": "进行中",
+    "burnsPeak": "峰值",
+    "formHelp": "用 PromQL 定义 SLI（good/total 事件）与目标达成率。",
+    "preview": "预览",
+    "testPreview": "试算预览",
+    "previewHint": "保存前跑一次 30 天 PromQL 校验 good/total 查询是否正确。",
+    "previewNoData": "未返回任何数据点 — 请检查 PromQL 表达式。",
+    "previewQueryRequired": "good 和 total 查询都必填才能预览。",
+    "previewSummary": "{points} 个数据点 · 平均 SLI = {avg}%",
+    "col": {
+      "name": "名称",
+      "component": "服务",
+      "target": "目标",
+      "sli": "SLI 28d",
+      "budget": "预算",
+      "burn1h": "燃烧 1h",
+      "burn6h": "燃烧 6h",
+      "enabled": "启用"
+    },
+    "field": {
+      "name": "名称",
+      "description": "描述",
+      "descriptionPlaceholder": "一句话说明该 SLO 的用途",
+      "component": "服务",
+      "componentPlaceholder": "关联到 catalog 组件（可选）",
+      "sliType": "SLI 类型",
+      "objectivePct": "目标 %",
+      "windowDays": "窗口",
+      "goodQuery": "good 事件 PromQL",
+      "totalQuery": "total 事件 PromQL",
+      "enabled": "启用",
+      "policy": "燃烧策略"
+    },
+    "sliType": {
+      "availability": "可用性",
+      "latency": "延迟",
+      "errorRate": "错误率",
+      "custom": "自定义"
+    },
+    "tab": {
+      "sli": "SLI 时序",
+      "budget": "预算历史",
+      "burns": "燃烧事件"
+    },
+    "sections": {
+      "definition": "定义",
+      "currentBudget": "当前预算",
+      "burnRates": "燃烧速率"
+    },
+    "charts": {
+      "sliTitle": "SLI 比率（近 28d）",
+      "budgetTitle": "预算剩余（近 90d）",
+      "burnsTitle": "最近的燃烧事件"
+    }
   }
 }
