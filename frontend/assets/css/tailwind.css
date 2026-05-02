@@ -125,7 +125,9 @@
 
     /* Decoration layer intensity */
     --halo-dim: 1;                          /* full-strength halo */
-    --mesh-opacity: 0.04;                   /* ~4% triangle mesh */
+    --mesh-opacity: 0.08;                   /* ~8% — "若隐若现" sweet spot:
+                                               visible on solid dark regions,
+                                               dissolves into halo glow areas */
 
     /* Kill gloss: glass panels revert to solid panel tint on dark theme */
     --glass-bg: 225 20% 7% / 1;
@@ -136,13 +138,12 @@
     --glass-blur-subtle: 0px;
   }
 
-  /* Focus surface variant — data-dense routes calm the MESH but keep the
-     halo + corner glows at full strength so the brand signal stays
-     present across the whole app. Mesh suppression is what stops pixel
-     noise bleeding through log streams / metric grids. */
+  /* Focus surface variant — data-dense routes calm the mesh so triangle
+     strokes don't compete with log streams / metric grids. Halo stays
+     nearly full so the brand signal lives on every page. */
   [data-theme="aurora"][data-surface="focus"] {
     --halo-dim: 0.85;                       /* nearly full — just a touch calmer */
-    --mesh-opacity: 0.008;                  /* mesh near-invisible */
+    --mesh-opacity: 0.03;                   /* still visible as a hint, not a pattern */
   }
 }
 
@@ -370,9 +371,10 @@
     animation: aurora-drift 67s var(--motion-ease-smooth) infinite reverse;
   }
 
-  /* Isometric triangle + dot mesh — "circuit board" feel.
-     Two stacked SVG layers: triangle strokes + vertex dots. Dots are ~2x
-     brighter than strokes, giving that "data nodes on a grid" subtext. */
+  /* Isometric triangle mesh — "若隐若现" (faintly visible).
+     Single-layer: triangle strokes only, no dots, no internal SVG opacity.
+     Effective visibility = --mesh-opacity directly (no hidden multipliers).
+     Grid = 64x56px (equilateral triangles when stroke is 1px). */
   .mesh-texture {
     position: fixed;
     inset: 0;
@@ -380,11 +382,9 @@
     pointer-events: none;
     opacity: var(--mesh-opacity, 0);
     transition: opacity 600ms var(--motion-ease-smooth);
-    background-image:
-      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='56' viewBox='0 0 64 56'><g fill='%23ffffff'><circle cx='0' cy='0' r='1'/><circle cx='32' cy='0' r='1'/><circle cx='64' cy='0' r='1'/><circle cx='16' cy='28' r='1'/><circle cx='48' cy='28' r='1'/><circle cx='0' cy='56' r='1'/><circle cx='32' cy='56' r='1'/><circle cx='64' cy='56' r='1'/></g></svg>"),
-      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='56' viewBox='0 0 64 56'><g fill='none' stroke='%23ffffff' stroke-width='0.5' opacity='0.5'><path d='M0 56 L32 0 L64 56 Z'/><path d='M32 0 L64 0 L48 28 Z'/><path d='M0 0 L32 0 L16 28 Z'/></g></svg>");
-    background-size: 64px 56px, 64px 56px;
-    background-repeat: repeat, repeat;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='56' viewBox='0 0 64 56'><g fill='none' stroke='%23ffffff' stroke-width='0.8'><path d='M0 56 L32 0 L64 56 Z'/><path d='M32 0 L64 0 L48 28 Z'/><path d='M0 0 L32 0 L16 28 Z'/></g></svg>");
+    background-size: 64px 56px;
+    background-repeat: repeat;
   }
 
   /* Double-layer focus ring for dark theme (1px solid + 3px aurora glow) */
