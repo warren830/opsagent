@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Building2,
   Cloud, Server, Boxes, Radio, Brain, Network,
   BookOpen, LibraryBig, Wrench, Plug, Clock, Rocket,
-  GitBranch, Activity, AlertTriangle, AlertOctagon, Settings,
+  GitBranch, Activity, AlertTriangle, AlertOctagon, Settings, Target,
   ChevronDown, MessageSquare, PanelLeftClose, PanelLeftOpen,
   ChevronsUpDown, ChevronsDownUp, Layers,
 } from 'lucide-vue-next'
@@ -104,6 +104,7 @@ const navGroups = computed<NavGroup[]>(() => {
       defaultOpen: true,
       items: [
         { label: t('nav.deployments'), to: '/deployments', icon: Rocket },
+        { label: t('nav.slos'), to: '/slos', icon: Target },
         { label: t('nav.issues'), to: '/issues', icon: AlertTriangle, badge: issueCount.value || undefined },
         { label: t('nav.incidents'), to: '/incidents', icon: AlertOctagon },
       ],

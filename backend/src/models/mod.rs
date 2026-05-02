@@ -20,6 +20,7 @@ pub mod resource;
 pub mod rollout;
 pub mod scheduled_job;
 pub mod skill;
+pub mod slo;
 pub mod telemetry;
 pub mod tenant;
 pub mod user;
