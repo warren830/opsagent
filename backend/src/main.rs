@@ -402,12 +402,33 @@ fn build_router(state: AppState) -> Router {
         )
         .route(
             "/api/incidents/{id}/timeline",
-            get(handlers::incident::list_timeline),
+            get(handlers::incident::list_timeline)
+                .post(handlers::incident::create_timeline_note),
         )
         .route(
             "/api/incidents/{id}/timeline/stream",
             get(handlers::incident::stream_timeline),
         )
+        .route(
+            "/api/incidents/{id}/updates",
+            get(handlers::incident::list_updates)
+                .post(handlers::incident::create_update),
+        )
+        .route(
+            "/api/incidents/{id}/postmortem",
+            get(handlers::incident::get_postmortem)
+                .patch(handlers::incident::update_postmortem),
+        )
+        .route(
+            "/api/incidents/{id}/postmortem/draft",
+            post(handlers::incident::draft_postmortem),
+        )
+        .route(
+            "/api/incidents/{id}/postmortem/publish",
+            post(handlers::incident::publish_postmortem),
+        )
+        // MCP Incident endpoint (JSON-RPC for agent tool calls)
+        .route("/api/mcp/incidents", post(handlers::mcp_incident::handle))
         // Knowledge
         .route(
             "/api/knowledge",

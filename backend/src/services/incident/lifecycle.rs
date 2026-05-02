@@ -132,6 +132,27 @@ pub async fn create_incident_with_automation(
     // ---- 4. Background automation -------------------------------------------
     // Fire-and-forget: slack + jira happen after the handler has already
     // responded. Any error is logged inside `spawn_war_room`.
+    //
+    // TODO(W6+): auto-spawn an agent session here with
+    // `context_type='incident'` + `context_id=row.id` so the copilot is
+    // alive the moment the war room opens. Blocked on a backend-only
+    // entry point to `ClaudeService` — today only `POST /api/chat` can
+    // mint a new Claude CLI session, and that path is tied to the
+    // caller's SSE stream (user-facing). Options to close the gap:
+    //   1. Extract a headless `ClaudeService::spawn_session` that runs
+    //      Claude CLI without piping back to an HTTP stream, store the
+    //      generated session id on `claude_sessions` with the incident
+    //      context linkage, and post the "Agent online" card to the
+    //      war-room channel.
+    //   2. Queue a seed message for the first human visitor so the chat
+    //      composer loads the template prompt pre-filled.
+    // For MVP the IC opens the war-room page and the AGENT CHAT panel
+    // spawns the session on first message, which is good enough and
+    // keeps the lifecycle non-blocking.
+    //
+    // TODO(W6+): historical-similar-incidents vector retrieval. Needs a
+    // pgvector column on `knowledge_files` (or a dedicated embeddings
+    // table) plus an embedding service call. Not in MVP scope.
     let pool_bg = pool.clone();
     let bus_bg = bus.clone();
     let incident_id = row.id;

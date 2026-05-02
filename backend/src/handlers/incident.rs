@@ -34,11 +34,12 @@ use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::incident::{
-    self, AddParticipantRequest, CreateIncidentRequest, Incident, IncidentDetail,
-    IncidentParticipant, IncidentTimelineEvent, IncidentUpdate, ListIncidentsQuery,
-    SeverityChangeRequest, TimelineQuery, TransitionRequest, UpdateIncidentRequest,
+    self, AddParticipantRequest, CreateIncidentRequest, CreateTimelineNoteRequest,
+    CreateUpdateRequest, Incident, IncidentDetail, IncidentParticipant, IncidentTimelineEvent,
+    IncidentUpdate, ListIncidentsQuery, PostmortemDoc, SeverityChangeRequest, TimelineQuery,
+    TransitionRequest, UpdateIncidentRequest, UpdatePostmortemRequest,
 };
-use crate::services::incident::{state_machine, timeline};
+use crate::services::incident::{postmortem_drafter, state_machine, timeline};
 
 type SseEventStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
 
@@ -412,6 +413,115 @@ pub async fn transition(
         tracing::warn!("timeline record failed for incident {}: {}", id, e);
     }
 
+    // Auto-draft postmortem when a sev1/sev2 incident enters `resolved`.
+    // Fire-and-forget — failures are logged but do not bubble up into
+    // the transition response.
+    //
+    // NOTE: we do NOT auto-create Jira tickets for action items here
+    // because the default draft ships a placeholder-only Action Items
+    // table (`postmortem_drafter::parse_action_items` returns empty).
+    // The IC fills the table in `/incidents/:id/postmortem` and the
+    // editor page calls `POST /api/jira/create` per row.
+    if req.to_status == incident::STATUS_RESOLVED
+        && matches!(
+            current.severity.as_str(),
+            incident::SEVERITY_SEV1 | incident::SEVERITY_SEV2
+        )
+    {
+        let pool_bg = state.pool.clone();
+        let bus_bg = state.timeline_bus.clone();
+        let tenant_id = row.tenant_id;
+        let number = row.number;
+        let created_by = auth_user.user_id;
+        let incident_id_bg = id;
+        tokio::spawn(async move {
+            match crate::services::incident::postmortem_drafter::draft(&pool_bg, incident_id_bg)
+                .await
+            {
+                Ok(draft) => {
+                    let filename = format!("postmortem-INC-{number:04}.md");
+                    let kf_result: Result<(Uuid,), sqlx::Error> = sqlx::query_as(
+                        r#"INSERT INTO knowledge_files
+                               (filename, content, size_bytes, mime_type, tenant_id, created_by, source)
+                           VALUES ($1, $2, $3, 'text/markdown', $4, $5, 'postmortem')
+                           RETURNING id"#,
+                    )
+                    .bind(&filename)
+                    .bind(&draft.markdown)
+                    .bind(draft.markdown.len() as i64)
+                    .bind(tenant_id)
+                    .bind(created_by)
+                    .fetch_one(&pool_bg)
+                    .await;
+
+                    let kf_id = match kf_result {
+                        Ok((kid,)) => kid,
+                        Err(e) => {
+                            tracing::warn!(
+                                "postmortem auto-draft: insert knowledge_file failed: {e}"
+                            );
+                            return;
+                        }
+                    };
+
+                    if let Err(e) = sqlx::query(
+                        r#"UPDATE incidents
+                           SET postmortem_doc_ref = jsonb_build_object(
+                                   'knowledge_file_id', $2::text,
+                                   'filename', $3::text
+                               ),
+                               updated_at = NOW()
+                           WHERE id = $1"#,
+                    )
+                    .bind(incident_id_bg)
+                    .bind(kf_id.to_string())
+                    .bind(&filename)
+                    .execute(&pool_bg)
+                    .await
+                    {
+                        tracing::warn!("postmortem auto-draft: incident update failed: {e}");
+                    }
+
+                    let actor = crate::services::incident::timeline::system_actor(
+                        "postmortem_drafter",
+                    );
+                    if let Err(e) = crate::services::incident::timeline::record_event(
+                        &pool_bg,
+                        &bus_bg,
+                        incident_id_bg,
+                        "postmortem_draft_ready",
+                        actor,
+                        "Postmortem draft generated automatically",
+                        serde_json::json!({
+                            "knowledge_file_id": kf_id,
+                            "auto": true,
+                        }),
+                    )
+                    .await
+                    {
+                        tracing::warn!("postmortem auto-draft: timeline record failed: {e}");
+                    }
+                }
+                Err(e) => {
+                    let actor = crate::services::incident::timeline::system_actor(
+                        "postmortem_drafter",
+                    );
+                    let _ = crate::services::incident::timeline::record_event(
+                        &pool_bg,
+                        &bus_bg,
+                        incident_id_bg,
+                        "postmortem_draft_error",
+                        actor,
+                        "Postmortem auto-draft failed",
+                        serde_json::json!({ "error": e.to_string() }),
+                    )
+                    .await;
+                    tracing::warn!("postmortem auto-draft failed: {e}");
+                }
+            }
+        });
+    }
+
     Ok(Json(row))
 }
 
@@ -743,4 +853,472 @@ pub async fn stream_timeline(
             .interval(Duration::from_secs(15))
             .text("ping"),
     ))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/incidents/:id/timeline  (W5 — manual note from the war room UI)
+// ---------------------------------------------------------------------------
+/// Drop a free-form note onto the timeline. Used by the "Add note" input
+/// in the war-room page. The note always carries `kind=manual_note` unless
+/// the caller overrides it with one of the registered kinds.
+pub async fn create_timeline_note(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<CreateTimelineNoteRequest>,
+) -> AppResult<Json<IncidentTimelineEvent>> {
+    let _inc = fetch_and_check(&state, &auth_user, id).await?;
+
+    if req.summary.trim().is_empty() {
+        return Err(AppError::BadRequest("summary is required".to_string()));
+    }
+    let kind = req.kind.clone().unwrap_or_else(|| "manual_note".to_string());
+    let payload = req
+        .payload
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let actor = timeline::user_actor(auth_user.user_id, &auth_user.username);
+    let row = sqlx::query_as::<_, IncidentTimelineEvent>(
+        r#"INSERT INTO incident_timeline_events
+               (incident_id, kind, actor, summary, payload)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING *"#,
+    )
+    .bind(id)
+    .bind(&kind)
+    .bind(&actor)
+    .bind(req.summary.trim())
+    .bind(&payload)
+    .fetch_one(&state.pool)
+    .await?;
+
+    // Fan out to SSE subscribers so the war room refreshes instantly.
+    state
+        .timeline_bus
+        .publish(crate::services::incident::timeline_bus::TimelineBroadcast {
+            incident_id: id,
+            event: row.clone(),
+        });
+
+    Ok(Json(row))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/incidents/:id/updates  (W5 — stakeholder communication)
+// ---------------------------------------------------------------------------
+pub async fn create_update(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<CreateUpdateRequest>,
+) -> AppResult<Json<IncidentUpdate>> {
+    let inc = fetch_and_check(&state, &auth_user, id).await?;
+
+    if !incident::ALL_UPDATE_AUDIENCES.contains(&req.audience.as_str()) {
+        return Err(AppError::BadRequest(format!(
+            "invalid audience: {}",
+            req.audience
+        )));
+    }
+    if req.body_markdown.trim().is_empty() {
+        return Err(AppError::BadRequest(
+            "body_markdown is required".to_string(),
+        ));
+    }
+
+    let published_at = if req.publish { Some(Utc::now()) } else { None };
+
+    let row = sqlx::query_as::<_, IncidentUpdate>(
+        r#"INSERT INTO incident_updates
+               (incident_id, author_user_id, audience, status_at_time,
+                body_markdown, published_at, pushed_to)
+           VALUES ($1, $2, $3, $4, $5, $6, '{}'::jsonb)
+           RETURNING *"#,
+    )
+    .bind(id)
+    .bind(auth_user.user_id)
+    .bind(&req.audience)
+    .bind(&inc.status)
+    .bind(req.body_markdown.trim())
+    .bind(published_at)
+    .fetch_one(&state.pool)
+    .await?;
+
+    if req.publish {
+        // Broadcast a timeline event so subscribers see the update land.
+        let actor = timeline::user_actor(auth_user.user_id, &auth_user.username);
+        let summary = format!(
+            "Update published to `{}` ({} chars)",
+            req.audience,
+            req.body_markdown.chars().count()
+        );
+        if let Err(e) = timeline::record_event(
+            &state.pool,
+            &state.timeline_bus,
+            id,
+            timeline::KIND_UPDATE_PUBLISHED,
+            actor,
+            &summary,
+            serde_json::json!({
+                "update_id": row.id,
+                "audience": req.audience,
+            }),
+        )
+        .await
+        {
+            tracing::warn!("timeline record failed for update: {}", e);
+        }
+    }
+
+    Ok(Json(row))
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/incidents/:id/updates
+// ---------------------------------------------------------------------------
+pub async fn list_updates(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Vec<IncidentUpdate>>> {
+    let _inc = fetch_and_check(&state, &auth_user, id).await?;
+    let rows = sqlx::query_as::<_, IncidentUpdate>(
+        r#"SELECT * FROM incident_updates
+           WHERE incident_id = $1
+           ORDER BY created_at DESC"#,
+    )
+    .bind(id)
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(rows))
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/incidents/:id/postmortem  (W6)
+// ---------------------------------------------------------------------------
+/// Returns the postmortem markdown if one exists for this incident.
+/// Resolution:
+/// 1. `incidents.postmortem_doc_ref.knowledge_file_id` → `knowledge_files.content`
+/// 2. if absent → returns `{ status: "absent", markdown: null }`
+/// 3. if the ref exists but the row is gone → returns status `"missing"`
+///    so the client can prompt for a fresh draft.
+pub async fn get_postmortem(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<PostmortemDoc>> {
+    let inc = fetch_and_check(&state, &auth_user, id).await?;
+    let kf_id = inc
+        .postmortem_doc_ref
+        .as_ref()
+        .and_then(|v| v.get("knowledge_file_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| Uuid::parse_str(s).ok());
+
+    let Some(kf_id) = kf_id else {
+        return Ok(Json(PostmortemDoc {
+            incident_id: id,
+            knowledge_file_id: None,
+            status: "absent".to_string(),
+            markdown: None,
+            updated_at: None,
+        }));
+    };
+
+    let row: Option<(String, chrono::DateTime<Utc>)> = sqlx::query_as(
+        "SELECT content, updated_at FROM knowledge_files WHERE id = $1",
+    )
+    .bind(kf_id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    match row {
+        Some((content, updated_at)) => Ok(Json(PostmortemDoc {
+            incident_id: id,
+            knowledge_file_id: Some(kf_id),
+            status: if matches!(inc.status.as_str(), incident::STATUS_POSTMORTEM_PUBLISHED) {
+                "published".to_string()
+            } else {
+                "draft".to_string()
+            },
+            markdown: Some(content),
+            updated_at: Some(updated_at),
+        })),
+        None => Ok(Json(PostmortemDoc {
+            incident_id: id,
+            knowledge_file_id: Some(kf_id),
+            status: "missing".to_string(),
+            markdown: None,
+            updated_at: None,
+        })),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /api/incidents/:id/postmortem  (W6 — IC edits the draft)
+// ---------------------------------------------------------------------------
+pub async fn update_postmortem(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdatePostmortemRequest>,
+) -> AppResult<Json<PostmortemDoc>> {
+    let inc = fetch_and_check(&state, &auth_user, id).await?;
+    if req.markdown.trim().is_empty() {
+        return Err(AppError::BadRequest("markdown is required".to_string()));
+    }
+
+    let kf_id = inc
+        .postmortem_doc_ref
+        .as_ref()
+        .and_then(|v| v.get("knowledge_file_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| Uuid::parse_str(s).ok());
+
+    let (kf_id, updated_at): (Uuid, chrono::DateTime<Utc>) = match kf_id {
+        Some(existing) => {
+            let row: (Uuid, chrono::DateTime<Utc>) = sqlx::query_as(
+                r#"UPDATE knowledge_files SET
+                       content = $2,
+                       size_bytes = $3,
+                       updated_at = NOW()
+                   WHERE id = $1
+                   RETURNING id, updated_at"#,
+            )
+            .bind(existing)
+            .bind(&req.markdown)
+            .bind(req.markdown.len() as i64)
+            .fetch_one(&state.pool)
+            .await?;
+            row
+        }
+        None => {
+            // Draft never materialized — create the knowledge row now.
+            let filename = format!("postmortem-INC-{:04}.md", inc.number);
+            let row: (Uuid, chrono::DateTime<Utc>) = sqlx::query_as(
+                r#"INSERT INTO knowledge_files
+                       (filename, content, size_bytes, mime_type, tenant_id, created_by, source)
+                   VALUES ($1, $2, $3, 'text/markdown', $4, $5, 'postmortem')
+                   RETURNING id, updated_at"#,
+            )
+            .bind(&filename)
+            .bind(&req.markdown)
+            .bind(req.markdown.len() as i64)
+            .bind(inc.tenant_id)
+            .bind(auth_user.user_id)
+            .fetch_one(&state.pool)
+            .await?;
+
+            sqlx::query(
+                r#"UPDATE incidents
+                   SET postmortem_doc_ref = jsonb_build_object(
+                           'knowledge_file_id', $2::text,
+                           'filename', $3::text
+                       ),
+                       updated_at = NOW()
+                   WHERE id = $1"#,
+            )
+            .bind(id)
+            .bind(row.0.to_string())
+            .bind(&filename)
+            .execute(&state.pool)
+            .await?;
+            row
+        }
+    };
+
+    Ok(Json(PostmortemDoc {
+        incident_id: id,
+        knowledge_file_id: Some(kf_id),
+        status: if matches!(inc.status.as_str(), incident::STATUS_POSTMORTEM_PUBLISHED) {
+            "published".to_string()
+        } else {
+            "draft".to_string()
+        },
+        markdown: Some(req.markdown),
+        updated_at: Some(updated_at),
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/incidents/:id/postmortem/draft  (W6)
+// ---------------------------------------------------------------------------
+/// Kick the drafter. Runs synchronously — the template render is cheap
+/// (<50ms typical) so we block and return the markdown immediately. The
+/// resulting knowledge_file row is linked via `incidents.postmortem_doc_ref`
+/// and a timeline event is written so observers see the draft land.
+pub async fn draft_postmortem(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<PostmortemDoc>> {
+    let inc = fetch_and_check(&state, &auth_user, id).await?;
+
+    let draft = postmortem_drafter::draft(&state.pool, id).await?;
+
+    // Upsert knowledge_files row.
+    let kf_id = inc
+        .postmortem_doc_ref
+        .as_ref()
+        .and_then(|v| v.get("knowledge_file_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| Uuid::parse_str(s).ok());
+
+    let filename = format!("postmortem-INC-{:04}.md", inc.number);
+    let (kf_id, updated_at): (Uuid, chrono::DateTime<Utc>) = match kf_id {
+        Some(existing) => {
+            sqlx::query_as(
+                r#"UPDATE knowledge_files SET
+                       content = $2,
+                       size_bytes = $3,
+                       updated_at = NOW()
+                   WHERE id = $1
+                   RETURNING id, updated_at"#,
+            )
+            .bind(existing)
+            .bind(&draft.markdown)
+            .bind(draft.markdown.len() as i64)
+            .fetch_one(&state.pool)
+            .await?
+        }
+        None => {
+            let row: (Uuid, chrono::DateTime<Utc>) = sqlx::query_as(
+                r#"INSERT INTO knowledge_files
+                       (filename, content, size_bytes, mime_type, tenant_id, created_by, source)
+                   VALUES ($1, $2, $3, 'text/markdown', $4, $5, 'postmortem')
+                   RETURNING id, updated_at"#,
+            )
+            .bind(&filename)
+            .bind(&draft.markdown)
+            .bind(draft.markdown.len() as i64)
+            .bind(inc.tenant_id)
+            .bind(auth_user.user_id)
+            .fetch_one(&state.pool)
+            .await?;
+
+            sqlx::query(
+                r#"UPDATE incidents
+                   SET postmortem_doc_ref = jsonb_build_object(
+                           'knowledge_file_id', $2::text,
+                           'filename', $3::text
+                       ),
+                       updated_at = NOW()
+                   WHERE id = $1"#,
+            )
+            .bind(id)
+            .bind(row.0.to_string())
+            .bind(&filename)
+            .execute(&state.pool)
+            .await?;
+            row
+        }
+    };
+
+    let actor = timeline::user_actor(auth_user.user_id, &auth_user.username);
+    if let Err(e) = timeline::record_event(
+        &state.pool,
+        &state.timeline_bus,
+        id,
+        "postmortem_draft_ready",
+        actor,
+        "Postmortem draft ready for review",
+        serde_json::json!({ "knowledge_file_id": kf_id }),
+    )
+    .await
+    {
+        tracing::warn!("timeline record failed for postmortem draft: {}", e);
+    }
+
+    Ok(Json(PostmortemDoc {
+        incident_id: id,
+        knowledge_file_id: Some(kf_id),
+        status: "draft".to_string(),
+        markdown: Some(draft.markdown),
+        updated_at: Some(updated_at),
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/incidents/:id/postmortem/publish  (W6)
+// ---------------------------------------------------------------------------
+/// Transition `status` → `postmortem_published` and flip the knowledge
+/// file source marker so it shows up in the searchable knowledge base.
+pub async fn publish_postmortem(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<PostmortemDoc>> {
+    let inc = fetch_and_check(&state, &auth_user, id).await?;
+
+    let target = incident::STATUS_POSTMORTEM_PUBLISHED;
+    if !state_machine::can_transition(&inc.status, target) {
+        return Err(AppError::BadRequest(format!(
+            "cannot publish from status `{}`",
+            inc.status
+        )));
+    }
+
+    let kf_id = inc
+        .postmortem_doc_ref
+        .as_ref()
+        .and_then(|v| v.get("knowledge_file_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .ok_or_else(|| {
+            AppError::BadRequest("postmortem not drafted yet".to_string())
+        })?;
+
+    let mut tx = state.pool.begin().await?;
+
+    sqlx::query("UPDATE incidents SET status = $2, updated_at = NOW() WHERE id = $1")
+        .bind(id)
+        .bind(target)
+        .execute(&mut *tx)
+        .await?;
+
+    let (_, updated_at): (Uuid, chrono::DateTime<Utc>) = sqlx::query_as(
+        r#"UPDATE knowledge_files SET
+               source = 'postmortem_published',
+               updated_at = NOW()
+           WHERE id = $1
+           RETURNING id, updated_at"#,
+    )
+    .bind(kf_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let actor = timeline::user_actor(auth_user.user_id, &auth_user.username);
+    if let Err(e) = timeline::record_event(
+        &state.pool,
+        &state.timeline_bus,
+        id,
+        timeline::KIND_STATUS_CHANGED,
+        actor,
+        "Postmortem published",
+        serde_json::json!({
+            "from": inc.status,
+            "to": target,
+            "knowledge_file_id": kf_id,
+        }),
+    )
+    .await
+    {
+        tracing::warn!("timeline record failed for publish: {}", e);
+    }
+
+    let content: String = sqlx::query_scalar("SELECT content FROM knowledge_files WHERE id = $1")
+        .bind(kf_id)
+        .fetch_one(&state.pool)
+        .await?;
+
+    Ok(Json(PostmortemDoc {
+        incident_id: id,
+        knowledge_file_id: Some(kf_id),
+        status: "published".to_string(),
+        markdown: Some(content),
+        updated_at: Some(updated_at),
+    }))
 }

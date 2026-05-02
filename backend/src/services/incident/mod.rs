@@ -5,6 +5,7 @@
 //! Slack war-room + Jira ticket automation.
 
 pub mod lifecycle;
+pub mod postmortem_drafter;
 pub mod slack_helper;
 pub mod state_machine;
 pub mod timeline;

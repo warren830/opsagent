@@ -16,6 +16,7 @@ pub mod issue;
 pub mod jira;
 pub mod knowledge;
 pub mod mcp;
+pub mod mcp_incident;
 pub mod mcp_rollout;
 pub mod oauth;
 pub mod pipeline;

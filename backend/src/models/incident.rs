@@ -339,6 +339,49 @@ pub struct IncidentDetail {
 }
 
 // ---------------------------------------------------------------------------
+// W5-W6 additions — manual timeline notes, stakeholder updates, postmortem.
+// ---------------------------------------------------------------------------
+
+/// Body for `POST /api/incidents/:id/timeline` — lets war-room participants
+/// drop a free-form note onto the timeline.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateTimelineNoteRequest {
+    pub summary: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub payload: Option<serde_json::Value>,
+}
+
+/// Body for `POST /api/incidents/:id/updates` — stakeholder communication.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateUpdateRequest {
+    pub audience: String,
+    pub body_markdown: String,
+    /// When true, the update is published immediately (stamps `published_at`);
+    /// otherwise it is stored as a draft awaiting review.
+    #[serde(default)]
+    pub publish: bool,
+}
+
+/// Response for postmortem endpoints. `markdown` is `None` while the
+/// drafter is still running in the background; the client should poll.
+#[derive(Debug, Clone, Serialize)]
+pub struct PostmortemDoc {
+    pub incident_id: Uuid,
+    pub knowledge_file_id: Option<Uuid>,
+    pub status: String,
+    pub markdown: Option<String>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+/// Body for `PATCH /api/incidents/:id/postmortem`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdatePostmortemRequest {
+    pub markdown: String,
+}
+
+// ---------------------------------------------------------------------------
 // Tests.
 // ---------------------------------------------------------------------------
 #[cfg(test)]
