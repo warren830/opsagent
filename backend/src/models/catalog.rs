@@ -245,6 +245,35 @@ pub struct DiscoverK8sResult {
     pub errors: Vec<String>,
 }
 
+/// Query params for `GET /api/catalog/entities/{id}/graph`.
+///
+/// `depth` is bounded at the handler layer (1..=MAX_GRAPH_DEPTH) so a
+/// runaway `?depth=99` cannot fan the BFS out to the whole tenant's
+/// catalog; see `MAX_GRAPH_DEPTH`.
+#[derive(Debug, Deserialize)]
+pub struct GraphQuery {
+    #[serde(default = "default_graph_depth")]
+    pub depth: i32,
+}
+
+fn default_graph_depth() -> i32 {
+    2
+}
+
+/// Upper bound on graph traversal depth. Picked empirically —
+/// System→Component→API is typically 2 hops; anything beyond 5 is almost
+/// certainly a loop or an integration test asking for the entire tenant.
+pub const MAX_GRAPH_DEPTH: i32 = 5;
+
+/// Response for `GET /api/catalog/entities/{id}/graph` — every reachable
+/// node within `depth` hops plus the edges connecting them. Nodes are
+/// deduped by id; edges are the raw rows from `catalog_relations`.
+#[derive(Debug, Serialize)]
+pub struct EntityGraph {
+    pub nodes: Vec<CatalogEntity>,
+    pub edges: Vec<CatalogRelation>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,6 +374,28 @@ mod tests {
         assert_eq!(parsed.from_id, original.from_id);
         assert_eq!(parsed.to_id, original.to_id);
         assert_eq!(parsed.relation_type, RELATION_DEPENDS_ON);
+    }
+
+    #[test]
+    fn graph_query_defaults_depth_to_two() {
+        // With no `?depth=` we expect the handler-level default of 2. This
+        // guards against accidental behaviour changes in `default_graph_depth`.
+        let q: GraphQuery = serde_json::from_str("{}").expect("empty should default");
+        assert_eq!(q.depth, 2);
+    }
+
+    #[test]
+    fn graph_max_depth_is_five() {
+        // Hard cap — anything higher is almost certainly a cycle-walker and
+        // would fan out to the whole tenant catalog. Freeze the contract so
+        // a refactor doesn't silently widen the blast radius.
+        assert_eq!(MAX_GRAPH_DEPTH, 5);
+    }
+
+    #[test]
+    fn graph_query_depth_parses_custom_value() {
+        let q: GraphQuery = serde_json::from_str("{\"depth\":3}").expect("parse depth=3");
+        assert_eq!(q.depth, 3);
     }
 
     #[test]

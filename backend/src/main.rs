@@ -471,6 +471,10 @@ fn build_router(state: AppState) -> Router {
             "/api/catalog/entities/{id}/relations",
             get(handlers::catalog::list_relations),
         )
+        .route(
+            "/api/catalog/entities/{id}/graph",
+            get(handlers::catalog::get_graph),
+        )
         // Catalog (W2 — YAML import + K8s auto-discovery)
         .route(
             "/api/catalog/import/yaml",

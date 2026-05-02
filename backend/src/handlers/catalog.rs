@@ -8,8 +8,9 @@
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
 };
+use std::collections::{HashSet, VecDeque};
 use uuid::Uuid;
 
 use crate::AppState;
@@ -17,8 +18,9 @@ use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::catalog::{
     CatalogEntity, CatalogRelation, CreateEntityRequest, DiscoverK8sRequest, DiscoverK8sResult,
-    IMPORT_SOURCE_K8S_DISCOVERY, IMPORT_SOURCE_MANUAL, ImportYamlResult, KIND_COMPONENT,
-    KIND_GROUP, KIND_SYSTEM, LIFECYCLE_EXPERIMENTAL, UpdateEntityRequest,
+    EntityGraph, GraphQuery, IMPORT_SOURCE_K8S_DISCOVERY, IMPORT_SOURCE_MANUAL, ImportYamlResult,
+    KIND_COMPONENT, KIND_GROUP, KIND_SYSTEM, LIFECYCLE_EXPERIMENTAL, MAX_GRAPH_DEPTH,
+    UpdateEntityRequest,
 };
 use crate::services::catalog::{k8s_discovery, yaml_parser};
 
@@ -277,6 +279,118 @@ pub async fn list_relations(
     .await?;
 
     Ok(Json(rows))
+}
+
+/// GET /api/catalog/entities/{id}/graph?depth=2
+///
+/// Returns every entity reachable from the given one within `depth` hops
+/// along `catalog_relations` edges (in either direction), plus the edges
+/// themselves. Depth is clamped into `1..=MAX_GRAPH_DEPTH` so a runaway
+/// query cannot walk the whole tenant catalog.
+///
+/// The traversal is a simple iterative BFS in Rust — we could push this
+/// into Postgres via a recursive CTE, but sqlx's runtime checks don't buy
+/// us much here and keeping the logic in app code lets us layer tenant
+/// filtering on every hop trivially (just re-bind `tenant_id`).
+pub async fn get_graph(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<GraphQuery>,
+) -> AppResult<Json<EntityGraph>> {
+    // Normalise depth: reject nonsense + hard-cap at MAX_GRAPH_DEPTH.
+    let depth = query.depth.clamp(1, MAX_GRAPH_DEPTH);
+
+    // Start by loading the center node through the same visibility rule as
+    // `get` — this also produces a clean 404 when the entity does not exist
+    // and a 403 (via super-admin tenant filter) when caller can't see it.
+    let center: CatalogEntity = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, CatalogEntity>(r#"SELECT * FROM catalog_entities WHERE id = $1"#)
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await?
+    } else {
+        sqlx::query_as::<_, CatalogEntity>(
+            r#"SELECT * FROM catalog_entities WHERE id = $1 AND tenant_id = $2"#,
+        )
+        .bind(id)
+        .bind(auth_user.tenant_id)
+        .fetch_optional(&state.pool)
+        .await?
+    }
+    .ok_or_else(|| AppError::NotFound(format!("Catalog entity not found: {}", id)))?;
+
+    // BFS across `catalog_relations`. We track `visited` by entity id and
+    // keep a queue of (id, hops_remaining). Each iteration pulls every
+    // relation that touches the current id, adds its new endpoint to the
+    // visited set, and queues it for the next layer.
+    let tenant_id = center.tenant_id;
+    let mut visited_ids: HashSet<Uuid> = HashSet::new();
+    let mut edges_by_id: std::collections::HashMap<Uuid, CatalogRelation> =
+        std::collections::HashMap::new();
+    let mut queue: VecDeque<(Uuid, i32)> = VecDeque::new();
+
+    visited_ids.insert(center.id);
+    queue.push_back((center.id, depth));
+
+    while let Some((current, hops_left)) = queue.pop_front() {
+        if hops_left <= 0 {
+            continue;
+        }
+
+        // Pull every relation touching `current` in either direction. We
+        // pull both directions in one query to keep the chatter down;
+        // direction is preserved in each CatalogRelation row.
+        let neighbours = sqlx::query_as::<_, CatalogRelation>(
+            r#"SELECT * FROM catalog_relations WHERE from_id = $1 OR to_id = $1"#,
+        )
+        .bind(current)
+        .fetch_all(&state.pool)
+        .await?;
+
+        for rel in neighbours {
+            edges_by_id.entry(rel.id).or_insert_with(|| rel.clone());
+
+            let other = if rel.from_id == current { rel.to_id } else { rel.from_id };
+            if visited_ids.insert(other) {
+                queue.push_back((other, hops_left - 1));
+            }
+        }
+    }
+
+    // Fetch the actual node rows for the collected ids. Tenant isolation
+    // is re-applied here — in theory all reachable nodes share the tenant
+    // (the edges table cascades on entity delete), but belt-and-braces
+    // keeps a corrupt edge from leaking cross-tenant data.
+    let node_ids: Vec<Uuid> = visited_ids.into_iter().collect();
+    let nodes: Vec<CatalogEntity> = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, CatalogEntity>(
+            r#"SELECT * FROM catalog_entities WHERE id = ANY($1)"#,
+        )
+        .bind(&node_ids)
+        .fetch_all(&state.pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, CatalogEntity>(
+            r#"SELECT * FROM catalog_entities
+               WHERE id = ANY($1) AND tenant_id = $2"#,
+        )
+        .bind(&node_ids)
+        .bind(tenant_id)
+        .fetch_all(&state.pool)
+        .await?
+    };
+
+    // Drop any edges whose endpoints aren't in the filtered node set (can
+    // happen in super-admin mode if a relation points to a node in a
+    // different tenant). Keeps the ECharts-style graph self-consistent.
+    let visible: HashSet<Uuid> = nodes.iter().map(|n| n.id).collect();
+    let edges: Vec<CatalogRelation> = edges_by_id
+        .into_values()
+        .filter(|e| visible.contains(&e.from_id) && visible.contains(&e.to_id))
+        .collect();
+
+    Ok(Json(EntityGraph { nodes, edges }))
 }
 
 /// POST /api/catalog/import/yaml
