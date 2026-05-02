@@ -5,7 +5,7 @@ import {
   BookOpen, LibraryBig, Wrench, Plug, Clock, Rocket,
   GitBranch, Activity, AlertTriangle, AlertOctagon, Settings,
   ChevronDown, MessageSquare, PanelLeftClose, PanelLeftOpen,
-  ChevronsUpDown, ChevronsDownUp,
+  ChevronsUpDown, ChevronsDownUp, Layers,
 } from 'lucide-vue-next'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
@@ -62,6 +62,7 @@ const navGroups = computed<NavGroup[]>(() => {
         { label: t('nav.accounts'), to: '/accounts', icon: Cloud },
         { label: t('nav.clusters'), to: '/clusters', icon: Server },
         { label: t('nav.topology'), to: '/topology', icon: Network },
+        { label: t('nav.catalog'), to: '/catalog', icon: Layers },
         { label: t('nav.resources'), to: '/resources', icon: Boxes },
       ],
     },

@@ -33,7 +33,17 @@ interface Issue {
   rca_started_at: string | null
   rca_completed_at: string | null
   timeline: { time: string; event: string }[] | null
+  /** Catalog Components linked by the alerts webhook. Surfaced on the
+   *  detail dialog so the on-call can jump straight to the service entry. */
+  affected_component_ids?: string[]
   created_at: string
+}
+
+interface CatalogEntityLite {
+  id: string
+  kind: string
+  name: string
+  display_name: string | null
 }
 
 const issues = ref<Issue[]>([])
@@ -44,6 +54,32 @@ const activeTypeFilter = ref<string>('')
 const showDetailDialog = ref(false)
 const selectedIssue = ref<Issue | null>(null)
 const rcaOutputRef = ref<HTMLElement | null>(null)
+
+/**
+ * Affected catalog components for the currently-open issue, resolved by id.
+ * Populated lazily when the detail dialog opens — the issue row only
+ * carries UUIDs, and not every issue has any. Empty array means we either
+ * haven't fetched yet or there are genuinely no linked components.
+ */
+const affectedComponents = ref<CatalogEntityLite[]>([])
+async function loadAffectedComponents(issue: Issue) {
+  affectedComponents.value = []
+  const ids = issue.affected_component_ids || []
+  if (ids.length === 0) return
+  try {
+    // One fetch per component — there are rarely more than a handful.
+    // Catches individual 404/403s so one missing component doesn't break
+    // the whole list.
+    const results = await Promise.allSettled(
+      ids.map(id => api.get<CatalogEntityLite>(`/api/catalog/entities/${id}`)),
+    )
+    affectedComponents.value = results
+      .filter((r): r is PromiseFulfilledResult<CatalogEntityLite> => r.status === 'fulfilled')
+      .map(r => r.value)
+  } catch {
+    // silent — fall back to empty list, card just won't render
+  }
+}
 
 const filters = [
   { value: '', label: () => t('issue.all') },
@@ -242,6 +278,10 @@ async function openDetail(issue: Issue) {
     selectedIssue.value = issue
   }
 
+  // Resolve Catalog components for the "Affected Services" card. Fire-and-
+  // forget so the dialog opens even if Catalog is slow or unavailable.
+  if (selectedIssue.value) loadAffectedComponents(selectedIssue.value)
+
   reset()
   showDetailDialog.value = true
 
@@ -397,6 +437,22 @@ onMounted(() => { fetchIssues() })
           <div v-if="selectedIssue.description" class="space-y-1">
             <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{{ t('glossary.description') }}</label>
             <p class="text-xs text-foreground whitespace-pre-wrap rounded border border-border/60 bg-secondary/30 p-2">{{ selectedIssue.description }}</p>
+          </div>
+
+          <!-- Affected Services (Catalog) — skip when no components linked -->
+          <div v-if="affectedComponents.length > 0" class="space-y-1">
+            <label class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{{ t('catalog.affectedServices') }}</label>
+            <div class="flex flex-wrap gap-1.5">
+              <NuxtLink
+                v-for="comp in affectedComponents"
+                :key="comp.id"
+                :to="`/catalog/${comp.id}`"
+                class="inline-flex items-center gap-1.5 rounded border border-border/60 bg-secondary/30 px-2 py-1 text-xs text-foreground hover:border-primary/50 hover:text-primary transition-colors"
+              >
+                <Badge variant="info" class="uppercase text-[9px] px-1 py-0">{{ comp.kind }}</Badge>
+                {{ comp.display_name || comp.name }}
+              </NuxtLink>
+            </div>
           </div>
 
           <!-- RCA Section -->

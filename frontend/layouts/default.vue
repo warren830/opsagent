@@ -19,7 +19,24 @@ useSurfaceMode()
       <LayoutAuroraBackground />
       <LayoutCursorGlow />
     </template>
-    <!-- Aurora (dark): cold-black base + mesh texture + bottom halo -->
+    <!-- Aurora (dark): cinematic atmosphere with Telemetry Topology
+         design language. Each layer is individually subtle (4-15%
+         contribution); together they produce filmic depth.
+
+         z-20  : solid cold-black base (#0A0B10)
+         z-10  : mesh (triangle+dot circuit grid)
+         z-10  : hexgrid (breathing cluster-node field, K8s heritage)
+         z-10  : halo (bottom aurora band, 4-layer radial)
+         z-10  : halo wisps (turbulence — small spots, reverse drift)
+         z-10  : corner glows (top-left indigo, top-right teal)
+         z-9   : vignette (edge darkening)
+         z-8   : noise (film grain, mix-blend overlay)
+         z-0+  : app content -->
+    <!-- Aurora (dark): return to the reference's minimalism.
+         3 elements only — cold-black base, triangle mesh, bottom halo.
+         Everything I (Claude) added on top (corner glows, wisps,
+         vignette, noise, hexgrid, stars) is OFF. The reference gets
+         its depth from a saturated single-layer halo, not from layering. -->
     <template v-else>
       <div class="fixed inset-0 -z-20 pointer-events-none bg-background" aria-hidden="true" />
       <LayoutMeshTexture />
