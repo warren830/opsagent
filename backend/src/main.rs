@@ -456,6 +456,9 @@ fn build_router(state: AppState) -> Router {
         )
         // Dashboard
         .route("/api/dashboard/stats", get(handlers::dashboard::stats))
+        // Catalog (W0 stub — list + get only; full CRUD lands in feat/catalog-mvp)
+        .route("/api/catalog/entities", get(handlers::catalog::list))
+        .route("/api/catalog/entities/{id}", get(handlers::catalog::get))
         .layer(axum_middleware::from_fn_with_state(
             jwt_secret,
             middleware::auth::auth_middleware,
