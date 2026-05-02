@@ -55,6 +55,31 @@ pub async fn promote(
     Json(req): Json<PromoteRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     let result = services::rollout::promote(&state.pool, &auth_user, cluster_id, &ns, &name, req.full).await?;
+
+    // W4: forward into any matching active incident timeline.
+    let actor = crate::services::incident::timeline::user_actor(auth_user.user_id, &auth_user.username);
+    let summary = format!(
+        "Promote {} rollout {}/{}",
+        if req.full { "full" } else { "step" },
+        ns,
+        name
+    );
+    crate::services::incident::timeline::fanout_deploy_event_to_incidents(
+        &state.pool,
+        &state.timeline_bus,
+        &name,
+        crate::services::incident::timeline::KIND_PROMOTE_INITIATED,
+        actor,
+        &summary,
+        serde_json::json!({
+            "cluster_id": cluster_id,
+            "namespace": ns,
+            "rollout_name": name,
+            "full": req.full,
+        }),
+    )
+    .await;
+
     Ok(Json(result))
 }
 
@@ -66,6 +91,25 @@ pub async fn rollback(
     Path((cluster_id, ns, name)): Path<(Uuid, String, String)>,
 ) -> AppResult<Json<serde_json::Value>> {
     let result = services::rollout::rollback(&state.pool, &auth_user, cluster_id, &ns, &name).await?;
+
+    // W4: forward into any matching active incident timeline.
+    let actor = crate::services::incident::timeline::user_actor(auth_user.user_id, &auth_user.username);
+    let summary = format!("Rollback rollout {}/{}", ns, name);
+    crate::services::incident::timeline::fanout_deploy_event_to_incidents(
+        &state.pool,
+        &state.timeline_bus,
+        &name,
+        crate::services::incident::timeline::KIND_ROLLBACK_INITIATED,
+        actor,
+        &summary,
+        serde_json::json!({
+            "cluster_id": cluster_id,
+            "namespace": ns,
+            "rollout_name": name,
+        }),
+    )
+    .await;
+
     Ok(Json(result))
 }
 

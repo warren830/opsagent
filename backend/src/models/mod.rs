@@ -8,6 +8,7 @@ pub mod dashboard;
 pub mod deployment_event;
 pub mod finding;
 pub mod glossary;
+pub mod incident;
 pub mod issue;
 pub mod knowledge;
 pub mod mcp;

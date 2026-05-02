@@ -41,6 +41,7 @@ async fn main() {
         pool,
         config: config.clone(),
         rca_registry: std::sync::Arc::new(services::rca::RcaRegistry::new()),
+        timeline_bus: std::sync::Arc::new(services::incident::timeline_bus::TimelineBus::new()),
     };
 
     // Spawn token cleanup task (every 6 hours)
@@ -381,6 +382,66 @@ fn build_router(state: AppState) -> Router {
         )
         .route("/api/issues/{id}/rca", post(handlers::issue::start_rca))
         .route("/api/issues/{id}/rca/status", get(handlers::issue::rca_status))
+        // Promote an issue into a full Incident (see `handlers::issue::promote_to_incident`)
+        .route(
+            "/api/issues/{id}/promote",
+            post(handlers::issue::promote_to_incident),
+        )
+        // Incident Command
+        .route(
+            "/api/incidents",
+            get(handlers::incident::list).post(handlers::incident::create),
+        )
+        .route("/api/incidents/active", get(handlers::incident::list_active))
+        .route(
+            "/api/incidents/{id}",
+            get(handlers::incident::get).patch(handlers::incident::update),
+        )
+        .route(
+            "/api/incidents/{id}/transition",
+            post(handlers::incident::transition),
+        )
+        .route(
+            "/api/incidents/{id}/severity",
+            post(handlers::incident::change_severity),
+        )
+        .route(
+            "/api/incidents/{id}/participants",
+            post(handlers::incident::add_participant),
+        )
+        .route(
+            "/api/incidents/{id}/participants/{user_id}/{role}",
+            delete(handlers::incident::remove_participant),
+        )
+        .route(
+            "/api/incidents/{id}/timeline",
+            get(handlers::incident::list_timeline)
+                .post(handlers::incident::create_timeline_note),
+        )
+        .route(
+            "/api/incidents/{id}/timeline/stream",
+            get(handlers::incident::stream_timeline),
+        )
+        .route(
+            "/api/incidents/{id}/updates",
+            get(handlers::incident::list_updates)
+                .post(handlers::incident::create_update),
+        )
+        .route(
+            "/api/incidents/{id}/postmortem",
+            get(handlers::incident::get_postmortem)
+                .patch(handlers::incident::update_postmortem),
+        )
+        .route(
+            "/api/incidents/{id}/postmortem/draft",
+            post(handlers::incident::draft_postmortem),
+        )
+        .route(
+            "/api/incidents/{id}/postmortem/publish",
+            post(handlers::incident::publish_postmortem),
+        )
+        // MCP Incident endpoint (JSON-RPC for agent tool calls)
+        .route("/api/mcp/incidents", post(handlers::mcp_incident::handle))
         // Knowledge
         .route(
             "/api/knowledge",

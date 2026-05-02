@@ -13,8 +13,10 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
-use crate::models::issue::{Issue, IssueListQuery, UpdateIssueRequest};
+use crate::models::incident::{CreateIncidentRequest, Incident};
+use crate::models::issue::{Issue, IssueListQuery, PromoteRequest, UpdateIssueRequest};
 use crate::services::claude::StreamChunk;
+use crate::services::incident::lifecycle::{self, IncidentSource};
 
 type SseEventStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
 
@@ -266,4 +268,101 @@ async fn fetch_and_check_issue(state: &AppState, auth_user: &AuthUser, id: Uuid)
         return Err(AppError::Forbidden("Access denied".to_string()));
     }
     Ok(row)
+}
+
+/// POST /api/issues/:id/promote — turn an issue into an incident.
+///
+/// Idempotent: if `issues.incident_id` is already set, returns the existing
+/// incident row. Otherwise creates the incident (via
+/// `lifecycle::create_incident_with_automation`, which also kicks off the
+/// Slack war-room + Jira ticket in the background), writes the id back
+/// onto the source issue, and returns the new incident immediately.
+pub async fn promote_to_incident(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Path(issue_id): Path<Uuid>,
+    Json(req): Json<PromoteRequest>,
+) -> AppResult<Json<Incident>> {
+    let issue = fetch_and_check_issue(&state, &auth_user, issue_id).await?;
+
+    // Idempotency: issue already linked to an incident.
+    if let Some(existing_inc_id) = issue.incident_id {
+        let existing = sqlx::query_as::<_, Incident>("SELECT * FROM incidents WHERE id = $1")
+            .bind(existing_inc_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| {
+                AppError::Internal(format!(
+                    "issue {issue_id} references missing incident {existing_inc_id}"
+                ))
+            })?;
+        return Ok(Json(existing));
+    }
+
+    if !Incident::is_valid_severity(&req.severity) {
+        return Err(AppError::BadRequest(format!(
+            "invalid severity: {}",
+            req.severity
+        )));
+    }
+
+    // Build CreateIncidentRequest from the issue + overrides.
+    let affected_component_ids = req
+        .affected_component_ids
+        .clone()
+        .unwrap_or_else(|| issue.affected_component_ids.clone());
+    let impact_summary = req
+        .impact_summary
+        .clone()
+        .or_else(|| issue.description.clone());
+    let title = req
+        .title
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| issue.title.clone());
+
+    let create_req = CreateIncidentRequest {
+        title,
+        severity: req.severity.clone(),
+        status: None,
+        detection_source: crate::models::incident::DETECTION_SOURCE_ALERT.to_string(),
+        impact_summary,
+        affected_component_ids,
+        affected_customer_tier: None,
+        source_issue_id: Some(issue.id),
+        started_at: issue.created_at,
+        commander_user_id: req.commander_user_id,
+        scribe_user_id: None,
+        bridge_url: None,
+        labels: req.labels.clone(),
+        tenant_id: issue.tenant_id,
+    };
+
+    let incident = lifecycle::create_incident_with_automation(
+        &state.pool,
+        state.timeline_bus.clone(),
+        issue.tenant_id,
+        IncidentSource::Alert { issue_id: issue.id },
+        create_req,
+    )
+    .await?;
+
+    // Persist the back-reference so subsequent promote calls are idempotent.
+    if let Err(e) = sqlx::query(
+        "UPDATE issues SET incident_id = $1, updated_at = NOW() WHERE id = $2",
+    )
+    .bind(incident.id)
+    .bind(issue.id)
+    .execute(&state.pool)
+    .await
+    {
+        tracing::warn!(
+            "failed to back-ref issue {} -> incident {}: {}",
+            issue.id,
+            incident.id,
+            e
+        );
+    }
+
+    Ok(Json(incident))
 }

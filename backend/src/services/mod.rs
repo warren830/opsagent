@@ -21,6 +21,7 @@ pub mod account_linking;
 pub mod auth_common;
 pub mod claude;
 pub mod cognito_oauth;
+pub mod incident;
 pub mod jira;
 pub mod k8s;
 pub mod microsoft_oauth;
