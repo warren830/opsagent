@@ -136,10 +136,13 @@
     --glass-blur-subtle: 0px;
   }
 
-  /* Focus surface variant — data-dense routes suppress decoration */
+  /* Focus surface variant — data-dense routes calm the MESH but keep the
+     halo + corner glows at full strength so the brand signal stays
+     present across the whole app. Mesh suppression is what stops pixel
+     noise bleeding through log streams / metric grids. */
   [data-theme="aurora"][data-surface="focus"] {
-    --halo-dim: 0.27;                       /* ~45% → ~12% effective */
-    --mesh-opacity: 0.01;
+    --halo-dim: 0.85;                       /* nearly full — just a touch calmer */
+    --mesh-opacity: 0.008;                  /* mesh near-invisible */
   }
 }
 
@@ -213,36 +216,163 @@
   }
 
   /* ─── Aurora halo (dark theme signature) ─── */
-  /* Bottom-30-35vh gradient band: pink-purple → teal → indigo.
-     Intensity multiplied by --halo-dim (1 default, 0.27 in focus mode).
-     Self-positioning (fixed) so consumers just render <LayoutAuroraHalo />. */
+  /* Reference-style single-layer halo: 3 saturated radial blooms
+     (pink-purple / teal / indigo) seeded just below the viewport so
+     they feel like light rising from off-screen. Large ellipses (90%
+     width × 110% height) overlap in the middle for color mixing.
+     Heavy 56px blur makes the boundaries dissolve into the base.
+     This is the "big soft key light" — single-source, not multi-layer. */
   .aurora-halo {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    height: 35vh;
+    height: 60vh;
     z-index: -10;
     pointer-events: none;
     opacity: var(--halo-dim, 0);
     transition: opacity 600ms var(--motion-ease-smooth);
     background:
-      radial-gradient(ellipse 55% 100% at 18% 100%,
-        hsl(var(--aurora-pink) / 0.38) 0%,
+      radial-gradient(ellipse 90% 110% at 18% 115%,
+        hsl(var(--aurora-pink) / 0.58) 0%,
         transparent 55%),
-      radial-gradient(ellipse 55% 100% at 50% 100%,
-        hsl(var(--aurora-teal) / 0.32) 0%,
-        transparent 60%),
-      radial-gradient(ellipse 55% 100% at 82% 100%,
-        hsl(var(--aurora-indigo) / 0.34) 0%,
+      radial-gradient(ellipse 100% 120% at 50% 120%,
+        hsl(var(--aurora-teal) / 0.52) 0%,
+        transparent 58%),
+      radial-gradient(ellipse 90% 110% at 82% 115%,
+        hsl(var(--aurora-indigo) / 0.58) 0%,
         transparent 55%);
-    filter: blur(28px);
-    will-change: transform;
-    animation: aurora-drift 45s var(--motion-ease-smooth) infinite;
+    filter: blur(56px);
+    will-change: opacity;
+    animation: aurora-drift 60s var(--motion-ease-smooth) infinite;
   }
 
-  /* Isometric triangle mesh texture (SVG data URI, stroke-only).
-     Full viewport. Self-positioning (fixed). */
+  /* Top-right ambient glow — teal, very subtle */
+  .aurora-corner-tr {
+    position: fixed;
+    top: -10vh;
+    right: -10vw;
+    width: 55vw;
+    height: 55vh;
+    z-index: -10;
+    pointer-events: none;
+    opacity: calc(var(--halo-dim, 0) * 0.7);
+    transition: opacity 800ms var(--motion-ease-smooth);
+    background: radial-gradient(ellipse at top right,
+      hsl(var(--aurora-teal) / 0.22) 0%,
+      transparent 60%);
+    filter: blur(60px);
+  }
+
+  /* Top-left ambient glow — indigo, very subtle */
+  .aurora-corner-tl {
+    position: fixed;
+    top: -10vh;
+    left: -10vw;
+    width: 55vw;
+    height: 55vh;
+    z-index: -10;
+    pointer-events: none;
+    opacity: calc(var(--halo-dim, 0) * 0.55);
+    transition: opacity 800ms var(--motion-ease-smooth);
+    background: radial-gradient(ellipse at top left,
+      hsl(var(--aurora-indigo) / 0.20) 0%,
+      transparent 60%);
+    filter: blur(60px);
+  }
+
+  /* Vignette — subtle darkening at viewport edges to focus center content
+     and add cinematic depth. Sits above halo but below content. */
+  .aurora-vignette {
+    position: fixed;
+    inset: 0;
+    z-index: -9;
+    pointer-events: none;
+    opacity: var(--halo-dim, 0);
+    transition: opacity 600ms var(--motion-ease-smooth);
+    background: radial-gradient(ellipse at center,
+      transparent 45%,
+      hsl(var(--background) / 0.55) 100%);
+  }
+
+  /* Film grain — SVG feTurbulence noise, tiled. Mix-blend overlay makes
+     bright areas pick up highlights and dark areas pick up shadows, so
+     the grain feels like "camera sensor noise" rather than a flat tint.
+     This single layer is what separates "digital template" from "filmic". */
+  .aurora-noise {
+    position: fixed;
+    inset: 0;
+    z-index: -8;
+    pointer-events: none;
+    opacity: 0.10;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.2 0'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.6'/></svg>");
+    background-size: 240px 240px;
+    background-repeat: repeat;
+  }
+
+  /* Hexagon "cluster nodes" field — sparse, irregular, breathing.
+     Telemetry Topology design language: hexagons == pods/clusters
+     (K8s heritage). Each hex has its own pulse delay via --delay, so
+     the field never syncs — always reads as "live infra" rather than
+     a synchronized loop. Managed by the AuroraHexgrid Vue component
+     which instantiates per-hex inline styles. */
+  .aurora-hexgrid {
+    position: fixed;
+    inset: 0;
+    z-index: -10;
+    pointer-events: none;
+    opacity: calc(var(--halo-dim, 0) * 0.95);
+    transition: opacity 800ms var(--motion-ease-smooth);
+  }
+  .aurora-hexgrid svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .aurora-hexgrid .hex-shape {
+    animation: hex-pulse 4.8s ease-in-out infinite;
+    animation-delay: var(--delay, 0s);
+  }
+  @keyframes hex-pulse {
+    0%, 100% { opacity: var(--op-min, 0.04); }
+    50%      { opacity: var(--op-max, 0.12); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .aurora-hexgrid .hex-shape {
+      animation: none;
+      opacity: var(--op-min, 0.06);
+    }
+  }
+
+  /* Halo wisps — small saturated spots inside the halo region to break
+     the smooth gradient. Gives the aurora "turbulence" read rather than
+     a perfect CSS radial-gradient. Drifts at a different tempo than the
+     main halo so they never sync up — keeps the motion organic. */
+  .aurora-halo-wisps {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 40vh;
+    z-index: -10;
+    pointer-events: none;
+    opacity: calc(var(--halo-dim, 0) * 0.8);
+    transition: opacity 600ms var(--motion-ease-smooth);
+    background:
+      radial-gradient(circle 80px at 15% 75%, hsl(var(--aurora-pink) / 0.45), transparent 70%),
+      radial-gradient(circle 120px at 38% 92%, hsl(var(--aurora-teal) / 0.38), transparent 70%),
+      radial-gradient(circle 60px at 55% 68%, hsl(var(--aurora-indigo) / 0.5), transparent 70%),
+      radial-gradient(circle 100px at 72% 88%, hsl(var(--aurora-teal) / 0.4), transparent 70%),
+      radial-gradient(circle 90px at 88% 78%, hsl(var(--aurora-pink) / 0.42), transparent 70%);
+    filter: blur(24px);
+    will-change: transform;
+    animation: aurora-drift 67s var(--motion-ease-smooth) infinite reverse;
+  }
+
+  /* Isometric triangle + dot mesh — "circuit board" feel.
+     Two stacked SVG layers: triangle strokes + vertex dots. Dots are ~2x
+     brighter than strokes, giving that "data nodes on a grid" subtext. */
   .mesh-texture {
     position: fixed;
     inset: 0;
@@ -250,9 +380,11 @@
     pointer-events: none;
     opacity: var(--mesh-opacity, 0);
     transition: opacity 600ms var(--motion-ease-smooth);
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='48' viewBox='0 0 56 48'><g fill='none' stroke='%23ffffff' stroke-width='0.6'><path d='M0 48 L28 0 L56 48 Z'/><path d='M28 0 L56 0 L42 24 Z'/><path d='M0 0 L28 0 L14 24 Z'/></g></svg>");
-    background-size: 56px 48px;
-    background-repeat: repeat;
+    background-image:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='56' viewBox='0 0 64 56'><g fill='%23ffffff'><circle cx='0' cy='0' r='1'/><circle cx='32' cy='0' r='1'/><circle cx='64' cy='0' r='1'/><circle cx='16' cy='28' r='1'/><circle cx='48' cy='28' r='1'/><circle cx='0' cy='56' r='1'/><circle cx='32' cy='56' r='1'/><circle cx='64' cy='56' r='1'/></g></svg>"),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='56' viewBox='0 0 64 56'><g fill='none' stroke='%23ffffff' stroke-width='0.5' opacity='0.5'><path d='M0 56 L32 0 L64 56 Z'/><path d='M32 0 L64 0 L48 28 Z'/><path d='M0 0 L32 0 L16 28 Z'/></g></svg>");
+    background-size: 64px 56px, 64px 56px;
+    background-repeat: repeat, repeat;
   }
 
   /* Double-layer focus ring for dark theme (1px solid + 3px aurora glow) */

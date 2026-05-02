@@ -18,6 +18,12 @@ pub struct Issue {
     pub resolved_at: Option<DateTime<Utc>>,
     pub resolved_by: Option<Uuid>,
     pub tenant_id: Option<Uuid>,
+    /// Catalog Components affected by this issue. Populated by the alerts
+    /// webhook (via label/runtime matching) and surfaced on the issue
+    /// detail UI so the on-call can jump to the service catalog entry.
+    /// Added in migration `20260502000001_component_spec_lock.sql`.
+    #[serde(default)]
+    pub affected_component_ids: Vec<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
