@@ -66,6 +66,34 @@ async fn fetch_and_check(
     Ok(row)
 }
 
+/// Confirm that `user_id` exists and either belongs to `tenant_id` or has
+/// NULL tenant_id (tenant-agnostic). Used before accepting user-referencing
+/// fields on incident create/update so callers can't assign cross-tenant
+/// users as commander/scribe.
+async fn validate_user_in_tenant(
+    pool: &sqlx::PgPool,
+    user_id: Uuid,
+    tenant_id: Option<Uuid>,
+) -> AppResult<()> {
+    let ok: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS (
+               SELECT 1 FROM users
+               WHERE id = $1
+                 AND (tenant_id = $2 OR tenant_id IS NULL)
+           )"#,
+    )
+    .bind(user_id)
+    .bind(tenant_id)
+    .fetch_one(pool)
+    .await?;
+    if !ok {
+        return Err(AppError::BadRequest(format!(
+            "user {user_id} is not a member of the incident's tenant"
+        )));
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/incidents
 // ---------------------------------------------------------------------------
@@ -232,6 +260,17 @@ pub async fn create(
         auth_user.tenant_id
     };
 
+    // If the caller named an incident commander or scribe, confirm the
+    // referenced user belongs to the same tenant (or is tenant-agnostic)
+    // before accepting the row. Otherwise a caller could assign cross-tenant
+    // users as commander/scribe and silently leak membership across tenants.
+    if let Some(uid) = req.commander_user_id {
+        validate_user_in_tenant(&state.pool, uid, tenant_id).await?;
+    }
+    if let Some(uid) = req.scribe_user_id {
+        validate_user_in_tenant(&state.pool, uid, tenant_id).await?;
+    }
+
     let labels = req
         .labels
         .clone()
@@ -299,7 +338,15 @@ pub async fn update(
     Json(req): Json<UpdateIncidentRequest>,
 ) -> AppResult<Json<Incident>> {
     // Auth guard.
-    let _current = fetch_and_check(&state, &auth_user, id).await?;
+    let current = fetch_and_check(&state, &auth_user, id).await?;
+
+    // Cross-tenant user assignment guard — mirror of the create() path.
+    if let Some(uid) = req.commander_user_id {
+        validate_user_in_tenant(&state.pool, uid, current.tenant_id).await?;
+    }
+    if let Some(uid) = req.scribe_user_id {
+        validate_user_in_tenant(&state.pool, uid, current.tenant_id).await?;
+    }
 
     // The UPDATE itself is tenant-scoped for non–super-admin callers so a
     // race between fetch_and_check and the write cannot mutate another
@@ -599,6 +646,19 @@ pub async fn change_severity(
     Json(req): Json<SeverityChangeRequest>,
 ) -> AppResult<Json<Incident>> {
     let current = fetch_and_check(&state, &auth_user, id).await?;
+
+    // Only the incident commander, a tenant admin, or a super admin may
+    // change severity. Arbitrary tenant members can still see and update
+    // metadata but must not be able to silently downgrade an ongoing Sev1
+    // (or upgrade to one) — that decision belongs to the IC chain.
+    let is_authorized = auth_user.is_super_admin()
+        || auth_user.is_tenant_admin()
+        || current.commander_user_id == Some(auth_user.user_id);
+    if !is_authorized {
+        return Err(AppError::Forbidden(
+            "Only the incident commander or a tenant admin can change severity".to_string(),
+        ));
+    }
 
     if !Incident::is_valid_severity(&req.to_severity) {
         return Err(AppError::BadRequest(format!(
