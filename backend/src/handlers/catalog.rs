@@ -154,49 +154,78 @@ pub async fn update(
         }
     }
 
-    // Tenant isolation: fetch-then-check so the final UPDATE can run with
-    // or without the tenant filter consistently.
-    let existing =
-        sqlx::query_as::<_, CatalogEntity>(r#"SELECT * FROM catalog_entities WHERE id = $1"#)
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Catalog entity not found: {}", id)))?;
-    if !auth_user.is_super_admin() && Some(existing.tenant_id) != auth_user.tenant_id {
-        return Err(AppError::Forbidden("Access denied".to_string()));
-    }
+    // Tenant isolation: the UPDATE itself carries the tenant predicate so a
+    // race between `fetch_and_check`-style lookups and the write cannot
+    // mutate another tenant's row. Super-admin callers bypass the filter;
+    // anyone else must supply the tenant_id the row is expected to belong
+    // to, and a mismatch cleanly returns NotFound.
+    let row: Option<CatalogEntity> = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, CatalogEntity>(
+            r#"UPDATE catalog_entities SET
+                   display_name    = COALESCE($2, display_name),
+                   description     = COALESCE($3, description),
+                   lifecycle       = COALESCE($4, lifecycle),
+                   owner_group_id  = COALESCE($5, owner_group_id),
+                   system_id       = COALESCE($6, system_id),
+                   tags            = COALESCE($7, tags),
+                   annotations     = COALESCE($8, annotations),
+                   source_url      = COALESCE($9, source_url),
+                   source_ref      = COALESCE($10, source_ref),
+                   spec            = COALESCE($11, spec),
+                   updated_at      = NOW()
+               WHERE id = $1
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(&req.display_name)
+        .bind(&req.description)
+        .bind(&req.lifecycle)
+        .bind(req.owner_group_id)
+        .bind(req.system_id)
+        .bind(req.tags.as_deref())
+        .bind(&req.annotations)
+        .bind(&req.source_url)
+        .bind(&req.source_ref)
+        .bind(&req.spec)
+        .fetch_optional(&state.pool)
+        .await?
+    } else {
+        let tenant_id = auth_user.tenant_id.ok_or_else(|| {
+            AppError::Forbidden("Tenant scope required to update catalog entity".to_string())
+        })?;
+        sqlx::query_as::<_, CatalogEntity>(
+            r#"UPDATE catalog_entities SET
+                   display_name    = COALESCE($3, display_name),
+                   description     = COALESCE($4, description),
+                   lifecycle       = COALESCE($5, lifecycle),
+                   owner_group_id  = COALESCE($6, owner_group_id),
+                   system_id       = COALESCE($7, system_id),
+                   tags            = COALESCE($8, tags),
+                   annotations     = COALESCE($9, annotations),
+                   source_url      = COALESCE($10, source_url),
+                   source_ref      = COALESCE($11, source_ref),
+                   spec            = COALESCE($12, spec),
+                   updated_at      = NOW()
+               WHERE id = $1 AND tenant_id = $2
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(&req.display_name)
+        .bind(&req.description)
+        .bind(&req.lifecycle)
+        .bind(req.owner_group_id)
+        .bind(req.system_id)
+        .bind(req.tags.as_deref())
+        .bind(&req.annotations)
+        .bind(&req.source_url)
+        .bind(&req.source_ref)
+        .bind(&req.spec)
+        .fetch_optional(&state.pool)
+        .await?
+    };
 
-    let row = sqlx::query_as::<_, CatalogEntity>(
-        r#"UPDATE catalog_entities SET
-               display_name    = COALESCE($2, display_name),
-               description     = COALESCE($3, description),
-               lifecycle       = COALESCE($4, lifecycle),
-               owner_group_id  = COALESCE($5, owner_group_id),
-               system_id       = COALESCE($6, system_id),
-               tags            = COALESCE($7, tags),
-               annotations     = COALESCE($8, annotations),
-               source_url      = COALESCE($9, source_url),
-               source_ref      = COALESCE($10, source_ref),
-               spec            = COALESCE($11, spec),
-               updated_at      = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(&req.display_name)
-    .bind(&req.description)
-    .bind(&req.lifecycle)
-    .bind(req.owner_group_id)
-    .bind(req.system_id)
-    .bind(req.tags.as_deref())
-    .bind(&req.annotations)
-    .bind(&req.source_url)
-    .bind(&req.source_ref)
-    .bind(&req.spec)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Catalog entity not found: {}", id)))?;
-
+    let row = row.ok_or_else(|| AppError::NotFound(format!("Catalog entity not found: {}", id)))?;
     Ok(Json(row))
 }
 

@@ -151,46 +151,89 @@ pub async fn update(
     let _ = fetch_slo(&state, &auth_user, id).await?;
     validate_update(&req)?;
 
-    let row = sqlx::query_as::<_, Slo>(
-        r#"UPDATE slos SET
-               name = COALESCE($2, name),
-               description = COALESCE($3, description),
-               component_id = COALESCE($4, component_id),
-               sli_type = COALESCE($5, sli_type),
-               good_events_query = COALESCE($6, good_events_query),
-               total_events_query = COALESCE($7, total_events_query),
-               objective_pct = COALESCE($8, objective_pct),
-               window_days = COALESCE($9, window_days),
-               burn_rate_policy = COALESCE($10, burn_rate_policy),
-               labels = COALESCE($11, labels),
-               enabled = COALESCE($12, enabled),
-               updated_at = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(&req.name)
-    .bind(&req.description)
-    .bind(req.component_id)
-    .bind(&req.sli_type)
-    .bind(&req.good_events_query)
-    .bind(&req.total_events_query)
-    .bind(req.objective_pct)
-    .bind(req.window_days)
-    .bind(&req.burn_rate_policy)
-    .bind(&req.labels)
-    .bind(req.enabled)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        if let sqlx::Error::Database(ref db_err) = e
-            && let Some(constraint) = db_err.constraint()
-            && (constraint.contains("tenant_id_name") || constraint.contains("slos_tenant"))
-        {
-            return AppError::Conflict("SLO name already exists in this tenant".to_string());
-        }
-        AppError::Database(e)
-    })?;
+    // Scope the write itself by tenant_id so a TOCTOU between fetch_slo
+    // and UPDATE cannot mutate another tenant's row.
+    let row_result = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, Slo>(
+            r#"UPDATE slos SET
+                   name = COALESCE($2, name),
+                   description = COALESCE($3, description),
+                   component_id = COALESCE($4, component_id),
+                   sli_type = COALESCE($5, sli_type),
+                   good_events_query = COALESCE($6, good_events_query),
+                   total_events_query = COALESCE($7, total_events_query),
+                   objective_pct = COALESCE($8, objective_pct),
+                   window_days = COALESCE($9, window_days),
+                   burn_rate_policy = COALESCE($10, burn_rate_policy),
+                   labels = COALESCE($11, labels),
+                   enabled = COALESCE($12, enabled),
+                   updated_at = NOW()
+               WHERE id = $1
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(&req.name)
+        .bind(&req.description)
+        .bind(req.component_id)
+        .bind(&req.sli_type)
+        .bind(&req.good_events_query)
+        .bind(&req.total_events_query)
+        .bind(req.objective_pct)
+        .bind(req.window_days)
+        .bind(&req.burn_rate_policy)
+        .bind(&req.labels)
+        .bind(req.enabled)
+        .fetch_optional(&state.pool)
+        .await
+    } else {
+        let tenant_id = auth_user
+            .tenant_id
+            .ok_or_else(|| AppError::Forbidden("No tenant context".to_string()))?;
+        sqlx::query_as::<_, Slo>(
+            r#"UPDATE slos SET
+                   name = COALESCE($3, name),
+                   description = COALESCE($4, description),
+                   component_id = COALESCE($5, component_id),
+                   sli_type = COALESCE($6, sli_type),
+                   good_events_query = COALESCE($7, good_events_query),
+                   total_events_query = COALESCE($8, total_events_query),
+                   objective_pct = COALESCE($9, objective_pct),
+                   window_days = COALESCE($10, window_days),
+                   burn_rate_policy = COALESCE($11, burn_rate_policy),
+                   labels = COALESCE($12, labels),
+                   enabled = COALESCE($13, enabled),
+                   updated_at = NOW()
+               WHERE id = $1 AND tenant_id = $2
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(&req.name)
+        .bind(&req.description)
+        .bind(req.component_id)
+        .bind(&req.sli_type)
+        .bind(&req.good_events_query)
+        .bind(&req.total_events_query)
+        .bind(req.objective_pct)
+        .bind(req.window_days)
+        .bind(&req.burn_rate_policy)
+        .bind(&req.labels)
+        .bind(req.enabled)
+        .fetch_optional(&state.pool)
+        .await
+    };
+
+    let row = row_result
+        .map_err(|e| {
+            if let sqlx::Error::Database(ref db_err) = e
+                && let Some(constraint) = db_err.constraint()
+                && (constraint.contains("tenant_id_name") || constraint.contains("slos_tenant"))
+            {
+                return AppError::Conflict("SLO name already exists in this tenant".to_string());
+            }
+            AppError::Database(e)
+        })?
+        .ok_or_else(|| AppError::NotFound("SLO not found".to_string()))?;
 
     // Re-render and push rules only when the hash changes — the generator is
     // deterministic so an unchanged name/query pair is cheap to skip.
@@ -252,15 +295,32 @@ async fn set_enabled(
 ) -> AppResult<Json<Slo>> {
     let _ = fetch_slo(state, auth_user, id).await?;
 
-    let row = sqlx::query_as::<_, Slo>(
-        r#"UPDATE slos SET enabled = $2, updated_at = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(enabled)
-    .fetch_one(&state.pool)
-    .await?;
+    let row_opt = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, Slo>(
+            r#"UPDATE slos SET enabled = $2, updated_at = NOW()
+               WHERE id = $1
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(enabled)
+        .fetch_optional(&state.pool)
+        .await?
+    } else {
+        let tenant_id = auth_user
+            .tenant_id
+            .ok_or_else(|| AppError::Forbidden("No tenant context".to_string()))?;
+        sqlx::query_as::<_, Slo>(
+            r#"UPDATE slos SET enabled = $3, updated_at = NOW()
+               WHERE id = $1 AND tenant_id = $2
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(enabled)
+        .fetch_optional(&state.pool)
+        .await?
+    };
+    let row = row_opt.ok_or_else(|| AppError::NotFound("SLO not found".to_string()))?;
 
     // Enabled → push rules; disabled → drop them. Both best-effort.
     let row = if enabled {
