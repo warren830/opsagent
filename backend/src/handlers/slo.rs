@@ -21,8 +21,8 @@ use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::slo::{
-    BudgetHistoryQuery, CreateSloRequest, ErrorBudgetSnapshot, PreviewRequest, Slo, SliQuery,
-    SyncResult, UpdateSloRequest,
+    BudgetHistoryQuery, BudgetSummary, CreateSloRequest, ErrorBudgetSnapshot, PreviewRequest,
+    Slo, SliQuery, SyncResult, UpdateSloRequest,
 };
 use crate::services::common::require_non_empty;
 use crate::services::slo::mimir_client::{self, MetricsEndpoint};
@@ -459,6 +459,108 @@ pub async fn budget(
     .ok_or_else(|| AppError::NotFound("No budget data yet".to_string()))?;
 
     Ok(Json(snapshot))
+}
+
+/// GET /api/slos/budgets?ids=uuid1,uuid2,...
+///
+/// Batch variant of [`budget`]. Returns the most recent
+/// [`BudgetSummary`] per SLO id passed in the `ids` query parameter. The
+/// UI uses this on the SLO list / service detail pages so it can render N
+/// burn cards with a single round trip instead of N parallel calls (P1 #18).
+///
+/// Tenant scope: non-super-admin callers only see SLOs whose `tenant_id`
+/// matches their own. Missing / unauthorised ids are silently dropped
+/// rather than 404'd so the batch call degrades gracefully.
+#[derive(Debug, Deserialize)]
+pub struct BudgetsBatchQuery {
+    /// Comma-separated list of SLO ids.
+    pub ids: String,
+}
+
+pub async fn budgets_batch(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Query(q): Query<BudgetsBatchQuery>,
+) -> AppResult<Json<Vec<BudgetSummary>>> {
+    // Parse + dedupe the comma-separated id list. We cap the request at
+    // 500 ids to avoid a pathological query shape.
+    let mut ids: Vec<Uuid> = q
+        .ids
+        .split(',')
+        .filter_map(|s| Uuid::parse_str(s.trim()).ok())
+        .collect();
+    ids.sort();
+    ids.dedup();
+    if ids.is_empty() {
+        return Ok(Json(vec![]));
+    }
+    if ids.len() > 500 {
+        return Err(AppError::BadRequest(
+            "too many ids (max 500)".to_string(),
+        ));
+    }
+
+    // `LATERAL` gives us the latest snapshot per slo_id in one pass.
+    // Tenant scoping lives on the outer `slos` row — unauthorised ids just
+    // don't match and are omitted from the result set.
+    let rows = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, BudgetSummary>(
+            r#"SELECT ebs.slo_id,
+                      ebs.budget_remaining_pct,
+                      ebs.budget_total_minutes,
+                      ebs.budget_consumed_minutes,
+                      ebs.burn_rate_1h,
+                      ebs.burn_rate_6h,
+                      ebs.sli_achieved_pct,
+                      ebs.captured_at
+               FROM slos s
+               JOIN LATERAL (
+                   SELECT slo_id, budget_remaining_pct, budget_total_minutes,
+                          budget_consumed_minutes, burn_rate_1h,
+                          burn_rate_6h, sli_achieved_pct, captured_at
+                   FROM error_budget_snapshots
+                   WHERE slo_id = s.id
+                   ORDER BY captured_at DESC
+                   LIMIT 1
+               ) ebs ON TRUE
+               WHERE s.id = ANY($1)"#,
+        )
+        .bind(&ids)
+        .fetch_all(&state.pool)
+        .await?
+    } else {
+        let tenant_id = auth_user
+            .tenant_id
+            .ok_or_else(|| AppError::Forbidden("No tenant context".to_string()))?;
+        sqlx::query_as::<_, BudgetSummary>(
+            r#"SELECT ebs.slo_id,
+                      ebs.budget_remaining_pct,
+                      ebs.budget_total_minutes,
+                      ebs.budget_consumed_minutes,
+                      ebs.burn_rate_1h,
+                      ebs.burn_rate_6h,
+                      ebs.sli_achieved_pct,
+                      ebs.captured_at
+               FROM slos s
+               JOIN LATERAL (
+                   SELECT slo_id, budget_remaining_pct, budget_total_minutes,
+                          budget_consumed_minutes, burn_rate_1h,
+                          burn_rate_6h, sli_achieved_pct, captured_at
+                   FROM error_budget_snapshots
+                   WHERE slo_id = s.id
+                   ORDER BY captured_at DESC
+                   LIMIT 1
+               ) ebs ON TRUE
+               WHERE s.id = ANY($1)
+                 AND s.tenant_id = $2"#,
+        )
+        .bind(&ids)
+        .bind(tenant_id)
+        .fetch_all(&state.pool)
+        .await?
+    };
+
+    Ok(Json(rows))
 }
 
 /// GET /api/slos/:id/budget/history?days=30

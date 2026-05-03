@@ -582,6 +582,9 @@ fn build_router(state: AppState) -> Router {
             get(handlers::slo::list).post(handlers::slo::create),
         )
         .route("/api/slos/preview", post(handlers::slo::preview))
+        // P1 #18: batch budget read — MUST precede `/api/slos/{id}` so
+        // the literal `budgets` segment doesn't get consumed as an id.
+        .route("/api/slos/budgets", get(handlers::slo::budgets_batch))
         .route(
             "/api/slos/{id}",
             get(handlers::slo::get)

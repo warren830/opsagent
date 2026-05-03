@@ -319,16 +319,18 @@ async function fetchEntity() {
 }
 
 async function fetchRelations() {
+  // P1 #17: use the /graph endpoint (depth=1) so we get edges + exactly
+  // the reachable nodes in one round trip, instead of fetching every
+  // catalog entity to index. At depth=1 the graph response is a tight
+  // superset of the old `relations` + `related-by-id` payload.
   try {
-    relations.value = await api.get<CatalogRelation[]>(
-      `/api/catalog/entities/${entityId.value}/relations`,
+    const graph = await api.get<{ nodes: CatalogEntity[]; edges: CatalogRelation[] }>(
+      `/api/catalog/entities/${entityId.value}/graph?depth=1`,
     )
-    if (relations.value.length > 0) {
-      const all = await api.get<CatalogEntity[]>('/api/catalog/entities')
-      const m = new Map<string, CatalogEntity>()
-      for (const e of all) m.set(e.id, e)
-      relatedIndex.value = m
-    }
+    relations.value = graph.edges ?? []
+    const m = new Map<string, CatalogEntity>()
+    for (const n of graph.nodes ?? []) m.set(n.id, n)
+    relatedIndex.value = m
   } catch {
     // silent — empty relations are a valid state
   }
@@ -341,17 +343,21 @@ async function fetchSlos() {
     const all = await api.get<Slo[]>('/api/slos?include_disabled=true')
     slos.value = all.filter(s => s.component_id === entityId.value)
 
-    const pairs = await Promise.all(
-      slos.value.map(async (s) => {
-        try {
-          const snap = await api.get<BudgetSnapshot>(`/api/slos/${s.id}/budget`)
-          return [s.id, snap] as const
-        } catch {
-          return [s.id, null] as const
-        }
-      }),
-    )
-    budgets.value = Object.fromEntries(pairs)
+    // P1 #18: batch budget fetch — one round-trip for N SLOs.
+    if (slos.value.length > 0) {
+      const ids = slos.value.map(s => s.id).join(',')
+      try {
+        const summaries = await api.get<BudgetSnapshot[]>(`/api/slos/budgets?ids=${ids}`)
+        const idx: Record<string, BudgetSnapshot | null> = {}
+        for (const s of slos.value) idx[s.id] = null
+        for (const b of summaries ?? []) idx[b.slo_id] = b
+        budgets.value = idx
+      } catch {
+        budgets.value = {}
+      }
+    } else {
+      budgets.value = {}
+    }
   } catch {
     slos.value = []
   } finally {

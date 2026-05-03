@@ -112,6 +112,22 @@ pub struct ErrorBudgetSnapshot {
     pub burn_rate_3d: Option<f64>,
 }
 
+/// Compact per-SLO budget view used by the batch endpoint
+/// `GET /api/slos/budgets?ids=...`. Returns the latest snapshot per SLO
+/// without the window/row bookkeeping fields so the UI can paint a list
+/// of burn cards with a single round-trip (P1 #18).
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct BudgetSummary {
+    pub slo_id: Uuid,
+    pub budget_remaining_pct: f64,
+    pub budget_total_minutes: f64,
+    pub budget_consumed_minutes: f64,
+    pub burn_rate_1h: Option<f64>,
+    pub burn_rate_6h: Option<f64>,
+    pub sli_achieved_pct: f64,
+    pub captured_at: DateTime<Utc>,
+}
+
 // ---------------------------------------------------------------------------
 // Burn event.
 // ---------------------------------------------------------------------------
