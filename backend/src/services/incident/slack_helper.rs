@@ -142,6 +142,10 @@ pub struct CreatedChannel {
 /// Create a public Slack channel. If the channel already exists (because
 /// the incident is being re-promoted) Slack returns `name_taken` — callers
 /// should treat that as success and look up the existing channel.
+///
+/// P1 #16: surfaces `SlackError::NameTaken` so callers (e.g. `spawn_war_room`)
+/// can retry with a suffixed name rather than treating the collision as a
+/// generic HTTP failure.
 pub async fn slack_create_channel(token: &str, name: &str) -> AppResult<CreatedChannel> {
     let http = slack_http_client();
     let resp = http
@@ -162,9 +166,15 @@ pub async fn slack_create_channel(token: &str, name: &str) -> AppResult<CreatedC
         .map_err(|e| AppError::HttpClient(format!("slack parse create: {e}")))?;
 
     if !body.ok {
+        let err = body.error.unwrap_or_else(|| "unknown".to_string());
+        // P1 #16: specific error type for collisions so war_room can retry.
+        if err == "name_taken" {
+            return Err(AppError::Conflict(format!(
+                "slack name_taken: {name}"
+            )));
+        }
         return Err(AppError::HttpClient(format!(
-            "slack conversations.create failed: {}",
-            body.error.unwrap_or_else(|| "unknown".to_string())
+            "slack conversations.create failed: {err}"
         )));
     }
 

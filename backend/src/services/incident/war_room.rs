@@ -60,8 +60,28 @@ pub async fn spawn_war_room(
     // ---- 2. Slack war room ---------------------------------------------------
     match slack_helper::get_slack_token(pool, incident.tenant_id).await {
         Ok(Some(token)) => {
-            let channel_name = build_channel_name(&incident.title, Utc::now());
-            match slack_helper::slack_create_channel(&token, &channel_name).await {
+            let base_name = build_channel_name(&incident.title, Utc::now());
+            // P1 #16: if the base channel name is already taken (duplicate
+            // incident title in the same day, replay, etc.), retry once
+            // with the incident number appended. Anything beyond that
+            // collision is recorded as an error — we stop the spiral here
+            // rather than looping forever.
+            let create_result = match slack_helper::slack_create_channel(&token, &base_name).await {
+                Ok(ch) => Ok(ch),
+                Err(crate::error::AppError::Conflict(_)) => {
+                    let retry_name = format!("{}-{}", base_name, incident.number);
+                    // Slack caps channel names at 80 chars; truncate the
+                    // retry name to stay inside that bound.
+                    let retry_name = if retry_name.len() > 80 {
+                        retry_name.chars().take(80).collect::<String>()
+                    } else {
+                        retry_name
+                    };
+                    slack_helper::slack_create_channel(&token, &retry_name).await
+                }
+                Err(e) => Err(e),
+            };
+            match create_result {
                 Ok(ch) => {
                     let url = format!("https://slack.com/app_redirect?channel={}", ch.id);
                     let channel_ref = serde_json::json!({
