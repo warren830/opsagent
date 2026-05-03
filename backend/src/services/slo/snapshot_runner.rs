@@ -227,29 +227,27 @@ fn sli_ratio_query(slo: &Slo, window_days: i32) -> String {
     let short = rule_generator::short_id(&slo.id);
     let prefix = format!("sli:slo_{}", short);
 
-    // Map window_days to the closest pre-aggregated recording rule we emit
-    // (5m / 1h / 6h / 3d). For larger windows we `avg_over_time` on the base
-    // 5m ratio so we don't need a new recording rule per window_days value.
+    // P1 #9: map window_days to the closest pre-aggregated recording rule
+    // we emit (5m / 30m / 1h / 6h / 3d). Only 3d lines up cleanly with a
+    // days-granularity SLO window; every other value falls through to the
+    // raw aggregation path so the snapshot reflects the actual window rather
+    // than being silently approximated to a coarser one.
     let window_suffix = match window_days {
-        // 3d is the largest directly-emitted window.
-        1 => "1h",
-        2..=3 => "3d",
-        _ => "",
+        3 => Some("3d"),
+        _ => None,
     };
 
-    if slo.recording_rules_hash.is_some() && !window_suffix.is_empty() {
-        return format!("{prefix}:ratio_rate{window_suffix}");
-    }
-
-    // Fallback 1: recording rules present but window_days > 3 → aggregate
-    // the 5 m ratio over the full window on demand.
     if slo.recording_rules_hash.is_some() {
-        return format!(
-            "avg_over_time({prefix}:ratio_rate5m[{window_days}d])"
-        );
+        if let Some(suffix) = window_suffix {
+            return format!("{prefix}:ratio_rate{suffix}");
+        }
+        // Recording rules present but window_days doesn't match a published
+        // window — aggregate the 5m ratio over the requested window so the
+        // snapshot matches the configured window exactly.
+        return format!("avg_over_time({prefix}:ratio_rate5m[{window_days}d])");
     }
 
-    // Fallback 2: no recording rules yet → raw good/total over window.
+    // No recording rules yet → raw good/total over window.
     format!(
         "(sum_over_time(({good})[{window_days}d:5m]) / sum_over_time(({total})[{window_days}d:5m]))",
         good = slo.good_events_query,
@@ -348,13 +346,22 @@ mod tests {
     }
 
     #[test]
-    fn sli_ratio_query_uses_rule_for_1d_window_falls_back_to_1h() {
-        // window_days=1 maps to the 1h recording rule — our emitted ruleset
-        // doesn't publish a 1d ratio, and using the 1h aggregate is good
-        // enough for a snapshot that tracks the trailing period.
+    fn sli_ratio_query_uses_avg_over_time_for_1d_window() {
+        // P1 #9: window_days=1 no longer silently collapses onto the 1h
+        // ratio rule. Use avg_over_time on the 5m base so the snapshot
+        // reflects the full 1d window.
         let slo = sample_slo(true, 1);
         let q = sli_ratio_query(&slo, slo.window_days);
-        assert_eq!(q, "sli:slo_7a3cbeef:ratio_rate1h");
+        assert_eq!(q, "avg_over_time(sli:slo_7a3cbeef:ratio_rate5m[1d])");
+    }
+
+    #[test]
+    fn sli_ratio_query_uses_avg_over_time_for_2d_window() {
+        // window_days=2: no native rule, fall through to avg_over_time on
+        // the 5m base.
+        let slo = sample_slo(true, 2);
+        let q = sli_ratio_query(&slo, slo.window_days);
+        assert_eq!(q, "avg_over_time(sli:slo_7a3cbeef:ratio_rate5m[2d])");
     }
 
     #[test]

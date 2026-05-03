@@ -141,7 +141,9 @@ pub fn render_rule_group(slo: &Slo) -> String {
     out.push_str(&format!(
         "    expr: {metric_prefix}:good_events:rate5m / {metric_prefix}:total_events:rate5m\n"
     ));
-    for window in ["1h", "6h", "3d"] {
+    // P1 #9: emit a real 30m recording rule so MWMBR Page2 short window
+    // matches the SRE-book spec (30m) instead of being approximated by 1h.
+    for window in ["30m", "1h", "6h", "3d"] {
         out.push_str(&format!(
             "  - record: {metric_prefix}:ratio_rate{window}\n"
         ));
@@ -217,15 +219,14 @@ pub fn render_rule_group(slo: &Slo) -> String {
 impl BurnSpec {
     /// Returns the ratio recording-rule window suffix to query for the short
     /// window. Short windows (5m / 30m / 6h / 1d) map onto the ratio rules we
-    /// actually emit — 5m is the native `ratio_rate5m`; 30m is approximated by
-    /// `ratio_rate1h` (the next coarser published window); 6h uses
-    /// `ratio_rate6h`; 1d uses `ratio_rate3d`. This trade-off is the SRE-book
-    /// canonical shortcut so we don't need 8 separate recording rules — the
-    /// gating still works because the long window dominates.
+    /// actually emit — 5m, 30m, 6h are natively published; 1d falls back to
+    /// `ratio_rate3d` (next coarser published window). P1 #9 promoted 30m
+    /// from an approximation (1h) to a first-class recording rule so the
+    /// Page2 MWMBR alert matches the SRE-book spec.
     fn short_window_ratio_field(&self) -> &'static str {
         match self.short_window {
             "5m" => "5m",
-            "30m" => "1h",
+            "30m" => "30m",
             "6h" => "6h",
             "1d" => "3d",
             other => other,
@@ -358,6 +359,7 @@ mod tests {
             ":good_events:rate5m",
             ":total_events:rate5m",
             ":ratio_rate5m",
+            ":ratio_rate30m",
             ":ratio_rate1h",
             ":ratio_rate6h",
             ":ratio_rate3d",
@@ -497,11 +499,11 @@ mod tests {
         let seq = groups.as_sequence().expect("groups is sequence");
         assert_eq!(seq.len(), 1);
         let rules = seq[0].get("rules").expect("rules present");
-        // 2 raw + 4 ratio + 4 alert = 10
+        // 2 raw + 5 ratio (5m/30m/1h/6h/3d) + 4 alert = 11
         assert_eq!(
             rules.as_sequence().unwrap().len(),
-            10,
-            "expected 10 rules total"
+            11,
+            "expected 11 rules total"
         );
     }
 
