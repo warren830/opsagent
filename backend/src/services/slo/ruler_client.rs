@@ -18,6 +18,26 @@
 use crate::error::{AppError, AppResult};
 use crate::models::telemetry::TelemetryConfig;
 use reqwest::{Client, StatusCode};
+use std::sync::OnceLock;
+use std::time::Duration;
+
+/// Process-wide `reqwest::Client` for the ruler API. Built once with the
+/// same timeout/pool defaults as the main HTTP client in `main.rs` so
+/// ruler HTTP calls can't stall forever and can't leak pools. P1 #6.
+static RULER_CLIENT: OnceLock<Client> = OnceLock::new();
+
+fn ruler_http_client() -> Client {
+    RULER_CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .timeout(Duration::from_secs(15))
+                .connect_timeout(Duration::from_secs(5))
+                .pool_max_idle_per_host(10)
+                .build()
+                .unwrap_or_else(|_| Client::new())
+        })
+        .clone()
+}
 
 /// Thin wrapper around a Mimir ruler HTTP endpoint.
 #[derive(Debug, Clone)]
@@ -85,7 +105,7 @@ impl RulerClient {
             .map(str::to_string);
 
         Ok(Self {
-            http: Client::new(),
+            http: ruler_http_client(),
             base_url: url,
             basic_auth,
             tenant_header,

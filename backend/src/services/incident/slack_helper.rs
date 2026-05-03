@@ -20,12 +20,30 @@
 
 use serde::Deserialize;
 use sqlx::PgPool;
+use std::sync::OnceLock;
+use std::time::Duration;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::channel::Channel;
 
 const SLACK_API_BASE: &str = "https://slack.com/api";
+
+/// Process-wide `reqwest::Client` for Slack Web API calls. Built once with
+/// the same timeout/pool defaults as the main HTTP client in `main.rs` so
+/// a hung Slack API call can't dangle the war-room task forever. P1 #6.
+static SLACK_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn slack_http_client() -> &'static reqwest::Client {
+    SLACK_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(5))
+            .pool_max_idle_per_host(10)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Token lookup.
@@ -115,7 +133,7 @@ pub struct CreatedChannel {
 /// the incident is being re-promoted) Slack returns `name_taken` — callers
 /// should treat that as success and look up the existing channel.
 pub async fn slack_create_channel(token: &str, name: &str) -> AppResult<CreatedChannel> {
-    let http = reqwest::Client::new();
+    let http = slack_http_client();
     let resp = http
         .post(format!("{SLACK_API_BASE}/conversations.create"))
         .header("Authorization", format!("Bearer {token}"))
@@ -152,7 +170,7 @@ pub async fn slack_create_channel(token: &str, name: &str) -> AppResult<CreatedC
 /// Post a plain-text message to a channel (block kit is out of scope for
 /// MVP). Returns `Ok(())` if Slack accepts the message.
 pub async fn slack_post_message(token: &str, channel_id: &str, text: &str) -> AppResult<()> {
-    let http = reqwest::Client::new();
+    let http = slack_http_client();
     let resp = http
         .post(format!("{SLACK_API_BASE}/chat.postMessage"))
         .header("Authorization", format!("Bearer {token}"))
@@ -190,7 +208,7 @@ pub async fn slack_invite_users(
     if user_ids.is_empty() {
         return Ok(());
     }
-    let http = reqwest::Client::new();
+    let http = slack_http_client();
     let resp = http
         .post(format!("{SLACK_API_BASE}/conversations.invite"))
         .header("Authorization", format!("Bearer {token}"))
@@ -227,7 +245,7 @@ pub async fn slack_lookup_user_by_email(
     token: &str,
     email: &str,
 ) -> AppResult<Option<String>> {
-    let http = reqwest::Client::new();
+    let http = slack_http_client();
     let resp = http
         .get(format!("{SLACK_API_BASE}/users.lookupByEmail"))
         .header("Authorization", format!("Bearer {token}"))
