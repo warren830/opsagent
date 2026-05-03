@@ -125,9 +125,12 @@
 
     /* Decoration layer intensity */
     --halo-dim: 1;                          /* full-strength halo */
-    --mesh-opacity: 0.08;                   /* ~8% — "若隐若现" sweet spot:
-                                               visible on solid dark regions,
-                                               dissolves into halo glow areas */
+    --mesh-opacity: 0.28;                   /* 28% — calibrated for the sparse
+                                               Topology Sketch (15 triangles across
+                                               full viewport, not a dense tile).
+                                               With so few elements, each stroke
+                                               needs higher alpha to read as
+                                               "若隐若现" instead of "invisible". */
 
     /* Kill gloss: glass panels revert to solid panel tint on dark theme */
     --glass-bg: 225 20% 7% / 1;
@@ -143,7 +146,7 @@
      nearly full so the brand signal lives on every page. */
   [data-theme="aurora"][data-surface="focus"] {
     --halo-dim: 0.85;                       /* nearly full — just a touch calmer */
-    --mesh-opacity: 0.03;                   /* still visible as a hint, not a pattern */
+    --mesh-opacity: 0.12;                   /* sketch still visible as a hint */
   }
 }
 
