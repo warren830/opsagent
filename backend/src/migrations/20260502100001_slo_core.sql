@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS slo_burn_events (
     slo_id UUID NOT NULL REFERENCES slos(id) ON DELETE CASCADE,
     severity VARCHAR(16) NOT NULL
         CHECK (severity IN ('page', 'ticket')),
-    window VARCHAR(16) NOT NULL,
+    burn_window VARCHAR(16) NOT NULL,
     burn_rate DOUBLE PRECISION NOT NULL,
     threshold DOUBLE PRECISION NOT NULL,
     triggered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -59,7 +59,7 @@ const entities = ref<CatalogEntity[]>([])
 const loading = ref(true)
 const query = ref('')
 const activeKind = ref('')
-const activeLifecycle = ref('')
+const activeLifecycle = ref('all')
 
 // Cache of id → display name for owner/system reference resolution. The
 // list endpoint already ships every row in one shot, so we build the map
@@ -80,7 +80,7 @@ const kindTabs = computed(() => [
 ])
 
 const lifecycleOptions = computed(() => [
-  { value: '', label: t('catalog.lifecycleAll') },
+  { value: 'all', label: t('catalog.lifecycleAll') },
   { value: 'production', label: t('catalog.lifecycleProduction') },
   { value: 'experimental', label: t('catalog.lifecycleExperimental') },
   { value: 'deprecated', label: t('catalog.lifecycleDeprecated') },
@@ -91,7 +91,7 @@ const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
   return entities.value.filter((e) => {
     if (activeKind.value && e.kind !== activeKind.value) return false
-    if (activeLifecycle.value && e.lifecycle !== activeLifecycle.value) return false
+    if (activeLifecycle.value !== 'all' && e.lifecycle !== activeLifecycle.value) return false
     if (q) {
       const hay = `${e.name} ${e.display_name ?? ''}`.toLowerCase()
       if (!hay.includes(q)) return false

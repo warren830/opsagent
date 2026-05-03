@@ -15,5 +15,5 @@
 -- the natural dedup boundary operators expect (e.g. "one 1h burn per SLO").
 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_slo_burn_open
-    ON slo_burn_events (slo_id, window)
+    ON slo_burn_events (slo_id, burn_window)
     WHERE resolved_at IS NULL;

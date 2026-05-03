@@ -77,13 +77,25 @@ pub async fn build_account_env(
     }
 }
 
+/// Build a kube::Client for a cluster, dispatching on cloud provider.
+///
+/// - AWS EKS: `aws eks get-token` via assume-role
+/// - GCP GKE: `gcloud auth print-access-token` (ADC)
+/// - Future (Alicloud ACK, Azure AKS): add branches here
+pub async fn build_k8s_client(pool: &sqlx::PgPool, cluster: &Cluster) -> AppResult<kube::Client> {
+    match cluster.cloud.as_str() {
+        "gcp" => build_gke_client(cluster).await,
+        _ => build_eks_client(pool, cluster).await,
+    }
+}
+
 /// Build a kube::Client for an EKS cluster.
 ///
 /// 1. Extract endpoint + certificate_authority from cluster.config
 /// 2. Resolve AWS credentials for the cluster's account
 /// 3. Call `aws eks get-token` to get a Bearer token
 /// 4. Build kube::Config → kube::Client
-pub async fn build_k8s_client(pool: &sqlx::PgPool, cluster: &Cluster) -> AppResult<kube::Client> {
+pub async fn build_eks_client(pool: &sqlx::PgPool, cluster: &Cluster) -> AppResult<kube::Client> {
     let endpoint = cluster.config.get("endpoint").and_then(|v| v.as_str()).ok_or_else(|| {
         AppError::BadRequest("Cluster config missing 'endpoint'. Re-run cluster discovery.".to_string())
     })?;
@@ -207,6 +219,85 @@ pub async fn build_k8s_client(pool: &sqlx::PgPool, cluster: &Cluster) -> AppResu
         .map_err(|e| AppError::Kubernetes(format!("Failed to build K8s client: {e}")))?;
 
     tracing::debug!("Kube client built successfully for {}", cluster.name);
+
+    Ok(client)
+}
+
+/// Build a kube::Client for a GKE cluster.
+///
+/// 1. Extract endpoint + CA cert from cluster.config (accepts either `ca_cert`
+///    from manual POST or `certificate_authority` from future discovery)
+/// 2. Get a short-lived OAuth token via `gcloud auth print-access-token`
+///    (MVP — production should switch to service-account JSON via yup-oauth2)
+/// 3. Build kube::Config → kube::Client
+///
+/// GKE's `masterAuth.clusterCaCertificate` is base64-encoded PEM, same shape
+/// as EKS's CA field, so we reuse `rustls_pem_to_der`.
+pub async fn build_gke_client(cluster: &Cluster) -> AppResult<kube::Client> {
+    let endpoint = cluster
+        .config
+        .get("endpoint")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::BadRequest("GKE config missing 'endpoint'".to_string()))?;
+
+    // Accept either key — 'ca_cert' is what manual POST uses, 'certificate_authority'
+    // matches EKS naming for future uniform discovery.
+    let ca_data = cluster
+        .config
+        .get("ca_cert")
+        .or_else(|| cluster.config.get("certificate_authority"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "GKE config missing 'ca_cert' (or 'certificate_authority')".to_string(),
+            )
+        })?;
+
+    // Mint a fresh OAuth token. Valid for ~1h; we don't cache across calls —
+    // rollout_watcher runs at 60s interval, so worst case is one extra gcloud
+    // invocation per minute.
+    let token = crate::services::gcp::get_gke_access_token().await?;
+
+    // CA: base64 → PEM bytes → DER
+    use base64::Engine;
+    let ca_bytes = base64::engine::general_purpose::STANDARD
+        .decode(ca_data)
+        .map_err(|e| AppError::Kubernetes(format!("Invalid GKE CA base64: {e}")))?;
+    let ca_der = rustls_pem_to_der(&ca_bytes)?;
+
+    tracing::debug!(
+        "Building GKE client for {} (endpoint={}, ca_der_len={})",
+        cluster.name,
+        endpoint,
+        ca_der.len()
+    );
+
+    let cluster_url: http::Uri = endpoint
+        .parse()
+        .map_err(|e| AppError::Kubernetes(format!("Invalid GKE endpoint URL: {e}")))?;
+
+    let kube_config = kube::Config {
+        cluster_url,
+        default_namespace: "default".to_string(),
+        root_cert: Some(vec![ca_der]),
+        connect_timeout: Some(std::time::Duration::from_secs(30)),
+        read_timeout: Some(std::time::Duration::from_secs(60)),
+        write_timeout: Some(std::time::Duration::from_secs(60)),
+        accept_invalid_certs: false,
+        auth_info: kube::config::AuthInfo {
+            token: Some(secrecy::SecretString::from(token)),
+            ..Default::default()
+        },
+        proxy_url: None,
+        tls_server_name: None,
+        disable_compression: false,
+        headers: vec![],
+    };
+
+    let client = kube::Client::try_from(kube_config)
+        .map_err(|e| AppError::Kubernetes(format!("Failed to build GKE client: {e}")))?;
+
+    tracing::debug!("GKE client built successfully for {}", cluster.name);
 
     Ok(client)
 }

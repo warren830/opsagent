@@ -178,9 +178,9 @@ async fn insert_open_burn(
     // means "threshold unknown at ingestion time".
     let result = sqlx::query_scalar::<_, Uuid>(
         r#"INSERT INTO slo_burn_events
-               (slo_id, severity, window, burn_rate, threshold, issue_id)
+               (slo_id, severity, burn_window, burn_rate, threshold, issue_id)
            VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (slo_id, window) WHERE resolved_at IS NULL
+           ON CONFLICT (slo_id, burn_window) WHERE resolved_at IS NULL
                DO NOTHING
            RETURNING id"#,
     )
@@ -459,7 +459,7 @@ async fn resolve_open_burn(pool: &PgPool, burn: &SloBurnLabels) {
         r#"UPDATE slo_burn_events
                SET resolved_at = NOW()
              WHERE slo_id = $1
-               AND window = $2
+               AND burn_window = $2
                AND resolved_at IS NULL"#,
     )
     .bind(burn.slo_id)

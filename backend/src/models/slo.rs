@@ -140,6 +140,7 @@ pub struct SloBurnEvent {
     pub id: Uuid,
     pub slo_id: Uuid,
     pub severity: String,
+    #[sqlx(rename = "burn_window")]
     pub window: String,
     pub burn_rate: f64,
     pub threshold: f64,
