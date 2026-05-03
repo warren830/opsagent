@@ -7,6 +7,7 @@
 //! `WarRoomResult::errors` on failure and moves on.
 
 use chrono::Utc;
+use futures::stream::{self, StreamExt};
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -304,13 +305,12 @@ async fn resolve_responder_user_ids(
         }
     }
 
-    // Translate emails → Slack user IDs (best effort — failures logged, skipped).
-    let mut slack_ids: Vec<String> = Vec::new();
+    // Resolve usernames → email addresses (DB hits, serial is fine — all
+    // hit the same pool and the list is small).
+    let mut resolved_emails: Vec<String> = Vec::with_capacity(emails.len());
     for email in emails {
-        // If what we pulled is not actually an email, try to resolve as a
-        // user by username first.
-        let resolved_email = if email.contains('@') {
-            Some(email.clone())
+        let resolved = if email.contains('@') {
+            Some(email)
         } else {
             let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = $1")
                 .bind(&email)
@@ -318,23 +318,33 @@ async fn resolve_responder_user_ids(
                 .await?;
             user.and_then(|u| u.email)
         };
-        let Some(resolved_email) = resolved_email else {
-            continue;
-        };
-
-        match slack_helper::slack_lookup_user_by_email(slack_token, &resolved_email).await {
-            Ok(Some(id)) => slack_ids.push(id),
-            Ok(None) => {
-                tracing::debug!(
-                    "slack: no user for email {} (skipping)",
-                    resolved_email
-                );
-            }
-            Err(e) => {
-                tracing::warn!("slack lookup {} failed: {}", resolved_email, e);
-            }
+        if let Some(e) = resolved {
+            resolved_emails.push(e);
         }
     }
+
+    // Translate emails → Slack user IDs concurrently. Slack's rate budget
+    // is generous but we cap at 5 in flight so a slow lookup can't pile up
+    // — best effort: failures are logged and skipped. P1 #15.
+    let slack_ids: Vec<String> = stream::iter(resolved_emails)
+        .map(|email| async move {
+            match slack_helper::slack_lookup_user_by_email(slack_token, &email).await {
+                Ok(Some(id)) => Some(id),
+                Ok(None) => {
+                    tracing::debug!("slack: no user for email {} (skipping)", email);
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("slack lookup {} failed: {}", email, e);
+                    None
+                }
+            }
+        })
+        .buffer_unordered(5)
+        .filter_map(|v| async move { v })
+        .collect()
+        .await;
+
     Ok(slack_ids)
 }
 
