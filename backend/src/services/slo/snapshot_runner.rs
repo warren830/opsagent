@@ -23,8 +23,17 @@ use crate::error::AppResult;
 use crate::models::slo::Slo;
 use crate::services::slo::{budget_calc, mimir_client, rule_generator};
 use chrono::{Duration as ChronoDuration, Utc};
+use futures::stream::{self, StreamExt};
 use sqlx::PgPool;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
+
+/// Cap on concurrent per-SLO snapshot work. Each `snapshot_one` issues up to
+/// five Mimir `/api/v1/query` requests plus one DB insert, so 8-way
+/// parallelism is comfortable for the 15s client timeout without burying the
+/// ruler. P1 #7.
+const SNAPSHOT_CONCURRENCY: usize = 8;
 
 /// Default loop interval — 5 minutes aligns with `idx_budget_snapshots_slo_time`
 /// being denormalised enough to support 90-day budget history charts.
@@ -105,21 +114,40 @@ pub async fn snapshot_all_enabled(pool: &PgPool) -> AppResult<SnapshotCycleResul
         }
     };
 
-    for slo in &slos {
-        match snapshot_one(pool, &endpoint, slo).await {
-            Ok(()) => result.succeeded += 1,
-            Err(e) => {
-                result.failed += 1;
-                tracing::warn!(
-                    slo_id = %slo.id,
-                    name = %slo.name,
-                    error = %e,
-                    "SLO snapshot failed for this SLO"
-                );
-            }
-        }
-    }
+    // Run snapshots concurrently, bounded by `SNAPSHOT_CONCURRENCY`, so one
+    // slow Mimir response can't serialise the entire cycle. Each task owns
+    // its own per-SLO error handling; the atomics aggregate counts across
+    // the stream.
+    let succeeded = Arc::new(AtomicUsize::new(0));
+    let failed = Arc::new(AtomicUsize::new(0));
 
+    stream::iter(slos.into_iter())
+        .for_each_concurrent(Some(SNAPSHOT_CONCURRENCY), |slo| {
+            let pool = pool.clone();
+            let endpoint = endpoint.clone();
+            let succeeded = succeeded.clone();
+            let failed = failed.clone();
+            async move {
+                match snapshot_one(&pool, &endpoint, &slo).await {
+                    Ok(()) => {
+                        succeeded.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(e) => {
+                        failed.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!(
+                            slo_id = %slo.id,
+                            name = %slo.name,
+                            error = %e,
+                            "SLO snapshot failed for this SLO"
+                        );
+                    }
+                }
+            }
+        })
+        .await;
+
+    result.succeeded = succeeded.load(Ordering::Relaxed);
+    result.failed = failed.load(Ordering::Relaxed);
     Ok(result)
 }
 
