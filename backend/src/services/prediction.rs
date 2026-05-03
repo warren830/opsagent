@@ -226,6 +226,7 @@ async fn check_cloudwatch_anomalies(pool: &PgPool) -> Result<()> {
             false,
             "prediction",
             None,
+            None, // prediction jobs have no tenant context; row lands with NULL tenant_id
         )
         .await;
 
@@ -379,6 +380,7 @@ async fn check_mimir_predictions(pool: &PgPool) -> Result<()> {
                 false,
                 "prediction",
                 None,
+                None, // prediction jobs have no tenant context; row lands with NULL tenant_id
             )
             .await;
 
