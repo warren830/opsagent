@@ -1,12 +1,24 @@
-use axum::{Json, extract::State};
+use axum::{Json, extract::State, http::HeaderMap};
 use serde::Deserialize;
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
+use crate::middleware::webhook_auth;
 use crate::services;
+
+/// Pull a header value as a borrowed string, ignoring non-UTF8 bytes.
+fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name).and_then(|v| v.to_str().ok())
+}
+
+/// Extract the token from an `Authorization: Bearer <token>` style header.
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    header_str(headers, "authorization")
+        .and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")))
+}
 
 // W3 TODO — auto-promote tier0 critical alerts to Incident.
 //
@@ -78,15 +90,27 @@ pub struct GrafanaAlert {
 }
 
 /// POST /api/alerts — receive Grafana alerting webhooks.
+///
+/// Authentication: the operator provisions a per-tenant shared token in
+/// `webhook_secrets` (provider='grafana') and configures Grafana to send it
+/// back as `X-Webhook-Token: <token>`. A missing / unknown token → 401, and
+/// the alert is bound to the matched tenant.
 pub async fn receive(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<GrafanaWebhook>,
 ) -> AppResult<Json<serde_json::Value>> {
+    let token = header_str(&headers, "x-webhook-token").unwrap_or("");
+    let tenant_id = webhook_auth::verify_webhook_secret(&state.pool, "grafana", token)
+        .await
+        .ok_or_else(|| AppError::Unauthorized("Invalid or missing Grafana webhook token".into()))?;
+
     let alert_count = payload.alerts.len();
     tracing::info!(
-        "Received Grafana webhook: status={:?}, {} alert(s)",
+        "Received Grafana webhook: status={:?}, {} alert(s), tenant={}",
         payload.status,
-        alert_count
+        alert_count,
+        tenant_id
     );
 
     let rca_ctx = services::alerts::RcaContext {
@@ -139,6 +163,7 @@ pub async fn receive(
             is_resolved,
             "incident",
             Some(&rca_ctx),
+            Some(tenant_id),
         )
         .await;
         created += c;
@@ -155,6 +180,7 @@ pub async fn receive(
         };
         if let Err(e) = services::slo::alert_ingestion::ingest_slo_burn_alert(
             &state.pool,
+            state.timeline_bus.clone(),
             labels,
             is_resolved,
             issue_id,
@@ -203,14 +229,25 @@ pub struct DatadogWebhook {
 }
 
 /// POST /api/alerts/datadog — receive Datadog webhook notifications.
+///
+/// Authentication: shared token in `X-Webhook-Signature`. MVP treats this as
+/// a simple bearer-style secret; moving to full HMAC-SHA256 over the body
+/// is tracked as a follow-up (we already have `hmac`/`sha2` in Cargo.toml).
 pub async fn receive_datadog(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<DatadogWebhook>,
 ) -> AppResult<Json<serde_json::Value>> {
+    let token = header_str(&headers, "x-webhook-signature").unwrap_or("");
+    let tenant_id = webhook_auth::verify_webhook_secret(&state.pool, "datadog", token)
+        .await
+        .ok_or_else(|| AppError::Unauthorized("Invalid or missing Datadog webhook signature".into()))?;
+
     tracing::info!(
-        "Received Datadog webhook: title={:?}, type={:?}",
+        "Received Datadog webhook: title={:?}, type={:?}, tenant={}",
         payload.title,
-        payload.alert_type
+        payload.alert_type,
+        tenant_id
     );
 
     let rca_ctx = services::alerts::RcaContext {
@@ -247,6 +284,7 @@ pub async fn receive_datadog(
         is_resolved,
         "incident",
         Some(&rca_ctx),
+        Some(tenant_id),
     )
     .await;
 
@@ -260,6 +298,7 @@ pub async fn receive_datadog(
     };
     if let Err(e) = services::slo::alert_ingestion::ingest_slo_burn_alert(
         &state.pool,
+        state.timeline_bus.clone(),
         Some(&meta),
         is_resolved,
         issue_id,
@@ -304,14 +343,23 @@ pub struct DynatraceWebhook {
 }
 
 /// POST /api/alerts/dynatrace — receive Dynatrace problem notifications.
+///
+/// Authentication: shared token in `Authorization: Bearer <token>`.
 pub async fn receive_dynatrace(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<DynatraceWebhook>,
 ) -> AppResult<Json<serde_json::Value>> {
+    let token = bearer_token(&headers).unwrap_or("");
+    let tenant_id = webhook_auth::verify_webhook_secret(&state.pool, "dynatrace", token)
+        .await
+        .ok_or_else(|| AppError::Unauthorized("Invalid or missing Dynatrace webhook bearer token".into()))?;
+
     tracing::info!(
-        "Received Dynatrace webhook: problem={:?}, state={:?}",
+        "Received Dynatrace webhook: problem={:?}, state={:?}, tenant={}",
         payload.problem_id,
-        payload.state
+        payload.state,
+        tenant_id
     );
 
     let rca_ctx = services::alerts::RcaContext {
@@ -355,6 +403,7 @@ pub async fn receive_dynatrace(
         is_resolved,
         "incident",
         Some(&rca_ctx),
+        Some(tenant_id),
     )
     .await;
 
@@ -368,6 +417,7 @@ pub async fn receive_dynatrace(
     };
     if let Err(e) = services::slo::alert_ingestion::ingest_slo_burn_alert(
         &state.pool,
+        state.timeline_bus.clone(),
         Some(&meta),
         is_resolved,
         issue_id,

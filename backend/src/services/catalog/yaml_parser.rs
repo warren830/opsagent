@@ -15,6 +15,19 @@ use serde::Deserialize;
 
 const EXPECTED_API_VERSION: &str = "loops.yingchu.cloud/v1";
 
+/// P1 #11: cap the raw YAML payload size. 5 MB is ~50k realistic entities
+/// which is an order of magnitude more than any catalog we expect. Anything
+/// larger is almost certainly a YAML-bomb / DoS attempt.
+const MAX_YAML_BYTES: usize = 5 * 1024 * 1024;
+/// P1 #11: cap the total number of anchor (`&`) and alias (`*`) markers.
+/// Classic billion-laughs requires recursive alias expansion; refuse
+/// anything above 100 markers to keep the attack surface tiny.
+const MAX_YAML_ALIAS_MARKERS: usize = 100;
+/// P1 #11: cap the number of documents in a single request. Realistic
+/// catalog-info bundles are well under 1000 entities; anything more is a
+/// client bug or an attack.
+const MAX_YAML_DOCS: usize = 1000;
+
 /// Raw YAML document shape — mirrors the wire format. Everything after
 /// the standard metadata block goes into `spec` as opaque JSON.
 #[derive(Debug, Deserialize)]
@@ -124,6 +137,19 @@ fn strip_well_known_spec(mut spec: serde_json::Value) -> serde_json::Value {
 /// `ParsedEntity`. Returns the first error encountered — partial
 /// success is the handler's problem, not the parser's.
 pub fn parse_multi_doc(yaml: &str) -> Result<Vec<ParsedEntity>, ParseError> {
+    // P1 #11 safety gates — refuse clearly abusive payloads up front rather
+    // than let serde_yaml run arbitrary alias expansion against untrusted
+    // input.
+    if yaml.len() > MAX_YAML_BYTES {
+        return Err(ParseError::InvalidYaml("payload too large".into()));
+    }
+    let alias_markers = yaml.matches('*').count() + yaml.matches('&').count();
+    if alias_markers > MAX_YAML_ALIAS_MARKERS {
+        return Err(ParseError::InvalidYaml(
+            "too many YAML aliases (possible bomb)".into(),
+        ));
+    }
+
     let mut out = Vec::new();
 
     for doc in serde_yaml::Deserializer::from_str(yaml) {
@@ -185,6 +211,12 @@ pub fn parse_multi_doc(yaml: &str) -> Result<Vec<ParsedEntity>, ParseError> {
             annotations,
             spec_remaining: strip_well_known_spec(doc.spec),
         });
+
+        if out.len() > MAX_YAML_DOCS {
+            return Err(ParseError::InvalidYaml(
+                "too many YAML documents in request".into(),
+            ));
+        }
     }
 
     Ok(out)
@@ -316,6 +348,25 @@ spec:
         // empty rest after prefix also ignored.
         assert_eq!(parse_owner(Some("group: ")), None);
         assert_eq!(parse_owner(None), None);
+    }
+
+    #[test]
+    fn rejects_oversized_payload() {
+        // 6 MB of whitespace — comfortably above the 5 MB gate but within
+        // what serde_yaml would otherwise parse happily.
+        let yaml = "# padding\n".repeat(6 * 1024 * 1024 / 10);
+        let err = parse_multi_doc(&yaml).expect_err("rejects");
+        assert!(matches!(err, ParseError::InvalidYaml(msg) if msg.contains("too large")));
+    }
+
+    #[test]
+    fn rejects_too_many_aliases() {
+        // 101 anchor markers — trips the YAML-bomb gate without requiring a
+        // real parsable bomb (we want the gate itself covered).
+        let mut yaml = String::from("apiVersion: loops.yingchu.cloud/v1\n");
+        yaml.push_str(&"&".repeat(101));
+        let err = parse_multi_doc(&yaml).expect_err("rejects");
+        assert!(matches!(err, ParseError::InvalidYaml(msg) if msg.contains("alias")));
     }
 
     #[test]

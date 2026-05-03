@@ -123,6 +123,14 @@ pub async fn receive(
         }
     }
 
+    // Resolve the ArgoCD app to its catalog service row first so we can
+    // tenant-scope the incident timeline fan-out below. Unresolved (no
+    // catalog match / multiple matches across tenants) means we don't
+    // know which tenant this deploy belongs to, and fanning out without
+    // that context could leak an event to a colliding tenant with the
+    // same app name.
+    let (service_id, service_tenant) = resolve_service_for_app(&state.pool, &payload.app_name).await;
+
     // W4: fan this event out to any active incident whose affected
     // components include the ArgoCD app. Non-blocking — logs on failure.
     let timeline_kind = match action {
@@ -143,6 +151,7 @@ pub async fn receive(
     crate::services::incident::timeline::fanout_deploy_event_to_incidents(
         &state.pool,
         &state.timeline_bus,
+        service_tenant,
         &payload.app_name,
         timeline_kind,
         actor,
@@ -155,7 +164,6 @@ pub async fn receive(
     // whether an incident was open. The per-incident fan-out above covers
     // "what happened during the war room"; this row powers "what recently
     // changed for service X?" regardless of incident status.
-    let (service_id, service_tenant) = resolve_service_for_app(&state.pool, &payload.app_name).await;
     let ce_actor = serde_json::json!({
         "type": "system",
         "display_name": "argocd",

@@ -250,17 +250,28 @@ async fn call_tool(
                 ));
             }
 
+            // P3 #25: stamp the agent session id into `pushed_to` so the
+            // UI can later show which chat produced this draft. No schema
+            // change required — we reuse the JSONB column we already have.
+            let pushed_to = if session_id == "mcp-incident" {
+                // fallback sentinel — nothing to record
+                serde_json::json!({})
+            } else {
+                serde_json::json!({ "agent_session_id": session_id })
+            };
+
             let update = sqlx::query_as::<_, IncidentUpdate>(
                 r#"INSERT INTO incident_updates
                        (incident_id, author_user_id, audience, status_at_time,
                         body_markdown, published_at, pushed_to)
-                   VALUES ($1, NULL, $2, $3, $4, NULL, '{}'::jsonb)
+                   VALUES ($1, NULL, $2, $3, $4, NULL, $5)
                    RETURNING *"#,
             )
             .bind(incident_id)
             .bind(audience)
             .bind(&inc.status)
             .bind(body.trim())
+            .bind(&pushed_to)
             .fetch_one(&state.pool)
             .await?;
 

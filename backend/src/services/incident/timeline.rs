@@ -129,21 +129,34 @@ pub fn agent_actor(agent: &str, session_id: &str) -> serde_json::Value {
 pub async fn fanout_deploy_event_to_incidents(
     pool: &PgPool,
     bus: &TimelineBus,
+    tenant_id: Option<Uuid>,
     component_name: &str,
     kind: &str,
     actor: serde_json::Value,
     summary: &str,
     payload: serde_json::Value,
 ) {
-    // Resolve component_name → catalog_entities.id[]. We search across all
-    // tenants because webhook events carry no tenant context — the incident
-    // row itself is tenant-scoped, so cross-tenant bleed is not possible
-    // (the later overlap query filters by `affected_component_ids`, which
-    // only holds ids owned by the incident's tenant).
+    // Two tenants can both have a catalog entity named, say, `checkout`.
+    // Without the tenant filter, a deploy event for tenant A's `checkout`
+    // resolves to both tenants' entity ids, which then overlaps an open
+    // incident in tenant B that happens to affect its own `checkout`. The
+    // result: tenant B's war room sees a timeline entry about tenant A's
+    // deploy, leaking both the existence of that deploy and whatever
+    // summary/payload the caller passed. Require callers to provide the
+    // tenant context so we can filter the catalog lookup at the source.
+    let Some(tenant_id) = tenant_id else {
+        tracing::debug!(
+            "timeline fanout: no tenant context for component '{}', skipping",
+            component_name
+        );
+        return;
+    };
+
     let component_ids: Vec<Uuid> = match sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM catalog_entities WHERE name = $1",
+        "SELECT id FROM catalog_entities WHERE name = $1 AND tenant_id = $2",
     )
     .bind(component_name)
+    .bind(tenant_id)
     .fetch_all(pool)
     .await
     {
@@ -160,20 +173,27 @@ pub async fn fanout_deploy_event_to_incidents(
 
     if component_ids.is_empty() {
         tracing::debug!(
-            "timeline fanout: no catalog_entities match '{}', skipping",
-            component_name
+            "timeline fanout: no catalog_entities match '{}' in tenant {}, skipping",
+            component_name,
+            tenant_id
         );
         return;
     }
 
     // Find every non-closed incident whose affected_component_ids overlaps
-    // our match set (`&&` is PG array overlap).
+    // our match set (`&&` is PG array overlap). Tenant scoping is
+    // redundant given the catalog_ids are already tenant-scoped, but we
+    // add the explicit `tenant_id = $2` predicate as a defence-in-depth
+    // guard against future bugs where a stray cross-tenant id sneaks
+    // into the array.
     let incident_ids: Vec<Uuid> = match sqlx::query_scalar::<_, Uuid>(
         r#"SELECT id FROM incidents
            WHERE status <> 'closed'
+             AND tenant_id = $2
              AND affected_component_ids && $1"#,
     )
     .bind(&component_ids)
+    .bind(tenant_id)
     .fetch_all(pool)
     .await
     {

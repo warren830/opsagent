@@ -3,6 +3,7 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::signal;
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 
@@ -36,12 +37,24 @@ async fn main() {
     // Seed default admin user if no users exist
     seed_admin_user(&pool).await;
 
+    // Build a single shared HTTP client used across all outbound integrations
+    // (Mimir / Loki / Slack / Jira / etc). Building one client per request
+    // leaks connection pools and sidesteps timeouts, which is exactly what
+    // P1 #6 is correcting.
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .connect_timeout(Duration::from_secs(5))
+        .pool_max_idle_per_host(10)
+        .build()
+        .expect("Failed to build HTTP client");
+
     // Build app state
     let state = AppState {
         pool,
         config: config.clone(),
         rca_registry: std::sync::Arc::new(services::rca::RcaRegistry::new()),
         timeline_bus: std::sync::Arc::new(services::incident::timeline_bus::TimelineBus::new()),
+        http_client,
     };
 
     // Spawn token cleanup task (every 6 hours)
@@ -569,6 +582,9 @@ fn build_router(state: AppState) -> Router {
             get(handlers::slo::list).post(handlers::slo::create),
         )
         .route("/api/slos/preview", post(handlers::slo::preview))
+        // P1 #18: batch budget read — MUST precede `/api/slos/{id}` so
+        // the literal `budgets` segment doesn't get consumed as an id.
+        .route("/api/slos/budgets", get(handlers::slo::budgets_batch))
         .route(
             "/api/slos/{id}",
             get(handlers::slo::get)

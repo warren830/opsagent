@@ -21,8 +21,8 @@ use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
 use crate::models::slo::{
-    BudgetHistoryQuery, CreateSloRequest, ErrorBudgetSnapshot, PreviewRequest, Slo, SliQuery,
-    SyncResult, UpdateSloRequest,
+    BudgetHistoryQuery, BudgetSummary, CreateSloRequest, ErrorBudgetSnapshot, PreviewRequest,
+    Slo, SliQuery, SyncResult, UpdateSloRequest,
 };
 use crate::services::common::require_non_empty;
 use crate::services::slo::mimir_client::{self, MetricsEndpoint};
@@ -151,46 +151,89 @@ pub async fn update(
     let _ = fetch_slo(&state, &auth_user, id).await?;
     validate_update(&req)?;
 
-    let row = sqlx::query_as::<_, Slo>(
-        r#"UPDATE slos SET
-               name = COALESCE($2, name),
-               description = COALESCE($3, description),
-               component_id = COALESCE($4, component_id),
-               sli_type = COALESCE($5, sli_type),
-               good_events_query = COALESCE($6, good_events_query),
-               total_events_query = COALESCE($7, total_events_query),
-               objective_pct = COALESCE($8, objective_pct),
-               window_days = COALESCE($9, window_days),
-               burn_rate_policy = COALESCE($10, burn_rate_policy),
-               labels = COALESCE($11, labels),
-               enabled = COALESCE($12, enabled),
-               updated_at = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(&req.name)
-    .bind(&req.description)
-    .bind(req.component_id)
-    .bind(&req.sli_type)
-    .bind(&req.good_events_query)
-    .bind(&req.total_events_query)
-    .bind(req.objective_pct)
-    .bind(req.window_days)
-    .bind(&req.burn_rate_policy)
-    .bind(&req.labels)
-    .bind(req.enabled)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|e| {
-        if let sqlx::Error::Database(ref db_err) = e
-            && let Some(constraint) = db_err.constraint()
-            && (constraint.contains("tenant_id_name") || constraint.contains("slos_tenant"))
-        {
-            return AppError::Conflict("SLO name already exists in this tenant".to_string());
-        }
-        AppError::Database(e)
-    })?;
+    // Scope the write itself by tenant_id so a TOCTOU between fetch_slo
+    // and UPDATE cannot mutate another tenant's row.
+    let row_result = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, Slo>(
+            r#"UPDATE slos SET
+                   name = COALESCE($2, name),
+                   description = COALESCE($3, description),
+                   component_id = COALESCE($4, component_id),
+                   sli_type = COALESCE($5, sli_type),
+                   good_events_query = COALESCE($6, good_events_query),
+                   total_events_query = COALESCE($7, total_events_query),
+                   objective_pct = COALESCE($8, objective_pct),
+                   window_days = COALESCE($9, window_days),
+                   burn_rate_policy = COALESCE($10, burn_rate_policy),
+                   labels = COALESCE($11, labels),
+                   enabled = COALESCE($12, enabled),
+                   updated_at = NOW()
+               WHERE id = $1
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(&req.name)
+        .bind(&req.description)
+        .bind(req.component_id)
+        .bind(&req.sli_type)
+        .bind(&req.good_events_query)
+        .bind(&req.total_events_query)
+        .bind(req.objective_pct)
+        .bind(req.window_days)
+        .bind(&req.burn_rate_policy)
+        .bind(&req.labels)
+        .bind(req.enabled)
+        .fetch_optional(&state.pool)
+        .await
+    } else {
+        let tenant_id = auth_user
+            .tenant_id
+            .ok_or_else(|| AppError::Forbidden("No tenant context".to_string()))?;
+        sqlx::query_as::<_, Slo>(
+            r#"UPDATE slos SET
+                   name = COALESCE($3, name),
+                   description = COALESCE($4, description),
+                   component_id = COALESCE($5, component_id),
+                   sli_type = COALESCE($6, sli_type),
+                   good_events_query = COALESCE($7, good_events_query),
+                   total_events_query = COALESCE($8, total_events_query),
+                   objective_pct = COALESCE($9, objective_pct),
+                   window_days = COALESCE($10, window_days),
+                   burn_rate_policy = COALESCE($11, burn_rate_policy),
+                   labels = COALESCE($12, labels),
+                   enabled = COALESCE($13, enabled),
+                   updated_at = NOW()
+               WHERE id = $1 AND tenant_id = $2
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(&req.name)
+        .bind(&req.description)
+        .bind(req.component_id)
+        .bind(&req.sli_type)
+        .bind(&req.good_events_query)
+        .bind(&req.total_events_query)
+        .bind(req.objective_pct)
+        .bind(req.window_days)
+        .bind(&req.burn_rate_policy)
+        .bind(&req.labels)
+        .bind(req.enabled)
+        .fetch_optional(&state.pool)
+        .await
+    };
+
+    let row = row_result
+        .map_err(|e| {
+            if let sqlx::Error::Database(ref db_err) = e
+                && let Some(constraint) = db_err.constraint()
+                && (constraint.contains("tenant_id_name") || constraint.contains("slos_tenant"))
+            {
+                return AppError::Conflict("SLO name already exists in this tenant".to_string());
+            }
+            AppError::Database(e)
+        })?
+        .ok_or_else(|| AppError::NotFound("SLO not found".to_string()))?;
 
     // Re-render and push rules only when the hash changes — the generator is
     // deterministic so an unchanged name/query pair is cheap to skip.
@@ -252,15 +295,32 @@ async fn set_enabled(
 ) -> AppResult<Json<Slo>> {
     let _ = fetch_slo(state, auth_user, id).await?;
 
-    let row = sqlx::query_as::<_, Slo>(
-        r#"UPDATE slos SET enabled = $2, updated_at = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(enabled)
-    .fetch_one(&state.pool)
-    .await?;
+    let row_opt = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, Slo>(
+            r#"UPDATE slos SET enabled = $2, updated_at = NOW()
+               WHERE id = $1
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(enabled)
+        .fetch_optional(&state.pool)
+        .await?
+    } else {
+        let tenant_id = auth_user
+            .tenant_id
+            .ok_or_else(|| AppError::Forbidden("No tenant context".to_string()))?;
+        sqlx::query_as::<_, Slo>(
+            r#"UPDATE slos SET enabled = $3, updated_at = NOW()
+               WHERE id = $1 AND tenant_id = $2
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(enabled)
+        .fetch_optional(&state.pool)
+        .await?
+    };
+    let row = row_opt.ok_or_else(|| AppError::NotFound("SLO not found".to_string()))?;
 
     // Enabled → push rules; disabled → drop them. Both best-effort.
     let row = if enabled {
@@ -399,6 +459,108 @@ pub async fn budget(
     .ok_or_else(|| AppError::NotFound("No budget data yet".to_string()))?;
 
     Ok(Json(snapshot))
+}
+
+/// GET /api/slos/budgets?ids=uuid1,uuid2,...
+///
+/// Batch variant of [`budget`]. Returns the most recent
+/// [`BudgetSummary`] per SLO id passed in the `ids` query parameter. The
+/// UI uses this on the SLO list / service detail pages so it can render N
+/// burn cards with a single round trip instead of N parallel calls (P1 #18).
+///
+/// Tenant scope: non-super-admin callers only see SLOs whose `tenant_id`
+/// matches their own. Missing / unauthorised ids are silently dropped
+/// rather than 404'd so the batch call degrades gracefully.
+#[derive(Debug, Deserialize)]
+pub struct BudgetsBatchQuery {
+    /// Comma-separated list of SLO ids.
+    pub ids: String,
+}
+
+pub async fn budgets_batch(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Query(q): Query<BudgetsBatchQuery>,
+) -> AppResult<Json<Vec<BudgetSummary>>> {
+    // Parse + dedupe the comma-separated id list. We cap the request at
+    // 500 ids to avoid a pathological query shape.
+    let mut ids: Vec<Uuid> = q
+        .ids
+        .split(',')
+        .filter_map(|s| Uuid::parse_str(s.trim()).ok())
+        .collect();
+    ids.sort();
+    ids.dedup();
+    if ids.is_empty() {
+        return Ok(Json(vec![]));
+    }
+    if ids.len() > 500 {
+        return Err(AppError::BadRequest(
+            "too many ids (max 500)".to_string(),
+        ));
+    }
+
+    // `LATERAL` gives us the latest snapshot per slo_id in one pass.
+    // Tenant scoping lives on the outer `slos` row — unauthorised ids just
+    // don't match and are omitted from the result set.
+    let rows = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, BudgetSummary>(
+            r#"SELECT ebs.slo_id,
+                      ebs.budget_remaining_pct,
+                      ebs.budget_total_minutes,
+                      ebs.budget_consumed_minutes,
+                      ebs.burn_rate_1h,
+                      ebs.burn_rate_6h,
+                      ebs.sli_achieved_pct,
+                      ebs.captured_at
+               FROM slos s
+               JOIN LATERAL (
+                   SELECT slo_id, budget_remaining_pct, budget_total_minutes,
+                          budget_consumed_minutes, burn_rate_1h,
+                          burn_rate_6h, sli_achieved_pct, captured_at
+                   FROM error_budget_snapshots
+                   WHERE slo_id = s.id
+                   ORDER BY captured_at DESC
+                   LIMIT 1
+               ) ebs ON TRUE
+               WHERE s.id = ANY($1)"#,
+        )
+        .bind(&ids)
+        .fetch_all(&state.pool)
+        .await?
+    } else {
+        let tenant_id = auth_user
+            .tenant_id
+            .ok_or_else(|| AppError::Forbidden("No tenant context".to_string()))?;
+        sqlx::query_as::<_, BudgetSummary>(
+            r#"SELECT ebs.slo_id,
+                      ebs.budget_remaining_pct,
+                      ebs.budget_total_minutes,
+                      ebs.budget_consumed_minutes,
+                      ebs.burn_rate_1h,
+                      ebs.burn_rate_6h,
+                      ebs.sli_achieved_pct,
+                      ebs.captured_at
+               FROM slos s
+               JOIN LATERAL (
+                   SELECT slo_id, budget_remaining_pct, budget_total_minutes,
+                          budget_consumed_minutes, burn_rate_1h,
+                          burn_rate_6h, sli_achieved_pct, captured_at
+                   FROM error_budget_snapshots
+                   WHERE slo_id = s.id
+                   ORDER BY captured_at DESC
+                   LIMIT 1
+               ) ebs ON TRUE
+               WHERE s.id = ANY($1)
+                 AND s.tenant_id = $2"#,
+        )
+        .bind(&ids)
+        .bind(tenant_id)
+        .fetch_all(&state.pool)
+        .await?
+    };
+
+    Ok(Json(rows))
 }
 
 /// GET /api/slos/:id/budget/history?days=30

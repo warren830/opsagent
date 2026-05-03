@@ -165,19 +165,24 @@ async function fetchSlos() {
       `/api/slos?include_disabled=${includeDisabled.value ? 'true' : 'false'}`,
     )
     slos.value = list
-    // Fetch budget snapshots in parallel — a 404 means "no snapshot yet" so
-    // we swallow it and leave the row's budget columns empty.
-    const pairs = await Promise.all(
-      list.map(async (s) => {
-        try {
-          const snap = await api.get<BudgetSnapshot>(`/api/slos/${s.id}/budget`)
-          return [s.id, snap] as const
-        } catch {
-          return [s.id, null] as const
-        }
-      }),
-    )
-    budgets.value = Object.fromEntries(pairs)
+    // P1 #18: single batch call replaces N parallel /api/slos/:id/budget
+    // fetches. The batch endpoint returns a compact BudgetSummary row per
+    // SLO that has ever snapshotted; missing ids stay null so the UI
+    // column still shows "—".
+    if (list.length > 0) {
+      try {
+        const ids = list.map((s) => s.id).join(',')
+        const summaries = await api.get<BudgetSnapshot[]>(`/api/slos/budgets?ids=${ids}`)
+        const idx: Record<string, BudgetSnapshot | null> = {}
+        for (const s of list) idx[s.id] = null
+        for (const b of summaries ?? []) idx[b.slo_id] = b
+        budgets.value = idx
+      } catch {
+        budgets.value = {}
+      }
+    } else {
+      budgets.value = {}
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : t('common.error')
     toast.error(msg)

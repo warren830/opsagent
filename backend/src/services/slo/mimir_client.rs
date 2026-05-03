@@ -20,8 +20,28 @@
 use reqwest::Client;
 use serde_json::Value;
 use sqlx::PgPool;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use crate::error::{AppError, AppResult};
+
+/// Process-wide fallback HTTP client used when a caller does not thread
+/// `AppState::http_client` into these helpers. Built once on first use with
+/// the same timeout + pool settings as the `main.rs` client. Having a single
+/// shared fallback prevents `reqwest::Client::new()` from being called
+/// per-request, which would leak connection pools.
+static SHARED_CLIENT: OnceLock<Client> = OnceLock::new();
+
+fn shared_client() -> &'static Client {
+    SHARED_CLIENT.get_or_init(|| {
+        Client::builder()
+            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(5))
+            .pool_max_idle_per_host(10)
+            .build()
+            .unwrap_or_else(|_| Client::new())
+    })
+}
 
 /// Resolved Mimir metrics backend: base URL + optional basic-auth pair used
 /// when the telemetry provider is a cloud-managed Prometheus.
@@ -86,7 +106,9 @@ pub async fn resolve_metrics_endpoint(pool: &PgPool) -> AppResult<MetricsEndpoin
 /// Fire a `/api/v1/query_range` request and return the parsed JSON body.
 ///
 /// `query` is raw PromQL. `start` / `end` are UNIX seconds. `step` is a
-/// Prometheus duration string (e.g. `"5m"`, `"1h"`).
+/// Prometheus duration string (e.g. `"5m"`, `"1h"`). Uses the process-wide
+/// `shared_client()` to avoid the per-request `Client::new()` that P1 #6
+/// flagged as leaking connection pools and sidestepping timeouts.
 pub async fn query_range(
     endpoint: &MetricsEndpoint,
     query: &str,
@@ -94,7 +116,7 @@ pub async fn query_range(
     end: i64,
     step: &str,
 ) -> AppResult<Value> {
-    let client = Client::new();
+    let client = shared_client();
     let url = format!("{}/api/v1/query_range", endpoint.url.trim_end_matches('/'));
 
     let start_s = start.to_string();
@@ -135,13 +157,14 @@ pub async fn query_range(
 ///
 /// Used by the snapshot scheduler and other one-shot readers that don't need
 /// a time series. `time` is UNIX seconds; pass `None` to let Mimir pick
-/// "now". The returned JSON is the raw Prometheus `data` envelope.
+/// "now". The returned JSON is the raw Prometheus `data` envelope. Uses the
+/// process-wide `shared_client()` for the same reason as `query_range`.
 pub async fn query_instant(
     endpoint: &MetricsEndpoint,
     query: &str,
     time: Option<i64>,
 ) -> AppResult<Value> {
-    let client = Client::new();
+    let client = shared_client();
     let url = format!("{}/api/v1/query", endpoint.url.trim_end_matches('/'));
 
     let time_s = time.map(|t| t.to_string());

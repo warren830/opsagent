@@ -18,6 +18,26 @@
 use crate::error::{AppError, AppResult};
 use crate::models::telemetry::TelemetryConfig;
 use reqwest::{Client, StatusCode};
+use std::sync::OnceLock;
+use std::time::Duration;
+
+/// Process-wide `reqwest::Client` for the ruler API. Built once with the
+/// same timeout/pool defaults as the main HTTP client in `main.rs` so
+/// ruler HTTP calls can't stall forever and can't leak pools. P1 #6.
+static RULER_CLIENT: OnceLock<Client> = OnceLock::new();
+
+fn ruler_http_client() -> Client {
+    RULER_CLIENT
+        .get_or_init(|| {
+            Client::builder()
+                .timeout(Duration::from_secs(15))
+                .connect_timeout(Duration::from_secs(5))
+                .pool_max_idle_per_host(10)
+                .build()
+                .unwrap_or_else(|_| Client::new())
+        })
+        .clone()
+}
 
 /// Thin wrapper around a Mimir ruler HTTP endpoint.
 #[derive(Debug, Clone)]
@@ -85,7 +105,7 @@ impl RulerClient {
             .map(str::to_string);
 
         Ok(Self {
-            http: Client::new(),
+            http: ruler_http_client(),
             base_url: url,
             basic_auth,
             tenant_header,
@@ -195,11 +215,17 @@ fn status_to_error(status: StatusCode, op: &str, body: &str) -> AppError {
 /// `"metrics"` for a given tenant scope. Mirrors the discovery logic of
 /// [`super::mimir_client::resolve_metrics_endpoint`] but returns the full
 /// row so [`RulerClient::from_telemetry_config`] can read auth fields.
+///
+/// **Strict tenant scoping**: when `tenant_id` is `Some(_)` we only match
+/// rows with that exact `tenant_id`. A missing tenant config does *not*
+/// fall back to the global (`tenant_id IS NULL`) row — that fallback
+/// could route a tenant's SLO recording rules into another tenant's
+/// Mimir namespace, exposing their rules and alert evaluations. Only a
+/// `None` caller (genuinely tenant-less ops) reads the global row.
 pub async fn resolve_ruler_config(
     pool: &sqlx::PgPool,
     tenant_id: Option<uuid::Uuid>,
 ) -> AppResult<Option<TelemetryConfig>> {
-    // First try tenant-scoped; then fall back to global (tenant_id IS NULL).
     if let Some(tid) = tenant_id {
         let row = sqlx::query_as::<_, TelemetryConfig>(
             r#"SELECT * FROM telemetry_config
@@ -211,10 +237,12 @@ pub async fn resolve_ruler_config(
         .bind(tid)
         .fetch_optional(pool)
         .await?;
-        if row.is_some() {
-            return Ok(row);
-        }
+        // No cross-tenant fallback — return whatever the tenant-scoped
+        // query produced (possibly None).
+        return Ok(row);
     }
+
+    // Only reached when the caller has no tenant at all.
     let global = sqlx::query_as::<_, TelemetryConfig>(
         r#"SELECT * FROM telemetry_config
            WHERE enabled = true

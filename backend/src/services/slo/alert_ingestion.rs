@@ -23,9 +23,23 @@
 
 use crate::error::AppResult;
 use crate::models::slo::{BURN_SEVERITY_PAGE, BURN_SEVERITY_TICKET};
+use crate::services::incident::timeline_bus::TimelineBus;
 use serde_json::Value;
 use sqlx::PgPool;
+use std::sync::{Arc, LazyLock};
+use tokio::sync::Semaphore;
 use uuid::Uuid;
+
+/// Bound the number of concurrent page-severity promotions so an
+/// alert-storm (many distinct SLOs firing page at once) can't spawn
+/// hundreds of tokio tasks simultaneously, each of them holding a
+/// DB connection and firing Slack/Jira HTTP requests. P1 #12.
+///
+/// 16 covers realistic burst patterns (dozens of services alerting
+/// during a correlated region event) without saturating the Slack /
+/// Jira rate-limit budget.
+static PROMOTE_SEMAPHORE: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::new(Semaphore::new(16)));
 
 // ---------------------------------------------------------------------------
 // Label parsing
@@ -113,12 +127,16 @@ fn normalize_burn_severity(raw: &str) -> String {
 /// * `is_resolved`  — `true` when the alert transitioned to "resolved".
 /// * `issue_id`     — optional link to the just-created/updated `issues` row
 ///                    so the UI can jump from a burn event to its incident.
+/// * `bus`          — shared `TimelineBus` so SSE subscribers get incident
+///                    timeline events live when a page-severity burn
+///                    auto-promotes to an incident. P1 #8.
 ///
 /// Returns `Ok(())` even on DB errors — we log and swallow so the caller
 /// (the webhook handler) doesn't 500 on a secondary write. The primary
 /// issue row is already committed; missing a burn event is recoverable.
 pub async fn ingest_slo_burn_alert(
     pool: &PgPool,
+    bus: Arc<TimelineBus>,
     alert_labels: Option<&Value>,
     is_resolved: bool,
     issue_id: Option<Uuid>,
@@ -130,7 +148,7 @@ pub async fn ingest_slo_burn_alert(
     if is_resolved {
         resolve_open_burn(pool, &burn).await;
     } else {
-        insert_open_burn(pool, &burn, issue_id).await;
+        insert_open_burn(pool, bus, &burn, issue_id).await;
     }
 
     Ok(())
@@ -148,7 +166,12 @@ pub async fn ingest_slo_burn_alert(
 ///      standard `create_incident_with_automation` pipeline. A per-SLO
 ///      "last hour" dedup guard prevents a flapping alert from spawning
 ///      a herd of incidents.
-async fn insert_open_burn(pool: &PgPool, burn: &SloBurnLabels, issue_id: Option<Uuid>) {
+async fn insert_open_burn(
+    pool: &PgPool,
+    bus: Arc<TimelineBus>,
+    burn: &SloBurnLabels,
+    issue_id: Option<Uuid>,
+) {
     // `threshold` is stored for audit but we don't have the objective_pct
     // here; record `burn_multiplier` and let readers compute the product if
     // needed. A follow-up can backfill from the SLO row; flagging as 0.0
@@ -222,7 +245,7 @@ async fn insert_open_burn(pool: &PgPool, burn: &SloBurnLabels, issue_id: Option<
 
             // Only a `page` severity burn should promote to an incident.
             if burn.severity == crate::models::slo::BURN_SEVERITY_PAGE {
-                spawn_incident_from_burn(pool, burn, burn_event_id, issue_id, slo_ctx).await;
+                spawn_incident_from_burn(pool, bus, burn, burn_event_id, issue_id, slo_ctx).await;
             }
         }
         Ok(None) => {
@@ -280,6 +303,7 @@ async fn fetch_slo_context(pool: &PgPool, slo_id: Uuid) -> Option<SloContext> {
 /// a legitimate re-fire once the previous one is closed.
 async fn spawn_incident_from_burn(
     pool: &PgPool,
+    bus: Arc<TimelineBus>,
     burn: &SloBurnLabels,
     burn_event_id: Uuid,
     source_issue_id: Option<Uuid>,
@@ -292,6 +316,21 @@ async fn spawn_incident_from_burn(
     let burn = burn.clone();
     let slo_ctx = slo_ctx.clone();
     tokio::spawn(async move {
+        // Bound concurrent promotions (P1 #12). Acquiring the permit
+        // happens inside the spawned task so the webhook handler is
+        // never blocked on the semaphore.
+        let _permit = match PROMOTE_SEMAPHORE.clone().acquire_owned().await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(
+                    slo_id = %burn.slo_id,
+                    error = %e,
+                    "SLO page burn: promote semaphore closed, skipping"
+                );
+                return;
+            }
+        };
+
         if should_skip_duplicate_incident(&pool_bg, burn.slo_id).await {
             tracing::info!(
                 slo_id = %burn.slo_id,
@@ -336,16 +375,11 @@ async fn spawn_incident_from_burn(
             tenant_id,
         };
 
-        // The lifecycle module needs the TimelineBus; we rebuild a local
-        // instance because `alert_ingestion` is called from places that
-        // don't carry AppState. The bus is an in-process broadcast channel
-        // — creating a throwaway one means these automation events won't
-        // reach live SSE subscribers, but the timeline row (the durable
-        // piece) still lands. Wiring the shared bus through is a W11
-        // follow-up.
-        let bus = std::sync::Arc::new(
-            crate::services::incident::timeline_bus::TimelineBus::default(),
-        );
+        // P1 #8: the real, shared TimelineBus threads in from AppState so
+        // SSE subscribers on /api/incidents/:id/timeline/stream receive the
+        // auto-created incident's seed event live. Previously this spot
+        // built a throwaway bus, which meant auto-incident timeline events
+        // never fanned out to connected clients.
         if let Err(e) = crate::services::incident::lifecycle::create_incident_with_automation(
             &pool_bg,
             bus,
@@ -384,14 +418,18 @@ async fn should_skip_duplicate_incident(pool: &PgPool, slo_id: Uuid) -> bool {
     {
         Ok(v) => v,
         Err(e) => {
-            // Fail open: if the dedup query errors, we'd rather create a
-            // duplicate than silently drop a real page.
+            // Fail closed (P1 #12): if the dedup query errors we can't tell
+            // whether a recent incident already exists. A DB hiccup during
+            // an alert storm would otherwise let every duplicate page
+            // create its own incident. Skipping on error costs at most one
+            // delayed page-promotion until the webhook re-fires; it
+            // prevents an incident herd.
             tracing::warn!(
                 slo_id = %slo_id,
                 error = %e,
-                "SLO page burn: dedup check failed, proceeding with incident creation"
+                "SLO page burn: dedup check failed, skipping auto-incident (fail-closed)"
             );
-            false
+            true
         }
     }
 }

@@ -46,12 +46,21 @@ pub struct ActionItem {
     pub due_date: Option<chrono::NaiveDate>,
 }
 
+/// Cap the number of timeline events pulled into a draft. A pathological
+/// incident with chatty automation could easily push thousands of rows here;
+/// beyond a couple thousand the markdown becomes unreadable anyway. P1 #14.
+const TIMELINE_ROW_LIMIT: i64 = 2000;
+
 /// Build a postmortem draft for `incident_id`.
 ///
 /// Returns `NotFound` if the incident does not exist. Collects the
 /// timeline, severity history, participants, and deployment_events that
 /// intersect the incident's active window, then formats the data as
 /// markdown.
+///
+/// The four auxiliary tables are fetched concurrently via `tokio::try_join!`
+/// so a slow replica on any one of them doesn't serialise the whole draft
+/// (P1 #14). The timeline fetch is capped at `TIMELINE_ROW_LIMIT` rows.
 pub async fn draft(pool: &PgPool, incident_id: Uuid) -> AppResult<PostmortemDraft> {
     let inc = sqlx::query_as::<_, Incident>("SELECT * FROM incidents WHERE id = $1")
         .bind(incident_id)
@@ -59,75 +68,18 @@ pub async fn draft(pool: &PgPool, incident_id: Uuid) -> AppResult<PostmortemDraf
         .await?
         .ok_or_else(|| AppError::NotFound("Incident not found".to_string()))?;
 
-    let timeline = sqlx::query_as::<_, IncidentTimelineEvent>(
-        r#"SELECT * FROM incident_timeline_events
-           WHERE incident_id = $1
-           ORDER BY occurred_at ASC"#,
-    )
-    .bind(incident_id)
-    .fetch_all(pool)
-    .await?;
-
-    let severity_history = sqlx::query_as::<_, IncidentSeverityHistory>(
-        r#"SELECT * FROM incident_severity_history
-           WHERE incident_id = $1
-           ORDER BY changed_at ASC"#,
-    )
-    .bind(incident_id)
-    .fetch_all(pool)
-    .await?;
-
-    let participants = sqlx::query_as::<_, IncidentParticipant>(
-        r#"SELECT * FROM incident_participants
-           WHERE incident_id = $1
-           ORDER BY joined_at ASC"#,
-    )
-    .bind(incident_id)
-    .fetch_all(pool)
-    .await?;
-
-    // Deployment events that overlap the incident's active window. We
-    // filter by the incident's affected components to keep the noise low
-    // — a deploy on an unrelated service during the same hour does not
-    // belong in this postmortem.
-    //
-    // `catalog_entities` rows hold component names; we resolve the ids
-    // back to names so the filter on deployment_events can match the
-    // rollout_name / namespace text.
     let window_end = inc
         .resolved_at
         .or(inc.mitigated_at)
         .unwrap_or(inc.detected_at);
     let window_start = inc.started_at;
-    let deploys: Vec<DeploymentEvent> = if inc.affected_component_ids.is_empty() {
-        Vec::new()
-    } else {
-        let component_names: Vec<String> = sqlx::query_scalar::<_, String>(
-            "SELECT name FROM catalog_entities WHERE id = ANY($1)",
-        )
-        .bind(&inc.affected_component_ids)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
 
-        if component_names.is_empty() {
-            Vec::new()
-        } else {
-            sqlx::query_as::<_, DeploymentEvent>(
-                r#"SELECT * FROM deployment_events
-                   WHERE rollout_name = ANY($1)
-                     AND created_at >= $2
-                     AND created_at <= $3
-                   ORDER BY created_at ASC"#,
-            )
-            .bind(&component_names)
-            .bind(window_start)
-            .bind(window_end)
-            .fetch_all(pool)
-            .await
-            .unwrap_or_default()
-        }
-    };
+    let (timeline, severity_history, participants, deploys) = tokio::try_join!(
+        fetch_timeline(pool, incident_id),
+        fetch_severity_history(pool, incident_id),
+        fetch_participants(pool, incident_id),
+        fetch_deploys(pool, &inc, window_start, window_end),
+    )?;
 
     let markdown = render_markdown(&inc, &timeline, &severity_history, &participants, &deploys);
     let action_items = Vec::new(); // Populated once IC edits the draft.
@@ -136,6 +88,97 @@ pub async fn draft(pool: &PgPool, incident_id: Uuid) -> AppResult<PostmortemDraf
         markdown,
         action_items,
     })
+}
+
+async fn fetch_timeline(
+    pool: &PgPool,
+    incident_id: Uuid,
+) -> AppResult<Vec<IncidentTimelineEvent>> {
+    let rows = sqlx::query_as::<_, IncidentTimelineEvent>(
+        r#"SELECT * FROM incident_timeline_events
+           WHERE incident_id = $1
+           ORDER BY occurred_at ASC
+           LIMIT $2"#,
+    )
+    .bind(incident_id)
+    .bind(TIMELINE_ROW_LIMIT)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+async fn fetch_severity_history(
+    pool: &PgPool,
+    incident_id: Uuid,
+) -> AppResult<Vec<IncidentSeverityHistory>> {
+    let rows = sqlx::query_as::<_, IncidentSeverityHistory>(
+        r#"SELECT * FROM incident_severity_history
+           WHERE incident_id = $1
+           ORDER BY changed_at ASC"#,
+    )
+    .bind(incident_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+async fn fetch_participants(
+    pool: &PgPool,
+    incident_id: Uuid,
+) -> AppResult<Vec<IncidentParticipant>> {
+    let rows = sqlx::query_as::<_, IncidentParticipant>(
+        r#"SELECT * FROM incident_participants
+           WHERE incident_id = $1
+           ORDER BY joined_at ASC"#,
+    )
+    .bind(incident_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Deployment events that overlap the incident's active window. We filter
+/// by the incident's affected components to keep the noise low — a deploy
+/// on an unrelated service during the same hour does not belong in this
+/// postmortem. `catalog_entities` rows hold component names; we resolve
+/// the ids back to names so the filter on `deployment_events` can match
+/// the `rollout_name` / `namespace` text.
+async fn fetch_deploys(
+    pool: &PgPool,
+    inc: &Incident,
+    window_start: chrono::DateTime<Utc>,
+    window_end: chrono::DateTime<Utc>,
+) -> AppResult<Vec<DeploymentEvent>> {
+    if inc.affected_component_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let component_names: Vec<String> = sqlx::query_scalar::<_, String>(
+        "SELECT name FROM catalog_entities WHERE id = ANY($1)",
+    )
+    .bind(&inc.affected_component_ids)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    if component_names.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rows = sqlx::query_as::<_, DeploymentEvent>(
+        r#"SELECT * FROM deployment_events
+           WHERE rollout_name = ANY($1)
+             AND created_at >= $2
+             AND created_at <= $3
+           ORDER BY created_at ASC"#,
+    )
+    .bind(&component_names)
+    .bind(window_start)
+    .bind(window_end)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    Ok(rows)
 }
 
 /// Render the markdown body. The shape follows Google SRE Book ch.15

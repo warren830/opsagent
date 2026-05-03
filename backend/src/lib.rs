@@ -19,4 +19,10 @@ pub struct AppState {
     /// subscribers on `/api/incidents/:id/timeline/stream` see events in
     /// real time.
     pub timeline_bus: std::sync::Arc<services::incident::timeline_bus::TimelineBus>,
+    /// Shared `reqwest::Client` with sane defaults (connect + total timeout,
+    /// pooled idle connections). Build once in `main`, clone cheaply — every
+    /// outbound HTTP call site should borrow this instead of constructing a
+    /// fresh `Client::new()` per request, which would leak connection pools
+    /// and bypass timeouts.
+    pub http_client: reqwest::Client,
 }

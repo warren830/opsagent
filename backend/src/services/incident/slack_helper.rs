@@ -20,6 +20,8 @@
 
 use serde::Deserialize;
 use sqlx::PgPool;
+use std::sync::OnceLock;
+use std::time::Duration;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
@@ -27,18 +29,44 @@ use crate::models::channel::Channel;
 
 const SLACK_API_BASE: &str = "https://slack.com/api";
 
+/// Process-wide `reqwest::Client` for Slack Web API calls. Built once with
+/// the same timeout/pool defaults as the main HTTP client in `main.rs` so
+/// a hung Slack API call can't dangle the war-room task forever. P1 #6.
+static SLACK_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn slack_http_client() -> &'static reqwest::Client {
+    SLACK_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(5))
+            .pool_max_idle_per_host(10)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Token lookup.
 // ---------------------------------------------------------------------------
 
 /// Find a Slack bot token for the given tenant. Picks the first enabled
-/// Slack channel row (there is usually only one). Returns `Ok(None)` when
-/// no Slack integration exists — callers should degrade gracefully.
+/// Slack channel row scoped to that tenant. Returns `Ok(None)` when no
+/// Slack integration exists for the tenant — callers should degrade
+/// gracefully.
+///
+/// **Strict tenant match** — a `None` tenant no longer falls back to the
+/// first globally-enabled Slack row. That fallback let a background job
+/// (or a tenant-less internal caller) leak a private bot token into a
+/// different tenant's war room. Callers that truly need a shared bot
+/// must thread the right tenant id through explicitly.
 pub async fn get_slack_token(pool: &PgPool, tenant_id: Option<Uuid>) -> AppResult<Option<String>> {
+    let Some(tenant_id) = tenant_id else {
+        return Ok(None);
+    };
     let row = sqlx::query_as::<_, Channel>(
         "SELECT * FROM channels
          WHERE platform = 'slack' AND enabled = true
-           AND ($1::UUID IS NULL OR tenant_id = $1)
+           AND tenant_id = $1
          ORDER BY created_at ASC
          LIMIT 1",
     )
@@ -114,8 +142,12 @@ pub struct CreatedChannel {
 /// Create a public Slack channel. If the channel already exists (because
 /// the incident is being re-promoted) Slack returns `name_taken` — callers
 /// should treat that as success and look up the existing channel.
+///
+/// P1 #16: surfaces `SlackError::NameTaken` so callers (e.g. `spawn_war_room`)
+/// can retry with a suffixed name rather than treating the collision as a
+/// generic HTTP failure.
 pub async fn slack_create_channel(token: &str, name: &str) -> AppResult<CreatedChannel> {
-    let http = reqwest::Client::new();
+    let http = slack_http_client();
     let resp = http
         .post(format!("{SLACK_API_BASE}/conversations.create"))
         .header("Authorization", format!("Bearer {token}"))
@@ -134,9 +166,15 @@ pub async fn slack_create_channel(token: &str, name: &str) -> AppResult<CreatedC
         .map_err(|e| AppError::HttpClient(format!("slack parse create: {e}")))?;
 
     if !body.ok {
+        let err = body.error.unwrap_or_else(|| "unknown".to_string());
+        // P1 #16: specific error type for collisions so war_room can retry.
+        if err == "name_taken" {
+            return Err(AppError::Conflict(format!(
+                "slack name_taken: {name}"
+            )));
+        }
         return Err(AppError::HttpClient(format!(
-            "slack conversations.create failed: {}",
-            body.error.unwrap_or_else(|| "unknown".to_string())
+            "slack conversations.create failed: {err}"
         )));
     }
 
@@ -152,7 +190,7 @@ pub async fn slack_create_channel(token: &str, name: &str) -> AppResult<CreatedC
 /// Post a plain-text message to a channel (block kit is out of scope for
 /// MVP). Returns `Ok(())` if Slack accepts the message.
 pub async fn slack_post_message(token: &str, channel_id: &str, text: &str) -> AppResult<()> {
-    let http = reqwest::Client::new();
+    let http = slack_http_client();
     let resp = http
         .post(format!("{SLACK_API_BASE}/chat.postMessage"))
         .header("Authorization", format!("Bearer {token}"))
@@ -190,7 +228,7 @@ pub async fn slack_invite_users(
     if user_ids.is_empty() {
         return Ok(());
     }
-    let http = reqwest::Client::new();
+    let http = slack_http_client();
     let resp = http
         .post(format!("{SLACK_API_BASE}/conversations.invite"))
         .header("Authorization", format!("Bearer {token}"))
@@ -227,7 +265,7 @@ pub async fn slack_lookup_user_by_email(
     token: &str,
     email: &str,
 ) -> AppResult<Option<String>> {
-    let http = reqwest::Client::new();
+    let http = slack_http_client();
     let resp = http
         .get(format!("{SLACK_API_BASE}/users.lookupByEmail"))
         .header("Authorization", format!("Bearer {token}"))

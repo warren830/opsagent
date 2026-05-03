@@ -273,10 +273,10 @@ async fn fetch_and_check_issue(state: &AppState, auth_user: &AuthUser, id: Uuid)
 /// POST /api/issues/:id/promote — turn an issue into an incident.
 ///
 /// Idempotent: if `issues.incident_id` is already set, returns the existing
-/// incident row. Otherwise creates the incident (via
-/// `lifecycle::create_incident_with_automation`, which also kicks off the
-/// Slack war-room + Jira ticket in the background), writes the id back
-/// onto the source issue, and returns the new incident immediately.
+/// incident row. Otherwise claims the issue under a row lock, inserts the
+/// incident, back-references it, and commits as one atomic unit — the Slack
+/// war-room + Jira automation only fires after that transaction has landed
+/// (so a losing racer never orphans a channel/ticket).
 pub async fn promote_to_incident(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
@@ -284,20 +284,6 @@ pub async fn promote_to_incident(
     Json(req): Json<PromoteRequest>,
 ) -> AppResult<Json<Incident>> {
     let issue = fetch_and_check_issue(&state, &auth_user, issue_id).await?;
-
-    // Idempotency: issue already linked to an incident.
-    if let Some(existing_inc_id) = issue.incident_id {
-        let existing = sqlx::query_as::<_, Incident>("SELECT * FROM incidents WHERE id = $1")
-            .bind(existing_inc_id)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| {
-                AppError::Internal(format!(
-                    "issue {issue_id} references missing incident {existing_inc_id}"
-                ))
-            })?;
-        return Ok(Json(existing));
-    }
 
     if !Incident::is_valid_severity(&req.severity) {
         return Err(AppError::BadRequest(format!(
@@ -338,31 +324,57 @@ pub async fn promote_to_incident(
         tenant_id: issue.tenant_id,
     };
 
-    let incident = lifecycle::create_incident_with_automation(
-        &state.pool,
-        state.timeline_bus.clone(),
-        issue.tenant_id,
-        IncidentSource::Alert { issue_id: issue.id },
-        create_req,
-    )
-    .await?;
+    let source = IncidentSource::Alert { issue_id: issue.id };
 
-    // Persist the back-reference so subsequent promote calls are idempotent.
-    if let Err(e) = sqlx::query(
-        "UPDATE issues SET incident_id = $1, updated_at = NOW() WHERE id = $2",
+    // ---- Claim-then-create, all inside one transaction ----------------------
+    // `SELECT ... FOR UPDATE` takes a row-level lock on the issue so any
+    // concurrent promote() blocks behind us until COMMIT. On commit the
+    // losing racer will observe `incident_id IS NOT NULL` and early-return
+    // the existing incident rather than creating a duplicate one (and the
+    // orphan Slack channel / Jira ticket that would follow).
+    let mut tx = state.pool.begin().await?;
+
+    let existing_incident_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT incident_id FROM issues WHERE id = $1 FOR UPDATE",
     )
-    .bind(incident.id)
     .bind(issue.id)
-    .execute(&state.pool)
-    .await
-    {
-        tracing::warn!(
-            "failed to back-ref issue {} -> incident {}: {}",
-            issue.id,
-            incident.id,
-            e
-        );
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    if let Some(existing_inc_id) = existing_incident_id {
+        tx.rollback().await?;
+        let existing = sqlx::query_as::<_, Incident>("SELECT * FROM incidents WHERE id = $1")
+            .bind(existing_inc_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| {
+                AppError::Internal(format!(
+                    "issue {issue_id} references missing incident {existing_inc_id}"
+                ))
+            })?;
+        return Ok(Json(existing));
     }
+
+    let incident =
+        lifecycle::create_incident_bare_in_tx(&mut tx, issue.tenant_id, &source, create_req)
+            .await?;
+
+    sqlx::query("UPDATE issues SET incident_id = $1, updated_at = NOW() WHERE id = $2")
+        .bind(incident.id)
+        .bind(issue.id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    // ---- Post-commit: timeline + war-room (both non-blocking) ---------------
+    lifecycle::seed_timeline(&state.pool, &state.timeline_bus, &incident, &source).await;
+    lifecycle::spawn_war_room_for_incident(
+        state.pool.clone(),
+        state.timeline_bus.clone(),
+        incident.id,
+    );
 
     Ok(Json(incident))
 }

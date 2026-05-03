@@ -10,7 +10,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -24,27 +24,54 @@ use crate::models::catalog::{
 };
 use crate::services::catalog::{k8s_discovery, yaml_parser};
 
+/// P2 #22: cursor-paginated list query. `after` is an exclusive upper
+/// bound on `created_at` — the UI keeps fetching older pages by passing
+/// the last row's `created_at` back in. `kind` optionally filters by
+/// entity kind. `limit` defaults to 100 and is capped at 500.
+#[derive(Debug, serde::Deserialize)]
+pub struct ListEntitiesQuery {
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub after: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 /// GET /api/catalog/entities
 pub async fn list(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<ListEntitiesQuery>,
 ) -> AppResult<Json<Vec<CatalogEntity>>> {
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+
     let rows = if auth_user.is_super_admin() {
         sqlx::query_as::<_, CatalogEntity>(
             r#"SELECT * FROM catalog_entities
+               WHERE ($1::TEXT IS NULL OR kind = $1)
+                 AND ($2::TIMESTAMPTZ IS NULL OR created_at < $2)
                ORDER BY created_at DESC
-               LIMIT 500"#,
+               LIMIT $3"#,
         )
+        .bind(query.kind.as_deref())
+        .bind(query.after)
+        .bind(limit)
         .fetch_all(&state.pool)
         .await?
     } else {
         sqlx::query_as::<_, CatalogEntity>(
             r#"SELECT * FROM catalog_entities
                WHERE tenant_id = $1
+                 AND ($2::TEXT IS NULL OR kind = $2)
+                 AND ($3::TIMESTAMPTZ IS NULL OR created_at < $3)
                ORDER BY created_at DESC
-               LIMIT 500"#,
+               LIMIT $4"#,
         )
         .bind(auth_user.tenant_id)
+        .bind(query.kind.as_deref())
+        .bind(query.after)
+        .bind(limit)
         .fetch_all(&state.pool)
         .await?
     };
@@ -154,49 +181,78 @@ pub async fn update(
         }
     }
 
-    // Tenant isolation: fetch-then-check so the final UPDATE can run with
-    // or without the tenant filter consistently.
-    let existing =
-        sqlx::query_as::<_, CatalogEntity>(r#"SELECT * FROM catalog_entities WHERE id = $1"#)
-            .bind(id)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Catalog entity not found: {}", id)))?;
-    if !auth_user.is_super_admin() && Some(existing.tenant_id) != auth_user.tenant_id {
-        return Err(AppError::Forbidden("Access denied".to_string()));
-    }
+    // Tenant isolation: the UPDATE itself carries the tenant predicate so a
+    // race between `fetch_and_check`-style lookups and the write cannot
+    // mutate another tenant's row. Super-admin callers bypass the filter;
+    // anyone else must supply the tenant_id the row is expected to belong
+    // to, and a mismatch cleanly returns NotFound.
+    let row: Option<CatalogEntity> = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, CatalogEntity>(
+            r#"UPDATE catalog_entities SET
+                   display_name    = COALESCE($2, display_name),
+                   description     = COALESCE($3, description),
+                   lifecycle       = COALESCE($4, lifecycle),
+                   owner_group_id  = COALESCE($5, owner_group_id),
+                   system_id       = COALESCE($6, system_id),
+                   tags            = COALESCE($7, tags),
+                   annotations     = COALESCE($8, annotations),
+                   source_url      = COALESCE($9, source_url),
+                   source_ref      = COALESCE($10, source_ref),
+                   spec            = COALESCE($11, spec),
+                   updated_at      = NOW()
+               WHERE id = $1
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(&req.display_name)
+        .bind(&req.description)
+        .bind(&req.lifecycle)
+        .bind(req.owner_group_id)
+        .bind(req.system_id)
+        .bind(req.tags.as_deref())
+        .bind(&req.annotations)
+        .bind(&req.source_url)
+        .bind(&req.source_ref)
+        .bind(&req.spec)
+        .fetch_optional(&state.pool)
+        .await?
+    } else {
+        let tenant_id = auth_user.tenant_id.ok_or_else(|| {
+            AppError::Forbidden("Tenant scope required to update catalog entity".to_string())
+        })?;
+        sqlx::query_as::<_, CatalogEntity>(
+            r#"UPDATE catalog_entities SET
+                   display_name    = COALESCE($3, display_name),
+                   description     = COALESCE($4, description),
+                   lifecycle       = COALESCE($5, lifecycle),
+                   owner_group_id  = COALESCE($6, owner_group_id),
+                   system_id       = COALESCE($7, system_id),
+                   tags            = COALESCE($8, tags),
+                   annotations     = COALESCE($9, annotations),
+                   source_url      = COALESCE($10, source_url),
+                   source_ref      = COALESCE($11, source_ref),
+                   spec            = COALESCE($12, spec),
+                   updated_at      = NOW()
+               WHERE id = $1 AND tenant_id = $2
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(&req.display_name)
+        .bind(&req.description)
+        .bind(&req.lifecycle)
+        .bind(req.owner_group_id)
+        .bind(req.system_id)
+        .bind(req.tags.as_deref())
+        .bind(&req.annotations)
+        .bind(&req.source_url)
+        .bind(&req.source_ref)
+        .bind(&req.spec)
+        .fetch_optional(&state.pool)
+        .await?
+    };
 
-    let row = sqlx::query_as::<_, CatalogEntity>(
-        r#"UPDATE catalog_entities SET
-               display_name    = COALESCE($2, display_name),
-               description     = COALESCE($3, description),
-               lifecycle       = COALESCE($4, lifecycle),
-               owner_group_id  = COALESCE($5, owner_group_id),
-               system_id       = COALESCE($6, system_id),
-               tags            = COALESCE($7, tags),
-               annotations     = COALESCE($8, annotations),
-               source_url      = COALESCE($9, source_url),
-               source_ref      = COALESCE($10, source_ref),
-               spec            = COALESCE($11, spec),
-               updated_at      = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(&req.display_name)
-    .bind(&req.description)
-    .bind(&req.lifecycle)
-    .bind(req.owner_group_id)
-    .bind(req.system_id)
-    .bind(req.tags.as_deref())
-    .bind(&req.annotations)
-    .bind(&req.source_url)
-    .bind(&req.source_ref)
-    .bind(&req.spec)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Catalog entity not found: {}", id)))?;
-
+    let row = row.ok_or_else(|| AppError::NotFound(format!("Catalog entity not found: {}", id)))?;
     Ok(Json(row))
 }
 
@@ -288,10 +344,13 @@ pub async fn list_relations(
 /// themselves. Depth is clamped into `1..=MAX_GRAPH_DEPTH` so a runaway
 /// query cannot walk the whole tenant catalog.
 ///
-/// The traversal is a simple iterative BFS in Rust — we could push this
-/// into Postgres via a recursive CTE, but sqlx's runtime checks don't buy
-/// us much here and keeping the logic in app code lets us layer tenant
-/// filtering on every hop trivially (just re-bind `tenant_id`).
+/// P1 #13: previously this was an iterative BFS in Rust issuing one
+/// `SELECT * FROM catalog_relations WHERE from_id = $1 OR to_id = $1` per
+/// visited node — a 3-hop walk across a dense catalog could trigger
+/// hundreds of round trips. Now the traversal is a single recursive CTE
+/// in Postgres, backed by the `idx_catalog_relations_from` /
+/// `idx_catalog_relations_to` indexes. Tenant isolation is re-applied on
+/// the node fetch the same way the old code did.
 pub async fn get_graph(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
@@ -320,49 +379,49 @@ pub async fn get_graph(
     }
     .ok_or_else(|| AppError::NotFound(format!("Catalog entity not found: {}", id)))?;
 
-    // BFS across `catalog_relations`. We track `visited` by entity id and
-    // keep a queue of (id, hops_remaining). Each iteration pulls every
-    // relation that touches the current id, adds its new endpoint to the
-    // visited set, and queues it for the next layer.
     let tenant_id = center.tenant_id;
-    let mut visited_ids: HashSet<Uuid> = HashSet::new();
-    let mut edges_by_id: std::collections::HashMap<Uuid, CatalogRelation> =
-        std::collections::HashMap::new();
-    let mut queue: VecDeque<(Uuid, i32)> = VecDeque::new();
 
-    visited_ids.insert(center.id);
-    queue.push_back((center.id, depth));
-
-    while let Some((current, hops_left)) = queue.pop_front() {
-        if hops_left <= 0 {
-            continue;
-        }
-
-        // Pull every relation touching `current` in either direction. We
-        // pull both directions in one query to keep the chatter down;
-        // direction is preserved in each CatalogRelation row.
-        let neighbours = sqlx::query_as::<_, CatalogRelation>(
-            r#"SELECT * FROM catalog_relations WHERE from_id = $1 OR to_id = $1"#,
+    // One-shot recursive walk. `walk(id, depth)` starts at the center and
+    // follows every edge in either direction until `depth < MAX_GRAPH_DEPTH`.
+    // The outer join pulls every edge where both endpoints fall inside
+    // `walk`, which is equivalent to the old `edges_by_id` collection.
+    let edges_raw: Vec<CatalogRelation> = sqlx::query_as::<_, CatalogRelation>(
+        r#"
+        WITH RECURSIVE walk(id, depth) AS (
+            SELECT $1::UUID, 0
+            UNION
+            SELECT CASE WHEN r.from_id = w.id THEN r.to_id ELSE r.from_id END,
+                   w.depth + 1
+            FROM catalog_relations r
+            JOIN walk w ON (r.from_id = w.id OR r.to_id = w.id)
+            WHERE w.depth < $2
         )
-        .bind(current)
-        .fetch_all(&state.pool)
-        .await?;
+        SELECT DISTINCT r.*
+        FROM catalog_relations r
+        JOIN walk w1 ON w1.id = r.from_id
+        JOIN walk w2 ON w2.id = r.to_id
+        "#,
+    )
+    .bind(center.id)
+    .bind(depth)
+    .fetch_all(&state.pool)
+    .await?;
 
-        for rel in neighbours {
-            edges_by_id.entry(rel.id).or_insert_with(|| rel.clone());
-
-            let other = if rel.from_id == current { rel.to_id } else { rel.from_id };
-            if visited_ids.insert(other) {
-                queue.push_back((other, hops_left - 1));
-            }
-        }
+    // Collect all ids we walked — the edges give us every endpoint reached
+    // by the traversal. Seed with the center so an entity with zero edges
+    // still renders.
+    let mut node_id_set: HashSet<Uuid> = HashSet::new();
+    node_id_set.insert(center.id);
+    for e in &edges_raw {
+        node_id_set.insert(e.from_id);
+        node_id_set.insert(e.to_id);
     }
+    let node_ids: Vec<Uuid> = node_id_set.into_iter().collect();
 
     // Fetch the actual node rows for the collected ids. Tenant isolation
     // is re-applied here — in theory all reachable nodes share the tenant
     // (the edges table cascades on entity delete), but belt-and-braces
     // keeps a corrupt edge from leaking cross-tenant data.
-    let node_ids: Vec<Uuid> = visited_ids.into_iter().collect();
     let nodes: Vec<CatalogEntity> = if auth_user.is_super_admin() {
         sqlx::query_as::<_, CatalogEntity>(
             r#"SELECT * FROM catalog_entities WHERE id = ANY($1)"#,
@@ -385,8 +444,8 @@ pub async fn get_graph(
     // happen in super-admin mode if a relation points to a node in a
     // different tenant). Keeps the ECharts-style graph self-consistent.
     let visible: HashSet<Uuid> = nodes.iter().map(|n| n.id).collect();
-    let edges: Vec<CatalogRelation> = edges_by_id
-        .into_values()
+    let edges: Vec<CatalogRelation> = edges_raw
+        .into_iter()
         .filter(|e| visible.contains(&e.from_id) && visible.contains(&e.to_id))
         .collect();
 
@@ -421,38 +480,42 @@ pub async fn import_yaml(
     let mut updated = 0i32;
     let mut errors: Vec<String> = Vec::new();
 
+    // P1 #11: wrap the full import in a single transaction so a panic or
+    // fatal DB error rolls everything back atomically. Per-entity failures
+    // are still recorded in `errors` to preserve the partial-success
+    // behaviour that operators expect — the transaction only rolls back on
+    // truly unrecoverable errors (e.g. pool died, constraint violation on
+    // the audit insert itself).
+    let mut tx = state.pool.begin().await?;
+
     for entity in parsed {
         // Resolve owner group by name (if provided and resolvable).
         let owner_group_id: Option<Uuid> = match &entity.owner_group_name {
-            Some(name) => {
-                sqlx::query_scalar::<_, Uuid>(
-                    r#"SELECT id FROM catalog_entities
+            Some(name) => sqlx::query_scalar::<_, Uuid>(
+                r#"SELECT id FROM catalog_entities
                        WHERE tenant_id = $1 AND kind = $2 AND name = $3"#,
-                )
-                .bind(tenant_id)
-                .bind(KIND_GROUP)
-                .bind(name)
-                .fetch_optional(&state.pool)
-                .await
-                .unwrap_or(None)
-            }
+            )
+            .bind(tenant_id)
+            .bind(KIND_GROUP)
+            .bind(name)
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap_or(None),
             None => None,
         };
 
         // Resolve System reference by name.
         let system_id: Option<Uuid> = match &entity.system_name {
-            Some(name) => {
-                sqlx::query_scalar::<_, Uuid>(
-                    r#"SELECT id FROM catalog_entities
+            Some(name) => sqlx::query_scalar::<_, Uuid>(
+                r#"SELECT id FROM catalog_entities
                        WHERE tenant_id = $1 AND kind = $2 AND name = $3"#,
-                )
-                .bind(tenant_id)
-                .bind(KIND_SYSTEM)
-                .bind(name)
-                .fetch_optional(&state.pool)
-                .await
-                .unwrap_or(None)
-            }
+            )
+            .bind(tenant_id)
+            .bind(KIND_SYSTEM)
+            .bind(name)
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap_or(None),
             None => None,
         };
 
@@ -464,7 +527,7 @@ pub async fn import_yaml(
         .bind(tenant_id)
         .bind(&entity.kind)
         .bind(&entity.name)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&mut *tx)
         .await?;
 
         if let Some(existing_id) = existing_id {
@@ -490,7 +553,7 @@ pub async fn import_yaml(
             .bind(&entity.tags)
             .bind(&entity.annotations)
             .bind(&entity.spec_remaining)
-            .execute(&state.pool)
+            .execute(&mut *tx)
             .await;
 
             match result {
@@ -516,7 +579,7 @@ pub async fn import_yaml(
             .bind(&entity.tags)
             .bind(&entity.annotations)
             .bind(&entity.spec_remaining)
-            .execute(&state.pool)
+            .execute(&mut *tx)
             .await;
 
             match result {
@@ -542,8 +605,10 @@ pub async fn import_yaml(
     .bind(created)
     .bind(updated)
     .bind(&errors_json)
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     // W10: emit a change_events row so "what touched the catalog?" shows
     // up in the global stream alongside deploys and SLO burns. The service

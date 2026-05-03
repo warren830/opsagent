@@ -67,6 +67,7 @@ pub async fn promote(
     crate::services::incident::timeline::fanout_deploy_event_to_incidents(
         &state.pool,
         &state.timeline_bus,
+        auth_user.tenant_id,
         &name,
         crate::services::incident::timeline::KIND_PROMOTE_INITIATED,
         actor,
@@ -124,6 +125,7 @@ pub async fn rollback(
     crate::services::incident::timeline::fanout_deploy_event_to_incidents(
         &state.pool,
         &state.timeline_bus,
+        auth_user.tenant_id,
         &name,
         crate::services::incident::timeline::KIND_ROLLBACK_INITIATED,
         actor,

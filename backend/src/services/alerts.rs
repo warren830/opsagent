@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::config::AppConfig;
 use crate::services::rca::RcaRegistry;
@@ -14,6 +15,15 @@ pub struct RcaContext {
 
 /// Deduplicate + create/resolve an issue from any alert source.
 /// Returns (created_count, resolved_count).
+///
+/// `tenant_id` is the platform tenant this alert belongs to — resolved by
+/// webhook auth (`middleware::webhook_auth::verify_webhook_secret`) for
+/// external providers, or passed through from the authenticated caller for
+/// internal ones (prediction jobs, tests). `None` is tolerated for
+/// backwards compatibility with callers that can't yet resolve a tenant
+/// (e.g. anonymous prediction runs); the resulting `issues` row will have a
+/// NULL `tenant_id` and will not be visible to any non–super-admin list
+/// endpoint.
 #[allow(clippy::too_many_arguments)]
 pub async fn upsert_issue(
     pool: &PgPool,
@@ -26,6 +36,7 @@ pub async fn upsert_issue(
     is_resolved: bool,
     issue_type: &str,
     rca_context: Option<&RcaContext>,
+    tenant_id: Option<Uuid>,
 ) -> (u64, u64) {
     let mut created = 0u64;
     let mut resolved = 0u64;
@@ -64,8 +75,8 @@ pub async fn upsert_issue(
     }
 
     let result = sqlx::query(
-        r#"INSERT INTO issues (title, description, source, severity, status, rca_result, issue_type)
-           VALUES ($1, $2, $3, $4, 'open', $5, $6)"#,
+        r#"INSERT INTO issues (title, description, source, severity, status, rca_result, issue_type, tenant_id)
+           VALUES ($1, $2, $3, $4, 'open', $5, $6, $7)"#,
     )
     .bind(title)
     .bind(description)
@@ -73,6 +84,7 @@ pub async fn upsert_issue(
     .bind(severity)
     .bind(meta)
     .bind(issue_type)
+    .bind(tenant_id)
     .execute(pool)
     .await;
 

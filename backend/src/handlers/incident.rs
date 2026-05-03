@@ -66,6 +66,34 @@ async fn fetch_and_check(
     Ok(row)
 }
 
+/// Confirm that `user_id` exists and either belongs to `tenant_id` or has
+/// NULL tenant_id (tenant-agnostic). Used before accepting user-referencing
+/// fields on incident create/update so callers can't assign cross-tenant
+/// users as commander/scribe.
+async fn validate_user_in_tenant(
+    pool: &sqlx::PgPool,
+    user_id: Uuid,
+    tenant_id: Option<Uuid>,
+) -> AppResult<()> {
+    let ok: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS (
+               SELECT 1 FROM users
+               WHERE id = $1
+                 AND (tenant_id = $2 OR tenant_id IS NULL)
+           )"#,
+    )
+    .bind(user_id)
+    .bind(tenant_id)
+    .fetch_one(pool)
+    .await?;
+    if !ok {
+        return Err(AppError::BadRequest(format!(
+            "user {user_id} is not a member of the incident's tenant"
+        )));
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/incidents
 // ---------------------------------------------------------------------------
@@ -232,6 +260,17 @@ pub async fn create(
         auth_user.tenant_id
     };
 
+    // If the caller named an incident commander or scribe, confirm the
+    // referenced user belongs to the same tenant (or is tenant-agnostic)
+    // before accepting the row. Otherwise a caller could assign cross-tenant
+    // users as commander/scribe and silently leak membership across tenants.
+    if let Some(uid) = req.commander_user_id {
+        validate_user_in_tenant(&state.pool, uid, tenant_id).await?;
+    }
+    if let Some(uid) = req.scribe_user_id {
+        validate_user_in_tenant(&state.pool, uid, tenant_id).await?;
+    }
+
     let labels = req
         .labels
         .clone()
@@ -299,36 +338,81 @@ pub async fn update(
     Json(req): Json<UpdateIncidentRequest>,
 ) -> AppResult<Json<Incident>> {
     // Auth guard.
-    let _current = fetch_and_check(&state, &auth_user, id).await?;
+    let current = fetch_and_check(&state, &auth_user, id).await?;
 
-    let row = sqlx::query_as::<_, Incident>(
-        r#"UPDATE incidents SET
-               title = COALESCE($2, title),
-               impact_summary = COALESCE($3, impact_summary),
-               affected_component_ids = COALESCE($4, affected_component_ids),
-               affected_customer_tier = COALESCE($5, affected_customer_tier),
-               commander_user_id = COALESCE($6, commander_user_id),
-               scribe_user_id = COALESCE($7, scribe_user_id),
-               labels = COALESCE($8, labels),
-               root_cause = COALESCE($9, root_cause),
-               root_cause_category = COALESCE($10, root_cause_category),
-               updated_at = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(&req.title)
-    .bind(&req.impact_summary)
-    .bind(req.affected_component_ids.as_deref())
-    .bind(&req.affected_customer_tier)
-    .bind(req.commander_user_id)
-    .bind(req.scribe_user_id)
-    .bind(&req.labels)
-    .bind(&req.root_cause)
-    .bind(&req.root_cause_category)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Incident not found".to_string()))?;
+    // Cross-tenant user assignment guard — mirror of the create() path.
+    if let Some(uid) = req.commander_user_id {
+        validate_user_in_tenant(&state.pool, uid, current.tenant_id).await?;
+    }
+    if let Some(uid) = req.scribe_user_id {
+        validate_user_in_tenant(&state.pool, uid, current.tenant_id).await?;
+    }
+
+    // The UPDATE itself is tenant-scoped for non–super-admin callers so a
+    // race between fetch_and_check and the write cannot mutate another
+    // tenant's row.
+    let row_opt = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, Incident>(
+            r#"UPDATE incidents SET
+                   title = COALESCE($2, title),
+                   impact_summary = COALESCE($3, impact_summary),
+                   affected_component_ids = COALESCE($4, affected_component_ids),
+                   affected_customer_tier = COALESCE($5, affected_customer_tier),
+                   commander_user_id = COALESCE($6, commander_user_id),
+                   scribe_user_id = COALESCE($7, scribe_user_id),
+                   labels = COALESCE($8, labels),
+                   root_cause = COALESCE($9, root_cause),
+                   root_cause_category = COALESCE($10, root_cause_category),
+                   updated_at = NOW()
+               WHERE id = $1
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(&req.title)
+        .bind(&req.impact_summary)
+        .bind(req.affected_component_ids.as_deref())
+        .bind(&req.affected_customer_tier)
+        .bind(req.commander_user_id)
+        .bind(req.scribe_user_id)
+        .bind(&req.labels)
+        .bind(&req.root_cause)
+        .bind(&req.root_cause_category)
+        .fetch_optional(&state.pool)
+        .await?
+    } else {
+        let tenant_id = auth_user
+            .tenant_id
+            .ok_or_else(|| AppError::Forbidden("No tenant context".to_string()))?;
+        sqlx::query_as::<_, Incident>(
+            r#"UPDATE incidents SET
+                   title = COALESCE($3, title),
+                   impact_summary = COALESCE($4, impact_summary),
+                   affected_component_ids = COALESCE($5, affected_component_ids),
+                   affected_customer_tier = COALESCE($6, affected_customer_tier),
+                   commander_user_id = COALESCE($7, commander_user_id),
+                   scribe_user_id = COALESCE($8, scribe_user_id),
+                   labels = COALESCE($9, labels),
+                   root_cause = COALESCE($10, root_cause),
+                   root_cause_category = COALESCE($11, root_cause_category),
+                   updated_at = NOW()
+               WHERE id = $1 AND tenant_id = $2
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(&req.title)
+        .bind(&req.impact_summary)
+        .bind(req.affected_component_ids.as_deref())
+        .bind(&req.affected_customer_tier)
+        .bind(req.commander_user_id)
+        .bind(req.scribe_user_id)
+        .bind(&req.labels)
+        .bind(&req.root_cause)
+        .bind(&req.root_cause_category)
+        .fetch_optional(&state.pool)
+        .await?
+    };
+    let row = row_opt.ok_or_else(|| AppError::NotFound("Incident not found".to_string()))?;
 
     Ok(Json(row))
 }
@@ -373,25 +457,52 @@ pub async fn transition(
         _ => (None, None, None, None),
     };
 
-    let row = sqlx::query_as::<_, Incident>(
-        r#"UPDATE incidents SET
-               status = $2,
-               acknowledged_at = COALESCE(acknowledged_at, $3),
-               mitigated_at    = COALESCE(mitigated_at,    $4),
-               resolved_at     = COALESCE(resolved_at,     $5),
-               closed_at       = COALESCE(closed_at,       $6),
-               updated_at = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(&req.to_status)
-    .bind(ack)
-    .bind(mit)
-    .bind(res)
-    .bind(closed)
-    .fetch_one(&state.pool)
-    .await?;
+    let row_opt = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, Incident>(
+            r#"UPDATE incidents SET
+                   status = $2,
+                   acknowledged_at = COALESCE(acknowledged_at, $3),
+                   mitigated_at    = COALESCE(mitigated_at,    $4),
+                   resolved_at     = COALESCE(resolved_at,     $5),
+                   closed_at       = COALESCE(closed_at,       $6),
+                   updated_at = NOW()
+               WHERE id = $1
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(&req.to_status)
+        .bind(ack)
+        .bind(mit)
+        .bind(res)
+        .bind(closed)
+        .fetch_optional(&state.pool)
+        .await?
+    } else {
+        let tenant_id = auth_user
+            .tenant_id
+            .ok_or_else(|| AppError::Forbidden("No tenant context".to_string()))?;
+        sqlx::query_as::<_, Incident>(
+            r#"UPDATE incidents SET
+                   status = $3,
+                   acknowledged_at = COALESCE(acknowledged_at, $4),
+                   mitigated_at    = COALESCE(mitigated_at,    $5),
+                   resolved_at     = COALESCE(resolved_at,     $6),
+                   closed_at       = COALESCE(closed_at,       $7),
+                   updated_at = NOW()
+               WHERE id = $1 AND tenant_id = $2
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(&req.to_status)
+        .bind(ack)
+        .bind(mit)
+        .bind(res)
+        .bind(closed)
+        .fetch_optional(&state.pool)
+        .await?
+    };
+    let row = row_opt.ok_or_else(|| AppError::NotFound("Incident not found".to_string()))?;
 
     let actor = timeline::user_actor(auth_user.user_id, &auth_user.username);
     let summary = format!("Status: {} → {}", current.status, req.to_status);
@@ -536,6 +647,19 @@ pub async fn change_severity(
 ) -> AppResult<Json<Incident>> {
     let current = fetch_and_check(&state, &auth_user, id).await?;
 
+    // Only the incident commander, a tenant admin, or a super admin may
+    // change severity. Arbitrary tenant members can still see and update
+    // metadata but must not be able to silently downgrade an ongoing Sev1
+    // (or upgrade to one) — that decision belongs to the IC chain.
+    let is_authorized = auth_user.is_super_admin()
+        || auth_user.is_tenant_admin()
+        || current.commander_user_id == Some(auth_user.user_id);
+    if !is_authorized {
+        return Err(AppError::Forbidden(
+            "Only the incident commander or a tenant admin can change severity".to_string(),
+        ));
+    }
+
     if !Incident::is_valid_severity(&req.to_severity) {
         return Err(AppError::BadRequest(format!(
             "invalid severity: {}",
@@ -555,15 +679,32 @@ pub async fn change_severity(
 
     let mut tx = state.pool.begin().await?;
 
-    let row = sqlx::query_as::<_, Incident>(
-        r#"UPDATE incidents SET severity = $2, updated_at = NOW()
-           WHERE id = $1
-           RETURNING *"#,
-    )
-    .bind(id)
-    .bind(&req.to_severity)
-    .fetch_one(&mut *tx)
-    .await?;
+    let row_opt = if auth_user.is_super_admin() {
+        sqlx::query_as::<_, Incident>(
+            r#"UPDATE incidents SET severity = $2, updated_at = NOW()
+               WHERE id = $1
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(&req.to_severity)
+        .fetch_optional(&mut *tx)
+        .await?
+    } else {
+        let tenant_id = auth_user
+            .tenant_id
+            .ok_or_else(|| AppError::Forbidden("No tenant context".to_string()))?;
+        sqlx::query_as::<_, Incident>(
+            r#"UPDATE incidents SET severity = $3, updated_at = NOW()
+               WHERE id = $1 AND tenant_id = $2
+               RETURNING *"#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(&req.to_severity)
+        .fetch_optional(&mut *tx)
+        .await?
+    };
+    let row = row_opt.ok_or_else(|| AppError::NotFound("Incident not found".to_string()))?;
 
     sqlx::query(
         r#"INSERT INTO incident_severity_history
