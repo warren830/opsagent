@@ -10,7 +10,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -317,10 +317,13 @@ pub async fn list_relations(
 /// themselves. Depth is clamped into `1..=MAX_GRAPH_DEPTH` so a runaway
 /// query cannot walk the whole tenant catalog.
 ///
-/// The traversal is a simple iterative BFS in Rust — we could push this
-/// into Postgres via a recursive CTE, but sqlx's runtime checks don't buy
-/// us much here and keeping the logic in app code lets us layer tenant
-/// filtering on every hop trivially (just re-bind `tenant_id`).
+/// P1 #13: previously this was an iterative BFS in Rust issuing one
+/// `SELECT * FROM catalog_relations WHERE from_id = $1 OR to_id = $1` per
+/// visited node — a 3-hop walk across a dense catalog could trigger
+/// hundreds of round trips. Now the traversal is a single recursive CTE
+/// in Postgres, backed by the `idx_catalog_relations_from` /
+/// `idx_catalog_relations_to` indexes. Tenant isolation is re-applied on
+/// the node fetch the same way the old code did.
 pub async fn get_graph(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
@@ -349,49 +352,49 @@ pub async fn get_graph(
     }
     .ok_or_else(|| AppError::NotFound(format!("Catalog entity not found: {}", id)))?;
 
-    // BFS across `catalog_relations`. We track `visited` by entity id and
-    // keep a queue of (id, hops_remaining). Each iteration pulls every
-    // relation that touches the current id, adds its new endpoint to the
-    // visited set, and queues it for the next layer.
     let tenant_id = center.tenant_id;
-    let mut visited_ids: HashSet<Uuid> = HashSet::new();
-    let mut edges_by_id: std::collections::HashMap<Uuid, CatalogRelation> =
-        std::collections::HashMap::new();
-    let mut queue: VecDeque<(Uuid, i32)> = VecDeque::new();
 
-    visited_ids.insert(center.id);
-    queue.push_back((center.id, depth));
-
-    while let Some((current, hops_left)) = queue.pop_front() {
-        if hops_left <= 0 {
-            continue;
-        }
-
-        // Pull every relation touching `current` in either direction. We
-        // pull both directions in one query to keep the chatter down;
-        // direction is preserved in each CatalogRelation row.
-        let neighbours = sqlx::query_as::<_, CatalogRelation>(
-            r#"SELECT * FROM catalog_relations WHERE from_id = $1 OR to_id = $1"#,
+    // One-shot recursive walk. `walk(id, depth)` starts at the center and
+    // follows every edge in either direction until `depth < MAX_GRAPH_DEPTH`.
+    // The outer join pulls every edge where both endpoints fall inside
+    // `walk`, which is equivalent to the old `edges_by_id` collection.
+    let edges_raw: Vec<CatalogRelation> = sqlx::query_as::<_, CatalogRelation>(
+        r#"
+        WITH RECURSIVE walk(id, depth) AS (
+            SELECT $1::UUID, 0
+            UNION
+            SELECT CASE WHEN r.from_id = w.id THEN r.to_id ELSE r.from_id END,
+                   w.depth + 1
+            FROM catalog_relations r
+            JOIN walk w ON (r.from_id = w.id OR r.to_id = w.id)
+            WHERE w.depth < $2
         )
-        .bind(current)
-        .fetch_all(&state.pool)
-        .await?;
+        SELECT DISTINCT r.*
+        FROM catalog_relations r
+        JOIN walk w1 ON w1.id = r.from_id
+        JOIN walk w2 ON w2.id = r.to_id
+        "#,
+    )
+    .bind(center.id)
+    .bind(depth)
+    .fetch_all(&state.pool)
+    .await?;
 
-        for rel in neighbours {
-            edges_by_id.entry(rel.id).or_insert_with(|| rel.clone());
-
-            let other = if rel.from_id == current { rel.to_id } else { rel.from_id };
-            if visited_ids.insert(other) {
-                queue.push_back((other, hops_left - 1));
-            }
-        }
+    // Collect all ids we walked — the edges give us every endpoint reached
+    // by the traversal. Seed with the center so an entity with zero edges
+    // still renders.
+    let mut node_id_set: HashSet<Uuid> = HashSet::new();
+    node_id_set.insert(center.id);
+    for e in &edges_raw {
+        node_id_set.insert(e.from_id);
+        node_id_set.insert(e.to_id);
     }
+    let node_ids: Vec<Uuid> = node_id_set.into_iter().collect();
 
     // Fetch the actual node rows for the collected ids. Tenant isolation
     // is re-applied here — in theory all reachable nodes share the tenant
     // (the edges table cascades on entity delete), but belt-and-braces
     // keeps a corrupt edge from leaking cross-tenant data.
-    let node_ids: Vec<Uuid> = visited_ids.into_iter().collect();
     let nodes: Vec<CatalogEntity> = if auth_user.is_super_admin() {
         sqlx::query_as::<_, CatalogEntity>(
             r#"SELECT * FROM catalog_entities WHERE id = ANY($1)"#,
@@ -414,8 +417,8 @@ pub async fn get_graph(
     // happen in super-admin mode if a relation points to a node in a
     // different tenant). Keeps the ECharts-style graph self-consistent.
     let visible: HashSet<Uuid> = nodes.iter().map(|n| n.id).collect();
-    let edges: Vec<CatalogRelation> = edges_by_id
-        .into_values()
+    let edges: Vec<CatalogRelation> = edges_raw
+        .into_iter()
         .filter(|e| visible.contains(&e.from_id) && visible.contains(&e.to_id))
         .collect();
 
