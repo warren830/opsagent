@@ -180,6 +180,7 @@ pub async fn receive(
         };
         if let Err(e) = services::slo::alert_ingestion::ingest_slo_burn_alert(
             &state.pool,
+            state.timeline_bus.clone(),
             labels,
             is_resolved,
             issue_id,
@@ -297,6 +298,7 @@ pub async fn receive_datadog(
     };
     if let Err(e) = services::slo::alert_ingestion::ingest_slo_burn_alert(
         &state.pool,
+        state.timeline_bus.clone(),
         Some(&meta),
         is_resolved,
         issue_id,
@@ -415,6 +417,7 @@ pub async fn receive_dynatrace(
     };
     if let Err(e) = services::slo::alert_ingestion::ingest_slo_burn_alert(
         &state.pool,
+        state.timeline_bus.clone(),
         Some(&meta),
         is_resolved,
         issue_id,
