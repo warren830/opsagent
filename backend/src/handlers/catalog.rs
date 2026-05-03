@@ -453,38 +453,42 @@ pub async fn import_yaml(
     let mut updated = 0i32;
     let mut errors: Vec<String> = Vec::new();
 
+    // P1 #11: wrap the full import in a single transaction so a panic or
+    // fatal DB error rolls everything back atomically. Per-entity failures
+    // are still recorded in `errors` to preserve the partial-success
+    // behaviour that operators expect — the transaction only rolls back on
+    // truly unrecoverable errors (e.g. pool died, constraint violation on
+    // the audit insert itself).
+    let mut tx = state.pool.begin().await?;
+
     for entity in parsed {
         // Resolve owner group by name (if provided and resolvable).
         let owner_group_id: Option<Uuid> = match &entity.owner_group_name {
-            Some(name) => {
-                sqlx::query_scalar::<_, Uuid>(
-                    r#"SELECT id FROM catalog_entities
+            Some(name) => sqlx::query_scalar::<_, Uuid>(
+                r#"SELECT id FROM catalog_entities
                        WHERE tenant_id = $1 AND kind = $2 AND name = $3"#,
-                )
-                .bind(tenant_id)
-                .bind(KIND_GROUP)
-                .bind(name)
-                .fetch_optional(&state.pool)
-                .await
-                .unwrap_or(None)
-            }
+            )
+            .bind(tenant_id)
+            .bind(KIND_GROUP)
+            .bind(name)
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap_or(None),
             None => None,
         };
 
         // Resolve System reference by name.
         let system_id: Option<Uuid> = match &entity.system_name {
-            Some(name) => {
-                sqlx::query_scalar::<_, Uuid>(
-                    r#"SELECT id FROM catalog_entities
+            Some(name) => sqlx::query_scalar::<_, Uuid>(
+                r#"SELECT id FROM catalog_entities
                        WHERE tenant_id = $1 AND kind = $2 AND name = $3"#,
-                )
-                .bind(tenant_id)
-                .bind(KIND_SYSTEM)
-                .bind(name)
-                .fetch_optional(&state.pool)
-                .await
-                .unwrap_or(None)
-            }
+            )
+            .bind(tenant_id)
+            .bind(KIND_SYSTEM)
+            .bind(name)
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap_or(None),
             None => None,
         };
 
@@ -496,7 +500,7 @@ pub async fn import_yaml(
         .bind(tenant_id)
         .bind(&entity.kind)
         .bind(&entity.name)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&mut *tx)
         .await?;
 
         if let Some(existing_id) = existing_id {
@@ -522,7 +526,7 @@ pub async fn import_yaml(
             .bind(&entity.tags)
             .bind(&entity.annotations)
             .bind(&entity.spec_remaining)
-            .execute(&state.pool)
+            .execute(&mut *tx)
             .await;
 
             match result {
@@ -548,7 +552,7 @@ pub async fn import_yaml(
             .bind(&entity.tags)
             .bind(&entity.annotations)
             .bind(&entity.spec_remaining)
-            .execute(&state.pool)
+            .execute(&mut *tx)
             .await;
 
             match result {
@@ -574,8 +578,10 @@ pub async fn import_yaml(
     .bind(created)
     .bind(updated)
     .bind(&errors_json)
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     // W10: emit a change_events row so "what touched the catalog?" shows
     // up in the global stream alongside deploys and SLO burns. The service
