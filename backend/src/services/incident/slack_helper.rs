@@ -50,13 +50,23 @@ fn slack_http_client() -> &'static reqwest::Client {
 // ---------------------------------------------------------------------------
 
 /// Find a Slack bot token for the given tenant. Picks the first enabled
-/// Slack channel row (there is usually only one). Returns `Ok(None)` when
-/// no Slack integration exists — callers should degrade gracefully.
+/// Slack channel row scoped to that tenant. Returns `Ok(None)` when no
+/// Slack integration exists for the tenant — callers should degrade
+/// gracefully.
+///
+/// **Strict tenant match** — a `None` tenant no longer falls back to the
+/// first globally-enabled Slack row. That fallback let a background job
+/// (or a tenant-less internal caller) leak a private bot token into a
+/// different tenant's war room. Callers that truly need a shared bot
+/// must thread the right tenant id through explicitly.
 pub async fn get_slack_token(pool: &PgPool, tenant_id: Option<Uuid>) -> AppResult<Option<String>> {
+    let Some(tenant_id) = tenant_id else {
+        return Ok(None);
+    };
     let row = sqlx::query_as::<_, Channel>(
         "SELECT * FROM channels
          WHERE platform = 'slack' AND enabled = true
-           AND ($1::UUID IS NULL OR tenant_id = $1)
+           AND tenant_id = $1
          ORDER BY created_at ASC
          LIMIT 1",
     )
