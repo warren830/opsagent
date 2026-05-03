@@ -95,8 +95,12 @@ pub async fn discover_cluster(
     let mut errors: Vec<String> = Vec::new();
 
     // ─── Deployments ─────────────────────────────────────────────
+    // P3 #24: filter to workloads with `app.kubernetes.io/name` on the
+    // apiserver side so we don't drag every Pod owner in a large cluster
+    // back to the agent only to discard it locally. Workloads without the
+    // label are a no-signal guess anyway — they land as "unknown".
     match Api::<Deployment>::all(client.clone())
-        .list(&ListParams::default())
+        .list(&ListParams::default().labels("app.kubernetes.io/name"))
         .await
     {
         Ok(deploys) => {
@@ -132,8 +136,10 @@ pub async fn discover_cluster(
     }
 
     // ─── StatefulSets ────────────────────────────────────────────
+    // P3 #24: same labels filter as Deployments for symmetry and for the
+    // same apiserver-side savings.
     match Api::<StatefulSet>::all(client.clone())
-        .list(&ListParams::default())
+        .list(&ListParams::default().labels("app.kubernetes.io/name"))
         .await
     {
         Ok(sets) => {

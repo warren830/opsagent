@@ -128,6 +128,9 @@ pub async fn query(
     }
 
     sql.push_str(" ORDER BY occurred_at DESC");
+    // SAFETY: `limit` is clamped in QueryChangesParams parsing to 1..=500
+    // before reaching this builder, so interpolating it into SQL is
+    // safe (no user-controlled chars, value is a bounded i64).
     sql.push_str(&format!(" LIMIT {}", limit));
 
     let mut q = sqlx::query_as::<_, ChangeEvent>(&sql);

@@ -90,11 +90,11 @@ pub fn burn_rate(sli_ratio: f64, objective_pct: f64) -> f64 {
     }
     let budget_rate = 1.0 - objective_pct / 100.0;
     if budget_rate <= 0.0 {
-        // SLO is 100 % (or ill-formed): no budget to burn, signal
-        // "infinite burn" as 0.0 to keep downstream arithmetic safe.
-        // Alerting policy should never rely on this path because the
-        // schema CHECK rejects `objective_pct >= 100`.
-        return 0.0;
+        // P2 #23: SLO is 100 % (or ill-formed) — budget_rate is zero and
+        // *any* observed error is an infinite burn. Return f64::INFINITY
+        // so alerts fire correctly instead of silently treating this as
+        // healthy (the old path returned 0.0).
+        return f64::INFINITY;
     }
     let error_rate = (1.0 - sli_ratio.clamp(0.0, 1.0)).max(0.0);
     error_rate / budget_rate
@@ -231,10 +231,12 @@ mod tests {
     }
 
     #[test]
-    fn burn_rate_objective_100_returns_zero_safely() {
-        // Defensive: schema rejects this, but the function must not divide
-        // by zero.
-        assert_eq!(burn_rate(0.5, 100.0), 0.0);
+    fn burn_rate_objective_100_returns_infinity() {
+        // P2 #23: schema rejects this but defensive code must not fall back
+        // to 0.0 — with zero budget, any error is an infinite burn.
+        assert!(burn_rate(0.5, 100.0).is_infinite());
+        // Objective >100 (ill-formed) must also return infinity.
+        assert!(burn_rate(0.999, 100.1).is_infinite());
     }
 
     #[test]

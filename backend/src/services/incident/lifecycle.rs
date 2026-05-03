@@ -7,6 +7,7 @@
 //! `tokio::spawn` task so the UI never waits on external APIs (target
 //! < 300ms perceived latency per AGENT_BRIEF W3).
 
+use chrono::Utc;
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -91,6 +92,7 @@ pub async fn create_incident_bare(
         .labels
         .clone()
         .unwrap_or_else(|| serde_json::json!({}));
+    let started_at = normalise_started_at(req.started_at);
 
     let row = sqlx::query_as::<_, Incident>(
         r#"INSERT INTO incidents (
@@ -113,7 +115,7 @@ pub async fn create_incident_bare(
     .bind(&req.affected_customer_tier)
     .bind(detection_source)
     .bind(req.source_issue_id)
-    .bind(req.started_at)
+    .bind(started_at)
     .bind(&req.bridge_url)
     .bind(&labels)
     .fetch_one(pool)
@@ -138,6 +140,7 @@ pub async fn create_incident_bare_in_tx(
         .labels
         .clone()
         .unwrap_or_else(|| serde_json::json!({}));
+    let started_at = normalise_started_at(req.started_at);
 
     let row = sqlx::query_as::<_, Incident>(
         r#"INSERT INTO incidents (
@@ -160,13 +163,32 @@ pub async fn create_incident_bare_in_tx(
     .bind(&req.affected_customer_tier)
     .bind(detection_source)
     .bind(req.source_issue_id)
-    .bind(req.started_at)
+    .bind(started_at)
     .bind(&req.bridge_url)
     .bind(&labels)
     .fetch_one(&mut **tx)
     .await?;
 
     Ok(row)
+}
+
+/// P2 #21: detected_at is always NOW() (DB-side), but `started_at` comes
+/// from the client. If a caller accidentally submits a future timestamp
+/// (clock skew, malformed sync, test fixture) we'd end up with an
+/// incident whose incident-began-at time is in the future — which
+/// inverts downstream MTTR/MTTA maths. Clamp to `now` and warn so the
+/// caller sees it in logs. Past timestamps are left untouched (a real
+/// user might promote a silent incident hours after it started).
+fn normalise_started_at(raw: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
+    let now = Utc::now();
+    if raw > now {
+        tracing::warn!(
+            "incident started_at={raw} is in the future; clamping to now={now}"
+        );
+        now
+    } else {
+        raw
+    }
 }
 
 /// Seed a timeline event for a freshly created incident. Errors are logged

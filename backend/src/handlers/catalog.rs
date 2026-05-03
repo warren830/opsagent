@@ -24,27 +24,54 @@ use crate::models::catalog::{
 };
 use crate::services::catalog::{k8s_discovery, yaml_parser};
 
+/// P2 #22: cursor-paginated list query. `after` is an exclusive upper
+/// bound on `created_at` — the UI keeps fetching older pages by passing
+/// the last row's `created_at` back in. `kind` optionally filters by
+/// entity kind. `limit` defaults to 100 and is capped at 500.
+#[derive(Debug, serde::Deserialize)]
+pub struct ListEntitiesQuery {
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub after: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 /// GET /api/catalog/entities
 pub async fn list(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<ListEntitiesQuery>,
 ) -> AppResult<Json<Vec<CatalogEntity>>> {
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+
     let rows = if auth_user.is_super_admin() {
         sqlx::query_as::<_, CatalogEntity>(
             r#"SELECT * FROM catalog_entities
+               WHERE ($1::TEXT IS NULL OR kind = $1)
+                 AND ($2::TIMESTAMPTZ IS NULL OR created_at < $2)
                ORDER BY created_at DESC
-               LIMIT 500"#,
+               LIMIT $3"#,
         )
+        .bind(query.kind.as_deref())
+        .bind(query.after)
+        .bind(limit)
         .fetch_all(&state.pool)
         .await?
     } else {
         sqlx::query_as::<_, CatalogEntity>(
             r#"SELECT * FROM catalog_entities
                WHERE tenant_id = $1
+                 AND ($2::TEXT IS NULL OR kind = $2)
+                 AND ($3::TIMESTAMPTZ IS NULL OR created_at < $3)
                ORDER BY created_at DESC
-               LIMIT 500"#,
+               LIMIT $4"#,
         )
         .bind(auth_user.tenant_id)
+        .bind(query.kind.as_deref())
+        .bind(query.after)
+        .bind(limit)
         .fetch_all(&state.pool)
         .await?
     };
