@@ -309,8 +309,6 @@
     "scanDate": "Scan Date",
     "expandAll": "Expand All",
     "collapseAll": "Collapse All",
-    "description": "Description",
-    "remediation": "Remediation",
     "compliance": "Compliance"
   },
   "channel": {
@@ -607,7 +605,12 @@
     "healthy": "Healthy",
     "warning": "Warning",
     "critical": "Critical",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "allNamespaces": "All namespaces",
+    "showSystemNs": "Show system namespaces",
+    "nodeCountLabel": "nodes",
+    "layoutForce": "Scatter",
+    "layoutHierarchical": "Layers"
   },
   "issue": {
     "title": "Issues",
