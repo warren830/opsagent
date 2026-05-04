@@ -309,8 +309,6 @@
     "scanDate": "扫描日期",
     "expandAll": "展开全部",
     "collapseAll": "收拢全部",
-    "description": "描述",
-    "remediation": "修复建议",
     "compliance": "合规状态"
   },
   "channel": {
@@ -606,7 +604,12 @@
     "healthy": "正常",
     "warning": "警告",
     "critical": "异常",
-    "refresh": "刷新"
+    "refresh": "刷新",
+    "allNamespaces": "所有 namespace",
+    "showSystemNs": "显示系统 namespace",
+    "nodeCountLabel": "节点",
+    "layoutForce": "散点",
+    "layoutHierarchical": "层次"
   },
   "issue": {
     "title": "问题管理",
