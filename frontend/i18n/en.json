@@ -19,7 +19,7 @@
     "skills": "Skills",
     "mcp": "MCP Plugins",
     "scheduledJobs": "Scheduled Jobs",
-    "topology": "Service Topology",
+    "topology": "Kubernetes Live",
     "pipeline": "Code Repos",
     "telemetry": "Telemetry",
     "deployments": "Deployments",
@@ -596,6 +596,8 @@
   "topology": {
     "title": "Service Topology",
     "subtitle": "Real-time Kubernetes service graph",
+    "titleK8sLive": "Kubernetes Live View",
+    "subtitleK8sLive": "Deep scan of Deployments / Services / Rollouts / Ingress across EKS/GKE clusters",
     "loading": "Discovering services…",
     "empty": "No services discovered. Connect a cluster first.",
     "ingress": "Ingress",

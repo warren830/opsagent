@@ -613,8 +613,8 @@ const statusLegend = [
           <Network class="h-5 w-5 text-info" />
         </div>
         <div>
-          <h1 class="text-base font-semibold text-foreground">{{ t('topology.title') }}</h1>
-          <p class="text-[11px] text-muted-foreground">{{ t('topology.subtitle') }}</p>
+          <h1 class="text-base font-semibold text-foreground">{{ t('topology.titleK8sLive') }}</h1>
+          <p class="text-[11px] text-muted-foreground">{{ t('topology.subtitleK8sLive') }}</p>
         </div>
       </div>
 

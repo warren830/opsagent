@@ -62,7 +62,6 @@ const navGroups = computed<NavGroup[]>(() => {
         { label: t('nav.services'), to: '/services', icon: ComponentIcon },
         { label: t('nav.accounts'), to: '/accounts', icon: Cloud },
         { label: t('nav.clusters'), to: '/clusters', icon: Server },
-        { label: t('nav.topology'), to: '/topology', icon: Network },
         { label: t('nav.catalog'), to: '/catalog', icon: Layers },
         { label: t('nav.resources'), to: '/resources', icon: Boxes },
       ],
@@ -97,6 +96,7 @@ const navGroups = computed<NavGroup[]>(() => {
       defaultOpen: true,
       items: [
         { label: t('nav.telemetry'), to: '/telemetry', icon: Activity },
+        { label: t('nav.topology'), to: '/topology', icon: Network },
         { label: t('nav.pipeline'), to: '/repo', icon: GitBranch },
       ],
     },

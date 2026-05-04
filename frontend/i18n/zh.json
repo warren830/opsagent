@@ -19,7 +19,7 @@
     "skills": "技能",
     "mcp": "MCP 插件",
     "scheduledJobs": "定时任务",
-    "topology": "服务拓扑",
+    "topology": "K8s 实时视图",
     "pipeline": "代码仓库",
     "telemetry": "可观测性",
     "deployments": "部署",
@@ -595,6 +595,8 @@
   "topology": {
     "title": "服务拓扑",
     "subtitle": "实时 Kubernetes 服务关系图",
+    "titleK8sLive": "Kubernetes 实时视图",
+    "subtitleK8sLive": "深入 K8s 集群扫描 Deployment / Service / Rollout / Ingress",
     "loading": "正在发现服务…",
     "empty": "未发现任何服务，请先连接集群。",
     "ingress": "Ingress",
