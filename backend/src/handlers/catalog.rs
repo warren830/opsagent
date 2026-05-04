@@ -22,6 +22,7 @@ use crate::models::catalog::{
     KIND_COMPONENT, KIND_GROUP, KIND_SYSTEM, LIFECYCLE_EXPERIMENTAL, MAX_GRAPH_DEPTH,
     UpdateEntityRequest,
 };
+use crate::services::catalog::yaml_parser::{DeclaredRelation, RelationDirection};
 use crate::services::catalog::{k8s_discovery, yaml_parser};
 
 /// P2 #22: cursor-paginated list query. `after` is an exclusive upper
@@ -479,6 +480,16 @@ pub async fn import_yaml(
     let mut created = 0i32;
     let mut updated = 0i32;
     let mut errors: Vec<String> = Vec::new();
+    // (kind, name) → id, populated during the upsert loop so the relation
+    // resolution pass can short-circuit lookups for targets created in the
+    // same import (e.g. `order-api` dependsOn `auth-service` where both
+    // ship in one YAML).
+    let mut entity_id_by_ref: std::collections::HashMap<(String, String), Uuid> =
+        std::collections::HashMap::new();
+    // (entity_id, declarations) — collected during upsert, resolved after
+    // all entities are in place so forward references within the same
+    // import file work.
+    let mut pending_relations: Vec<(Uuid, String, Vec<DeclaredRelation>)> = Vec::new();
 
     // P1 #11: wrap the full import in a single transaction so a panic or
     // fatal DB error rolls everything back atomically. Per-entity failures
@@ -530,7 +541,9 @@ pub async fn import_yaml(
         .fetch_optional(&mut *tx)
         .await?;
 
-        if let Some(existing_id) = existing_id {
+        // Capture the entity_id so we can ledger its declared_relations
+        // for resolution once all entities are in place.
+        let entity_id_opt: Option<Uuid> = if let Some(existing_id) = existing_id {
             let result = sqlx::query(
                 r#"UPDATE catalog_entities SET
                        display_name   = $2,
@@ -557,16 +570,23 @@ pub async fn import_yaml(
             .await;
 
             match result {
-                Ok(_) => updated += 1,
-                Err(e) => errors.push(format!("{}/{}: {}", entity.kind, entity.name, e)),
+                Ok(_) => {
+                    updated += 1;
+                    Some(existing_id)
+                }
+                Err(e) => {
+                    errors.push(format!("{}/{}: {}", entity.kind, entity.name, e));
+                    None
+                }
             }
         } else {
-            let result = sqlx::query(
+            let inserted: Result<Uuid, _> = sqlx::query_scalar(
                 r#"INSERT INTO catalog_entities (
                        tenant_id, kind, name, display_name, description, lifecycle,
                        owner_group_id, system_id, tags, annotations, spec
                    )
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                   RETURNING id"#,
             )
             .bind(tenant_id)
             .bind(&entity.kind)
@@ -579,15 +599,149 @@ pub async fn import_yaml(
             .bind(&entity.tags)
             .bind(&entity.annotations)
             .bind(&entity.spec_remaining)
-            .execute(&mut *tx)
+            .fetch_one(&mut *tx)
             .await;
 
-            match result {
-                Ok(_) => created += 1,
-                Err(e) => errors.push(format!("{}/{}: {}", entity.kind, entity.name, e)),
+            match inserted {
+                Ok(id) => {
+                    created += 1;
+                    Some(id)
+                }
+                Err(e) => {
+                    errors.push(format!("{}/{}: {}", entity.kind, entity.name, e));
+                    None
+                }
+            }
+        };
+
+        if let Some(eid) = entity_id_opt {
+            entity_id_by_ref.insert((entity.kind.clone(), entity.name.clone()), eid);
+            if !entity.declared_relations.is_empty() {
+                pending_relations.push((eid, entity.kind.clone(), entity.declared_relations));
             }
         }
     }
+
+    // ─── Resolve declared_relations → catalog_relations rows ──────────
+    //
+    // Design §4.2: for each relation declaration, look up the target
+    // entity by `(tenant_id, name[, kind])` and INSERT ON CONFLICT DO
+    // NOTHING so repeated imports are idempotent. Unresolved refs go
+    // into `errors` (and eventually `catalog_import_runs.errors`), but
+    // do not fail the import — missing cross-references should not
+    // block progress on the entities that did resolve.
+    let mut relations_written = 0i32;
+    for (entity_id, entity_kind, declarations) in &pending_relations {
+        for rel in declarations {
+            // In-batch cache first (forward references inside this file).
+            // Fall back to a DB lookup when the target wasn't part of
+            // this import.
+            let target_id: Option<Uuid> = if let Some(kind) = &rel.target_kind {
+                // Kind hint present — exact lookup.
+                let cached = entity_id_by_ref
+                    .get(&(kind.clone(), rel.target_name.clone()))
+                    .copied();
+                if cached.is_some() {
+                    cached
+                } else {
+                    sqlx::query_scalar::<_, Uuid>(
+                        r#"SELECT id FROM catalog_entities
+                           WHERE tenant_id = $1 AND kind = $2 AND name = $3"#,
+                    )
+                    .bind(tenant_id)
+                    .bind(kind)
+                    .bind(&rel.target_name)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .unwrap_or(None)
+                }
+            } else {
+                // No kind hint — match on name alone. Multiple rows with
+                // the same name across kinds is a data-modelling mistake
+                // we don't silently guess through.
+                let rows: Vec<Uuid> = sqlx::query_scalar::<_, Uuid>(
+                    r#"SELECT id FROM catalog_entities
+                       WHERE tenant_id = $1 AND name = $2"#,
+                )
+                .bind(tenant_id)
+                .bind(&rel.target_name)
+                .fetch_all(&mut *tx)
+                .await
+                .unwrap_or_default();
+                match rows.as_slice() {
+                    [single] => Some(*single),
+                    [] => None,
+                    multi => {
+                        errors.push(format!(
+                            "{}/{}: ambiguous ref '{}' matches {} entities across kinds",
+                            entity_kind,
+                            rel.target_name,
+                            rel.target_name,
+                            multi.len()
+                        ));
+                        None
+                    }
+                }
+            };
+
+            let Some(target_id) = target_id else {
+                errors.push(format!(
+                    "{}: unresolved reference '{}'{}",
+                    entity_kind,
+                    rel.target_name,
+                    rel.target_kind
+                        .as_deref()
+                        .map(|k| format!(" (kind={})", k))
+                        .unwrap_or_default()
+                ));
+                continue;
+            };
+
+            // `FromEntity` → (entity, target); `ToEntity` → (target, entity).
+            // Owner is the only reverse case today.
+            let (from_id, to_id) = match rel.direction {
+                RelationDirection::FromEntity => (*entity_id, target_id),
+                RelationDirection::ToEntity => (target_id, *entity_id),
+            };
+
+            // Self-loops are never useful (e.g. a miscoded `dependsOn:
+            // [self]`) — skip rather than clutter the table.
+            if from_id == to_id {
+                continue;
+            }
+
+            let insert_res = sqlx::query(
+                r#"INSERT INTO catalog_relations (from_id, to_id, relation_type)
+                   VALUES ($1, $2, $3)
+                   ON CONFLICT (from_id, to_id, relation_type) DO NOTHING"#,
+            )
+            .bind(from_id)
+            .bind(to_id)
+            .bind(&rel.relation_type)
+            .execute(&mut *tx)
+            .await;
+
+            match insert_res {
+                Ok(r) if r.rows_affected() > 0 => relations_written += 1,
+                Ok(_) => { /* already exists — idempotent no-op */ }
+                Err(e) => errors.push(format!(
+                    "{}/{}: failed to write {} relation: {}",
+                    entity_kind, rel.target_name, rel.relation_type, e
+                )),
+            }
+        }
+    }
+    // Surface relation count in logs so operators can sanity-check the
+    // "catalog_relations had 0 rows" bug doesn't silently regress.
+    tracing::info!(
+        tenant_id = %tenant_id,
+        relations_written,
+        relations_attempted = pending_relations
+            .iter()
+            .map(|(_, _, r)| r.len())
+            .sum::<usize>(),
+        "catalog import relation pass finished"
+    );
 
     // Audit record — `completed_at` is set now so this row represents a
     // single-shot synchronous import. Errors are serialised as a JSON
