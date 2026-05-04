@@ -699,9 +699,20 @@
   "services": {
     "title": "服务",
     "subtitle": "目录中的组件，聚合 SLO 健康与在线事件信号",
+    "subtitleV2": "多 Runtime 目录视图 — EKS / EC2 / RDS / Lambda / 外部 API",
     "searchPlaceholder": "按名称、描述或标签搜索…",
     "filterBySystem": "按系统筛选",
+    "filterByRuntime": "按 Runtime 筛选",
     "allSystems": "全部系统",
+    "allRuntimes": "全部 Runtime",
+    "ungrouped": "未分组",
+    "sortHealth": "排序: 健康度",
+    "sortName": "排序: 名称",
+    "sortIncidents": "排序: 事件数",
+    "totalCount": "{n} 个服务",
+    "fallbackHint": "后端聚合接口不可用 — 当前由前端合并 catalog / SLO / 事件数据。",
+    "region": "区域",
+    "noImage": "暂无镜像信息",
     "emptyTitle": "没有匹配的服务",
     "emptyHint": "调整筛选条件，或在「服务目录」里导入 catalog-info.yaml。",
     "slosShort": "SLO",
@@ -709,6 +720,30 @@
     "healthDot": "健康状态",
     "systemLabel": "系统",
     "ownerLabel": "负责组",
+    "eks": {
+      "pods": "Pod"
+    },
+    "ec2": {
+      "instance": "实例",
+      "ami": "AMI",
+      "state": "状态"
+    },
+    "rds": {
+      "connections": "连接数",
+      "multiAz": "多可用区"
+    },
+    "lambda": {
+      "memory": "内存",
+      "lastInvocation": "最近调用",
+      "errorRate": "错误率"
+    },
+    "external": {
+      "rtt": "RTT",
+      "noBaseUrl": "未声明 base_url"
+    },
+    "generic": {
+      "noRuntime": "无 Runtime 元数据"
+    },
     "overview": "概览",
     "tabs": {
       "overview": "概览",
@@ -800,6 +835,8 @@
     "save": "保存",
     "cancel": "取消",
     "confirm": "确认",
+    "yes": "是",
+    "no": "否",
     "create": "创建",
     "edit": "编辑",
     "delete": "删除",
