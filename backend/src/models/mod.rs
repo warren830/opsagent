@@ -20,6 +20,7 @@ pub mod refresh_token;
 pub mod resource;
 pub mod rollout;
 pub mod scheduled_job;
+pub mod services_view;
 pub mod skill;
 pub mod slo;
 pub mod telemetry;

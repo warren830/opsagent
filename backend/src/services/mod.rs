@@ -15,6 +15,7 @@ pub mod knowledge_sync;
 pub mod pipeline;
 pub mod provider;
 pub mod scheduled_job;
+pub mod services_view;
 pub mod telemetry;
 pub mod tenant;
 pub mod user;
