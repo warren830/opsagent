@@ -600,6 +600,18 @@ fn build_router(state: AppState) -> Router {
             get(handlers::slo::budget_history),
         )
         .route("/api/slos/{id}/sync-rules", post(handlers::slo::sync_rules))
+        // Services v2 multi-runtime overview (design: aidlc-docs/2026-05-03-services-v2-multi-runtime/design.md §3.3).
+        // Aggregates Catalog Components + SLO budget + active incidents +
+        // per-runtime probe shape into one payload so the /services grid
+        // renders without N+1 client calls.
+        .route(
+            "/api/services/overview",
+            get(handlers::services_view::overview),
+        )
+        .route(
+            "/api/services/overview/{id}",
+            get(handlers::services_view::overview_one),
+        )
         .layer(axum_middleware::from_fn_with_state(
             jwt_secret,
             middleware::auth::auth_middleware,

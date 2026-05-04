@@ -19,7 +19,7 @@
     "skills": "Skills",
     "mcp": "MCP Plugins",
     "scheduledJobs": "Scheduled Jobs",
-    "topology": "Service Topology",
+    "topology": "Kubernetes Live",
     "pipeline": "Code Repos",
     "telemetry": "Telemetry",
     "deployments": "Deployments",
@@ -596,6 +596,8 @@
   "topology": {
     "title": "Service Topology",
     "subtitle": "Real-time Kubernetes service graph",
+    "titleK8sLive": "Kubernetes Live View",
+    "subtitleK8sLive": "Deep scan of Deployments / Services / Rollouts / Ingress across EKS/GKE clusters",
     "loading": "Discovering services…",
     "empty": "No services discovered. Connect a cluster first.",
     "ingress": "Ingress",
@@ -698,9 +700,20 @@
   "services": {
     "title": "Services",
     "subtitle": "Components in your catalog, with SLO health and active incident signals",
+    "subtitleV2": "Multi-runtime catalog view — EKS, EC2, RDS, Lambda, external APIs",
     "searchPlaceholder": "Search services by name, description or tag…",
     "filterBySystem": "Filter by system",
+    "filterByRuntime": "Filter by runtime",
     "allSystems": "All systems",
+    "allRuntimes": "All runtimes",
+    "ungrouped": "Ungrouped",
+    "sortHealth": "Sort: health",
+    "sortName": "Sort: name",
+    "sortIncidents": "Sort: incidents",
+    "totalCount": "{n} services",
+    "fallbackHint": "Backend overview endpoint unavailable — showing client-side join of catalog + SLOs + incidents.",
+    "region": "Region",
+    "noImage": "No image info",
     "emptyTitle": "No services match your filters",
     "emptyHint": "Adjust filters, or import a catalog-info.yaml under Service Catalog.",
     "slosShort": "SLOs",
@@ -708,6 +721,30 @@
     "healthDot": "Health signal",
     "systemLabel": "System",
     "ownerLabel": "Owner",
+    "eks": {
+      "pods": "Pods"
+    },
+    "ec2": {
+      "instance": "Instance",
+      "ami": "AMI",
+      "state": "State"
+    },
+    "rds": {
+      "connections": "Connections",
+      "multiAz": "Multi-AZ"
+    },
+    "lambda": {
+      "memory": "Memory",
+      "lastInvocation": "Last invocation",
+      "errorRate": "Error rate"
+    },
+    "external": {
+      "rtt": "RTT",
+      "noBaseUrl": "No base_url declared"
+    },
+    "generic": {
+      "noRuntime": "No runtime metadata available"
+    },
     "overview": "Overview",
     "tabs": {
       "overview": "Overview",
@@ -799,6 +836,8 @@
     "save": "Save",
     "cancel": "Cancel",
     "confirm": "Confirm",
+    "yes": "Yes",
+    "no": "No",
     "create": "Create",
     "edit": "Edit",
     "delete": "Delete",
