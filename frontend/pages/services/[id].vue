@@ -24,11 +24,13 @@ import {
   Clock3,
   Link2,
   Trash2,
+  Network,
 } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import BudgetBar from '@/components/slos/BudgetBar.vue'
 import BurnRateBadge from '@/components/slos/BurnRateBadge.vue'
+import DependencyGraph from '@/components/services/DependencyGraph.vue'
 import ConfirmDialog from '@/components/shared/ConfirmDialog.vue'
 
 definePageMeta({ middleware: 'auth' })
@@ -136,7 +138,7 @@ const changes = ref<ChangeEvent[]>([])
 const changesLoading = ref(false)
 const changesUnavailable = ref(false)
 
-type TabId = 'overview' | 'slos' | 'incidents' | 'changes' | 'runbooks' | 'docs'
+type TabId = 'overview' | 'dependencies' | 'slos' | 'incidents' | 'changes' | 'runbooks' | 'docs'
 const activeTab = ref<TabId>('overview')
 
 const showDelete = ref(false)
@@ -425,6 +427,7 @@ watch(entityId, async (newId, oldId) => {
 
 const TABS: { id: TabId; key: string; icon: typeof Activity }[] = [
   { id: 'overview', key: 'services.tabs.overview', icon: Layers },
+  { id: 'dependencies', key: 'services.tabs.dependencies', icon: Network },
   { id: 'slos', key: 'services.tabs.slos', icon: Target },
   { id: 'incidents', key: 'services.tabs.incidents', icon: AlertOctagon },
   { id: 'changes', key: 'services.tabs.changes', icon: Activity },
@@ -731,6 +734,11 @@ const tabCounts = computed<Partial<Record<TabId, number | null>>>(() => ({
             </div>
           </div>
         </aside>
+      </section>
+
+      <!-- ─────── DEPENDENCIES ─────── -->
+      <section v-else-if="activeTab === 'dependencies'" class="space-y-3">
+        <DependencyGraph v-if="entity" :entity-id="entity.id" />
       </section>
 
       <!-- ─────── SLOs ─────── -->

@@ -747,11 +747,23 @@
     "overview": "概览",
     "tabs": {
       "overview": "概览",
+      "dependencies": "依赖",
       "slos": "SLO",
       "incidents": "事件",
       "changes": "变更",
       "runbooks": "运行手册",
       "docs": "文档"
+    },
+    "dependenciesGraph": {
+      "title": "依赖关系图",
+      "nodeCount": "{n} 个节点",
+      "legendProvides": "Provides",
+      "legendDepends": "Depends / Consumes",
+      "legendDeployed": "Deployed on",
+      "legendOwns": "Owns / Part of",
+      "error": "加载依赖图失败",
+      "retry": "重试",
+      "empty": "暂无已声明的依赖关系。执行 `kubectl apply` 部署 Service 后，k8s_inferer 会在 5 分钟内自动发现并写入。"
     },
     "noSlos": "该服务尚未定义 SLO。可从 SLO 页面创建。",
     "noIncidents": "该服务暂无事件记录。",

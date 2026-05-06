@@ -748,11 +748,23 @@
     "overview": "Overview",
     "tabs": {
       "overview": "Overview",
+      "dependencies": "Dependencies",
       "slos": "SLOs",
       "incidents": "Incidents",
       "changes": "Changes",
       "runbooks": "Runbooks",
       "docs": "Docs"
+    },
+    "dependenciesGraph": {
+      "title": "Dependency graph",
+      "nodeCount": "{n} nodes",
+      "legendProvides": "Provides",
+      "legendDepends": "Depends / Consumes",
+      "legendDeployed": "Deployed on",
+      "legendOwns": "Owns / Part of",
+      "error": "Failed to load dependency graph",
+      "retry": "Retry",
+      "empty": "No declared dependencies yet. Run `kubectl apply` on your Service and the k8s_inferer loop will discover them within 5 minutes."
     },
     "noSlos": "No SLOs defined for this service yet. Create one from the SLOs page.",
     "noIncidents": "No incidents recorded against this service.",
