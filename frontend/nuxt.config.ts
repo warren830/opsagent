@@ -83,4 +83,16 @@ export default defineNuxtConfig({
   typescript: {
     strict: true,
   },
+
+  // Root-cause fix for the intermittent `Failed to resolve import
+  // "#app-manifest"` dev-server error. The virtual module is only needed
+  // for prerender / redirect / cacheable routeRules — we only use routeRules
+  // for proxy-to-backend, which doesn't require the manifest. Disabling it
+  // means the module is never generated and can never go stale. Safe because
+  // no `.vue` / composable calls `useAppManifest`, `getAppManifest`, or
+  // `checkForUpdate` anywhere in the app code. Re-enable if we ever add
+  // prerendered or redirecting routes.
+  experimental: {
+    appManifest: false,
+  },
 })
