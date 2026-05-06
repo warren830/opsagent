@@ -7,4 +7,5 @@
 //! `app.kubernetes.io/name`.
 
 pub mod k8s_discovery;
+pub mod k8s_inferer;
 pub mod yaml_parser;

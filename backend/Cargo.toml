@@ -53,6 +53,10 @@ urlencoding = "2"
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-secretsmanager = "1"
 aws-sdk-cloudwatch = "1"
+aws-sdk-sts = "1"
+aws-sdk-ec2 = "1"
+aws-sdk-rds = "1"
+aws-sdk-lambda = "1"
 
 # Kubernetes
 kube = { version = "0.98", features = ["client", "runtime", "derive", "rustls-tls", "aws-lc-rs"] }

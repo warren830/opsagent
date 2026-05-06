@@ -185,6 +185,20 @@ async fn main() {
         tracing::info!("SLO snapshot scheduler disabled (SKIP_SLO_SNAPSHOT=true)");
     }
 
+    // Spawn K8s relation inferer — reads Service.spec.selector across all
+    // active clusters and writes `catalog_relations` edges tagged
+    // `source='k8s_selector'`. This lets the Catalog show
+    // service→workload dependencies without requiring users to hand-write
+    // `relations:` blocks in their catalog-info.yaml.
+    if std::env::var("SKIP_K8S_INFERER").unwrap_or_default() != "true" {
+        let inferer_pool = state.pool.clone();
+        tokio::spawn(services::catalog::k8s_inferer::run_inferer_loop(
+            inferer_pool,
+        ));
+    } else {
+        tracing::info!("K8s inferer disabled (SKIP_K8S_INFERER=true)");
+    }
+
     // Build CORS layer
     let cors = middleware::cors::build_cors_layer(&config);
 
