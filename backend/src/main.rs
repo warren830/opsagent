@@ -48,6 +48,9 @@ async fn main() {
         .build()
         .expect("Failed to build HTTP client");
 
+    // Notification broadcast channel (capacity 1024; lagging subscribers drop messages)
+    let (notification_tx, _) = tokio::sync::broadcast::channel(1024);
+
     // Build app state
     let state = AppState {
         pool,
@@ -56,6 +59,7 @@ async fn main() {
         timeline_bus: std::sync::Arc::new(services::incident::timeline_bus::TimelineBus::new()),
         http_client,
         auto_rca_enabled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        notification_tx,
     };
 
     // Spawn token cleanup task (every 6 hours)
@@ -158,6 +162,32 @@ async fn main() {
                         tracing::error!("Cluster discovery failed: {}", e);
                     }
                 }
+            }
+        });
+    }
+
+    // Spawn workspace file cleanup (every 6 hours, delete files older than N days)
+    {
+        let work_dir = config.claude_work_dir.clone();
+        let retention_days: u64 = std::env::var("WORKSPACE_RETENTION_DAYS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(7);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                let cutoff = std::time::SystemTime::now()
+                    - std::time::Duration::from_secs(retention_days * 86400);
+                let base = std::path::PathBuf::from(&work_dir);
+                for subdir in &["users", "scans"] {
+                    let dir = base.join(subdir);
+                    if let Err(e) = cleanup_old_workspace_files(&dir, cutoff).await {
+                        tracing::warn!("Workspace cleanup error in {}: {}", subdir, e);
+                    }
+                }
+                tracing::debug!("Workspace cleanup completed (retention={}d)", retention_days);
             }
         });
     }
@@ -728,6 +758,34 @@ async fn seed_admin_user(pool: &sqlx::PgPool) {
             }
         }
     }
+}
+
+/// Recursively delete workspace files older than `cutoff`, then prune empty dirs.
+async fn cleanup_old_workspace_files(
+    dir: &std::path::Path,
+    cutoff: std::time::SystemTime,
+) -> Result<(), std::io::Error> {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return Ok(());
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let Ok(meta) = entry.metadata().await else { continue };
+        if meta.is_dir() {
+            let _ = Box::pin(cleanup_old_workspace_files(&path, cutoff)).await;
+            let _ = tokio::fs::remove_dir(&path).await;
+        } else if meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH) < cutoff {
+            match tokio::fs::remove_file(&path).await {
+                Ok(_) => tracing::debug!("Cleaned up old workspace file: {:?}", path),
+                Err(e) => tracing::warn!("Failed to remove {:?}: {}", path, e),
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Graceful shutdown signal handler

@@ -87,66 +87,45 @@ pub async fn mark_all_read(
     Ok(Json(serde_json::json!({ "updated": result.rows_affected() })))
 }
 
-/// GET /api/notifications/stream — SSE, polls DB every 5s and pushes unread count + new notifications.
-/// Does not depend on AppState broadcast channel; safe to use without modifying AppState.
+/// GET /api/notifications/stream — SSE driven by broadcast channel.
+/// Subscribes to AppState.notification_tx; only forwards notifications
+/// whose user_id matches the authenticated user.
 pub async fn stream(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
 ) -> Sse<axum::response::sse::KeepAliveStream<SseEventStream>> {
     let user_id = auth_user.user_id;
     let pool = state.pool.clone();
+    let mut rx = state.notification_tx.subscribe();
 
     let sse_stream = async_stream::stream! {
-        let mut last_seen_id: Option<Uuid> = None;
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        // Send initial unread count so the client has a baseline immediately.
+        let unread: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false",
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+        let init = serde_json::to_string(&serde_json::json!({ "unread_count": unread }))
+            .unwrap_or_default();
+        yield Ok::<_, Infallible>(Event::default().event("notification").data(init));
 
-        // Finite sentinel so the block's return type resolves to () rather than !
-        for _ in 0..u64::MAX {
-            interval.tick().await;
-
-            let new_rows: Vec<Notification> = if let Some(last_id) = last_seen_id {
-                sqlx::query_as::<_, Notification>(
-                    r#"SELECT * FROM notifications
-                       WHERE user_id = $1
-                         AND created_at > (SELECT created_at FROM notifications WHERE id = $2)
-                       ORDER BY created_at ASC"#,
-                )
-                .bind(user_id)
-                .bind(last_id)
-                .fetch_all(&pool)
-                .await
-                .unwrap_or_default()
-            } else {
-                Vec::new()
-            };
-
-            let latest_id: Option<Uuid> = sqlx::query_scalar(
-                "SELECT id FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
-            )
-            .bind(user_id)
-            .fetch_optional(&pool)
-            .await
-            .unwrap_or(None);
-
-            if let Some(id) = latest_id {
-                last_seen_id = Some(id);
+        // Forward broadcast messages that belong to this user.
+        loop {
+            match rx.recv().await {
+                Ok(notif) if notif.user_id == user_id => {
+                    if let Ok(data) = serde_json::to_string(&notif) {
+                        yield Ok(Event::default().event("notification").data(data));
+                    }
+                }
+                Ok(_) => {} // belongs to a different user — skip
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    // Subscriber fell behind; send a refresh hint so the client re-fetches.
+                    yield Ok(Event::default().event("refresh").data("lagged"));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
-
-            let unread: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND is_read = false",
-            )
-            .bind(user_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap_or(0);
-
-            let payload = serde_json::json!({
-                "unread_count": unread,
-                "new_notifications": new_rows,
-            });
-
-            let data = serde_json::to_string(&payload).unwrap_or_default();
-            yield Ok::<_, Infallible>(Event::default().event("notification").data(data));
         }
     };
 

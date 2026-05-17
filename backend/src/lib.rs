@@ -29,4 +29,8 @@ pub struct AppState {
     /// Persisted only in memory — survives hot-reload but resets on restart.
     /// Modifiable via `PUT /api/issues/rca/config` (super_admin only).
     pub auto_rca_enabled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Broadcast channel for real-time notification push to SSE subscribers.
+    /// Senders publish Notification structs; the SSE stream handler subscribes
+    /// and filters by user_id before forwarding to the client.
+    pub notification_tx: tokio::sync::broadcast::Sender<models::notification::Notification>,
 }

@@ -16,6 +16,14 @@ pub struct Channel {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Response DTO that includes the list of tenant IDs this channel is shared with.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelWithTenants {
+    #[serde(flatten)]
+    pub channel: Channel,
+    pub tenant_ids: Vec<Uuid>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateChannelRequest {
     pub platform: String,
@@ -26,6 +34,8 @@ pub struct CreateChannelRequest {
     pub settings: serde_json::Value,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
+    pub tenant_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,6 +45,7 @@ pub struct UpdateChannelRequest {
     pub credentials: Option<serde_json::Value>,
     pub settings: Option<serde_json::Value>,
     pub enabled: Option<bool>,
+    pub tenant_ids: Option<Vec<Uuid>>,
 }
 
 fn default_true() -> bool {

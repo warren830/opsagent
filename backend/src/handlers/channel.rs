@@ -7,14 +7,14 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::error::AppResult;
 use crate::middleware::auth::AuthUser;
-use crate::models::channel::{Channel, CreateChannelRequest, UpdateChannelRequest};
+use crate::models::channel::{ChannelWithTenants, CreateChannelRequest, UpdateChannelRequest};
 use crate::services;
 
 /// GET /api/channels
 pub async fn list(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<Channel>>> {
+) -> AppResult<Json<Vec<ChannelWithTenants>>> {
     let rows = services::channel::list(&state.pool, &auth_user).await?;
     Ok(Json(rows))
 }
@@ -24,7 +24,7 @@ pub async fn create(
     auth_user: axum::Extension<AuthUser>,
     State(state): State<AppState>,
     Json(req): Json<CreateChannelRequest>,
-) -> AppResult<Json<Channel>> {
+) -> AppResult<Json<ChannelWithTenants>> {
     let row = services::channel::create(&state.pool, &auth_user, req).await?;
     Ok(Json(row))
 }
@@ -35,7 +35,7 @@ pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateChannelRequest>,
-) -> AppResult<Json<Channel>> {
+) -> AppResult<Json<ChannelWithTenants>> {
     let row = services::channel::update(&state.pool, &auth_user, id, req).await?;
     Ok(Json(row))
 }
