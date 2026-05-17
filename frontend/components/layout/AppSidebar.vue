@@ -19,7 +19,8 @@ const { t } = useI18n()
 const route = useRoute()
 const authStore = useAuthStore()
 const { issueCount, startPolling } = useIssueCount()
-onMounted(() => { startPolling() })
+const { deploymentCount, startPolling: startDeploymentPolling } = useDeploymentCount()
+onMounted(() => { startPolling(); startDeploymentPolling() })
 
 const mobileSidebarOpen = useState('mobileSidebarOpen', () => false)
 
@@ -108,7 +109,7 @@ const navGroups = computed<NavGroup[]>(() => {
       label: t('nav.groups.ops'),
       defaultOpen: true,
       items: [
-        { label: t('nav.deployments'), to: '/deployments', icon: Rocket },
+        { label: t('nav.deployments'), to: '/deployments', icon: Rocket, badge: deploymentCount.value || undefined },
         { label: t('nav.slos'), to: '/slos', icon: Target },
         { label: t('nav.issues'), to: '/issues', icon: AlertTriangle, badge: issueCount.value || undefined },
         { label: t('nav.incidents'), to: '/incidents', icon: AlertOctagon },

@@ -4,18 +4,22 @@ import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import type { ThemeId } from '@/composables/useTheme'
 
 definePageMeta({ middleware: 'auth' })
 
 const { t, locale } = useI18n()
 const api = useApi()
+const { theme, setTheme } = useTheme()
 const activeTab = ref<'general' | 'password'>('general')
 
 // General
 const selectedLocale = ref(locale.value)
+const selectedTheme = ref<ThemeId>(theme.value)
 
 function saveGeneral() {
   locale.value = selectedLocale.value
+  setTheme(selectedTheme.value)
   toast.success(t('common.success'))
 }
 
@@ -84,6 +88,17 @@ async function changePassword() {
             <SelectContent>
               <SelectItem value="zh">中文</SelectItem>
               <SelectItem value="en">English</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="text-xs font-medium">{{ t('theme.title') }}</label>
+          <Select v-model="selectedTheme">
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="aurora">{{ t('theme.aurora') }}</SelectItem>
+              <SelectItem value="light">{{ t('theme.light') }}</SelectItem>
             </SelectContent>
           </Select>
         </div>
