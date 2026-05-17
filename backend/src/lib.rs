@@ -25,4 +25,8 @@ pub struct AppState {
     /// fresh `Client::new()` per request, which would leak connection pools
     /// and bypass timeouts.
     pub http_client: reqwest::Client,
+    /// Runtime toggle: whether auto RCA analysis fires on new issues.
+    /// Persisted only in memory — survives hot-reload but resets on restart.
+    /// Modifiable via `PUT /api/issues/rca/config` (super_admin only).
+    pub auto_rca_enabled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }

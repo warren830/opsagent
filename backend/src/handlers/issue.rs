@@ -6,6 +6,7 @@ use axum::{
 use std::convert::Infallible;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tokio_stream::Stream;
 use uuid::Uuid;
@@ -254,6 +255,34 @@ pub async fn rca_status(
     let _ = fetch_and_check_issue(&state, &auth_user, id).await?;
     let running = state.rca_registry.is_running(id).await;
     Ok(Json(serde_json::json!({ "running": running })))
+}
+
+/// GET /api/issues/rca/config — read global RCA config (super_admin only)
+pub async fn rca_config(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+) -> AppResult<Json<serde_json::Value>> {
+    if !auth_user.is_super_admin() {
+        return Err(AppError::Forbidden("Super admin required".to_string()));
+    }
+    let enabled = state.auto_rca_enabled.load(Ordering::Relaxed);
+    Ok(Json(serde_json::json!({ "auto_rca_enabled": enabled })))
+}
+
+/// PUT /api/issues/rca/config — update global RCA config (super_admin only)
+pub async fn update_rca_config(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    if !auth_user.is_super_admin() {
+        return Err(AppError::Forbidden("Super admin required".to_string()));
+    }
+    let new_val = body["auto_rca_enabled"]
+        .as_bool()
+        .ok_or_else(|| AppError::BadRequest("auto_rca_enabled (bool) required".to_string()))?;
+    state.auto_rca_enabled.store(new_val, Ordering::Relaxed);
+    Ok(Json(serde_json::json!({ "auto_rca_enabled": new_val })))
 }
 
 /// Shared helper: fetch issue and verify tenant access

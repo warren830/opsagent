@@ -131,6 +131,21 @@ pub async fn add_comment(
     })))
 }
 
+/// GET /api/jira/projects — List Jira projects
+pub async fn list_projects(
+    auth_user: axum::Extension<AuthUser>,
+    State(state): State<AppState>,
+) -> AppResult<Json<serde_json::Value>> {
+    // If no Jira integration is configured, return empty list instead of error
+    let client = match get_jira_client(&state, &auth_user).await {
+        Ok(c) => c,
+        Err(_) => return Ok(Json(serde_json::json!({ "projects": [] }))),
+    };
+
+    let projects = client.list_projects().await?;
+    Ok(Json(serde_json::json!({ "projects": projects })))
+}
+
 /// GET /api/jira/:key — Get issue details
 pub async fn get_issue(
     auth_user: axum::Extension<AuthUser>,

@@ -316,6 +316,60 @@ impl JiraClient {
         Ok(())
     }
 
+    /// List Jira projects visible to the authenticated user.
+    pub async fn list_projects(&self) -> AppResult<Vec<serde_json::Value>> {
+        let resp = self
+            .http
+            .get(format!(
+                "{}/rest/api/3/project/search?maxResults=100&orderBy=name",
+                self.base_url
+            ))
+            .header("Authorization", &self.auth_header)
+            .send()
+            .await
+            .map_err(|e| AppError::HttpClient(format!("Jira list projects: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AppError::HttpClient(format!(
+                "Jira list projects failed ({status}): {body}"
+            )));
+        }
+
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AppError::HttpClient(format!("Jira list projects parse: {e}")))?;
+
+        // /project/search returns { values: [...] }; /project returns an array directly
+        let projects: Vec<serde_json::Value> = if let Some(arr) = body["values"].as_array() {
+            arr.iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "id": p["id"],
+                        "key": p["key"],
+                        "name": p["name"],
+                    })
+                })
+                .collect()
+        } else if let Some(arr) = body.as_array() {
+            arr.iter()
+                .map(|p| {
+                    serde_json::json!({
+                        "id": p["id"],
+                        "key": p["key"],
+                        "name": p["name"],
+                    })
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
+        Ok(projects)
+    }
+
     /// Get issue details.
     pub async fn get_issue(&self, issue_key: &str) -> AppResult<serde_json::Value> {
         let resp = self

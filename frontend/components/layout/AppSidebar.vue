@@ -6,7 +6,7 @@ import {
   GitBranch, Activity, AlertTriangle, AlertOctagon, Settings, Target,
   ChevronDown, MessageSquare, PanelLeftClose, PanelLeftOpen,
   ChevronsUpDown, ChevronsDownUp, Layers, Component as ComponentIcon,
-  Bell, Shield,
+  Bell, Shield, CheckCircle,
 } from 'lucide-vue-next'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
@@ -20,7 +20,8 @@ const route = useRoute()
 const authStore = useAuthStore()
 const { issueCount, startPolling } = useIssueCount()
 const { deploymentCount, startPolling: startDeploymentPolling } = useDeploymentCount()
-onMounted(() => { startPolling(); startDeploymentPolling() })
+const { approvalCount, startPolling: startApprovalPolling } = useApprovalCount()
+onMounted(() => { startPolling(); startDeploymentPolling(); startApprovalPolling() })
 
 const mobileSidebarOpen = useState('mobileSidebarOpen', () => false)
 
@@ -113,6 +114,7 @@ const navGroups = computed<NavGroup[]>(() => {
         { label: t('nav.slos'), to: '/slos', icon: Target },
         { label: t('nav.issues'), to: '/issues', icon: AlertTriangle, badge: issueCount.value || undefined },
         { label: t('nav.incidents'), to: '/incidents', icon: AlertOctagon },
+        { label: t('nav.approvals'), to: '/approvals', icon: CheckCircle, badge: approvalCount.value || undefined },
       ],
     },
   ]

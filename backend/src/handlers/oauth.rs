@@ -3,10 +3,12 @@ use axum::extract::State;
 use axum::http::header::SET_COOKIE;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
+use crate::models::entra_id_connection::EntraIdConnection;
 use crate::services::{account_linking, auth_common, cognito_oauth, microsoft_oauth, oauth_state, refresh_token};
 
 // ─── GET /api/auth/providers ────────────────────────────────────────
@@ -289,6 +291,110 @@ pub async fn revoke_all(
         "message": "All tokens revoked",
         "count": count,
     })))
+}
+
+// ─── GET /api/auth/sso/discover?email=user@company.com ──────────────
+
+#[derive(Deserialize)]
+pub struct SsoDiscoverQuery {
+    pub email: String,
+}
+
+#[derive(Serialize)]
+pub struct SsoDiscoverResponse {
+    pub provider: String,
+    pub connection_id: Uuid,
+    pub login_url: String,
+}
+
+pub async fn sso_discover(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<SsoDiscoverQuery>,
+) -> AppResult<Json<SsoDiscoverResponse>> {
+    // Extract domain from email
+    let domain = query
+        .email
+        .split('@')
+        .nth(1)
+        .map(|d| d.to_lowercase())
+        .ok_or_else(|| AppError::BadRequest("Invalid email address".to_string()))?;
+
+    // Fetch all enabled connections
+    let connections = sqlx::query_as::<_, EntraIdConnection>(
+        "SELECT * FROM entra_id_connections WHERE enabled = true ORDER BY created_at ASC",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+
+    // Find a matching connection: domain in allowed_domains, or allowed_domains is empty (wildcard)
+    let matched = connections.into_iter().find(|conn| {
+        conn.allowed_domains.is_empty() || conn.allowed_domains.iter().any(|d| d.to_lowercase() == domain)
+    });
+
+    let conn = matched.ok_or_else(|| AppError::NotFound(format!("No SSO connection found for domain '{}'", domain)))?;
+
+    Ok(Json(SsoDiscoverResponse {
+        provider: "microsoft".to_string(),
+        connection_id: conn.id,
+        login_url: format!("/api/auth/sso/login?connection_id={}", conn.id),
+    }))
+}
+
+// ─── GET /api/auth/sso/login?connection_id=uuid ─────────────────────
+
+#[derive(Deserialize)]
+pub struct SsoLoginQuery {
+    pub connection_id: Uuid,
+    pub redirect_uri: Option<String>,
+}
+
+pub async fn sso_login(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<SsoLoginQuery>,
+) -> AppResult<Json<OAuthLoginResponse>> {
+    // Look up the connection
+    let conn = sqlx::query_as::<_, EntraIdConnection>(
+        "SELECT * FROM entra_id_connections WHERE id = $1 AND enabled = true",
+    )
+    .bind(query.connection_id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("SSO connection {} not found or disabled", query.connection_id)))?;
+
+    // Determine redirect_uri: from query param, or fall back to global microsoft config
+    let redirect_uri = query
+        .redirect_uri
+        .or_else(|| {
+            state
+                .config
+                .microsoft_oauth
+                .as_ref()
+                .and_then(|c| c.redirect_uris.first().cloned())
+        })
+        .ok_or_else(|| AppError::OAuth("No redirect URI configured".to_string()))?;
+
+    // Create OAuth state — embed connection_id as custom provider tag so callback can route it
+    let provider_tag = format!("sso:{}", conn.id);
+    let (oauth_state_val, code_challenge) =
+        oauth_state::create_oauth_state(&state.pool, &provider_tag, Some(&redirect_uri)).await?;
+
+    // Build the Microsoft auth URL using connection-level credentials
+    let auth_url = format!(
+        "https://login.microsoftonline.com/{}/oauth2/v2.0/authorize?\
+         client_id={}&response_type=code&redirect_uri={}&scope={}&state={}\
+         &code_challenge={}&code_challenge_method=S256&response_mode=query",
+        conn.entra_tenant_id,
+        conn.client_id,
+        urlencoding::encode(&redirect_uri),
+        urlencoding::encode("openid profile email User.Read"),
+        oauth_state_val,
+        code_challenge,
+    );
+
+    Ok(Json(OAuthLoginResponse {
+        auth_url,
+        state: oauth_state_val,
+    }))
 }
 
 // ─── Helper: issue access + refresh tokens ──────────────────────────

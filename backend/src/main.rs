@@ -55,6 +55,7 @@ async fn main() {
         rca_registry: std::sync::Arc::new(services::rca::RcaRegistry::new()),
         timeline_bus: std::sync::Arc::new(services::incident::timeline_bus::TimelineBus::new()),
         http_client,
+        auto_rca_enabled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
 
     // Spawn token cleanup task (every 6 hours)
@@ -246,6 +247,9 @@ fn build_router(state: AppState) -> Router {
         .route("/api/auth/cognito/callback", post(handlers::oauth::cognito_callback))
         .route("/api/auth/refresh", post(handlers::oauth::refresh))
         .route("/api/auth/revoke", post(handlers::oauth::revoke))
+        // SSO auto-discovery (email → EntraIdConnection → redirect URL)
+        .route("/api/auth/sso/discover", get(handlers::oauth::sso_discover))
+        .route("/api/auth/sso/login", get(handlers::oauth::sso_login))
         // Invite redemption (public — user has no account yet)
         .route("/api/auth/invite/{token}", get(handlers::user::validate_invite))
         .route("/api/auth/invite/{token}/redeem", post(handlers::user::redeem_invite))
@@ -328,9 +332,14 @@ fn build_router(state: AppState) -> Router {
         )
         .route("/api/accounts/seed-mock", post(handlers::cloud_account::seed_mock))
         // Approvals
-        .route("/api/approvals", get(handlers::approval::list))
+        .route("/api/approvals", get(handlers::approval::list).post(handlers::approval::create))
+        .route("/api/approvals/count", get(handlers::approval::count))
+        .route("/api/approvals/jira-url", get(handlers::approval::jira_url))
+        .route("/api/approvals/{id}", put(handlers::approval::update))
         .route("/api/approvals/{id}/approve", post(handlers::approval::approve))
         .route("/api/approvals/{id}/reject", post(handlers::approval::reject))
+        .route("/api/approvals/{id}/mark", post(handlers::approval::mark_result))
+        .route("/api/approvals/{id}/withdraw", post(handlers::approval::withdraw))
         // Channels
         .route(
             "/api/channels",
@@ -341,7 +350,9 @@ fn build_router(state: AppState) -> Router {
             put(handlers::channel::update).delete(handlers::channel::delete),
         )
         // Jira (proxy to Jira Cloud API — used by AI agent)
+        // NOTE: static paths (/api/jira/create, /api/jira/projects) must come before /{key}
         .route("/api/jira/create", post(handlers::jira::create_issue))
+        .route("/api/jira/projects", get(handlers::jira::list_projects))
         .route("/api/jira/{key}/transition", post(handlers::jira::transition_issue))
         .route("/api/jira/{key}/comment", post(handlers::jira::add_comment))
         .route("/api/jira/{key}", get(handlers::jira::get_issue))
@@ -403,6 +414,12 @@ fn build_router(state: AppState) -> Router {
         // Issues
         .route("/api/issues", get(handlers::issue::list))
         .route("/api/issues/count", get(handlers::issue::count))
+        // NOTE: /api/issues/rca/config must be registered before /api/issues/{id}
+        // to prevent "rca" being matched as an id path segment.
+        .route(
+            "/api/issues/rca/config",
+            get(handlers::issue::rca_config).put(handlers::issue::update_rca_config),
+        )
         .route(
             "/api/issues/{id}",
             get(handlers::issue::get).put(handlers::issue::update),
@@ -637,10 +654,24 @@ fn build_router(state: AppState) -> Router {
         // Roles (RBAC)
         .route("/api/roles", get(handlers::role::list).post(handlers::role::create))
         .route("/api/roles/{id}", put(handlers::role::update).delete(handlers::role::delete))
-        // Provider assignments + test — TODO: implement in handlers/provider.rs
-        // .route("/api/providers/assignments", get(handlers::provider::tenant_assignment_counts))
-        // .route("/api/providers/{id}/test", post(handlers::provider::test_connection))
-        // .route("/api/providers/{id}/tenants", get(handlers::provider::list_provider_tenants).put(handlers::provider::assign_provider_tenants))
+        // Provider assignments + test
+        // NOTE: /api/providers/assignments must be registered BEFORE /api/providers/{id}
+        // to prevent "assignments" being consumed as a UUID path segment.
+        .route("/api/providers/assignments", get(handlers::provider::tenant_assignment_counts))
+        .route("/api/providers/{id}/test", post(handlers::provider::test_connection))
+        .route(
+            "/api/providers/{id}/tenants",
+            get(handlers::provider::list_provider_tenants).put(handlers::provider::assign_provider_tenants),
+        )
+        // Tenant ↔ provider assignments
+        .route(
+            "/api/tenants/{id}/providers",
+            get(handlers::provider::list_tenant_providers).put(handlers::provider::assign_tenant_providers),
+        )
+        .route(
+            "/api/tenants/{id}/providers/default",
+            put(handlers::provider::set_tenant_default_provider),
+        )
         // Entra ID SSO Connections
         .route(
             "/api/entra-id-connections",
