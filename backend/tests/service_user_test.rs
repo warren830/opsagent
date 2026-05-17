@@ -3,10 +3,10 @@ mod helpers;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use ops::error::AppError;
-use ops::middleware::auth::AuthUser;
-use ops::models::user::{CreateUserRequest, InviteUserRequest};
-use ops::services::user;
+use loops::error::AppError;
+use loops::middleware::auth::AuthUser;
+use loops::models::user::{CreateUserRequest, InviteUserRequest};
+use loops::services::user;
 
 // ── Auth helpers ────────────────────────────────────────────────────
 

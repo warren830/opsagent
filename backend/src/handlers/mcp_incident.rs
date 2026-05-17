@@ -154,7 +154,7 @@ pub async fn handle(
             serde_json::json!({
                 "protocolVersion": "2024-11-05",
                 "capabilities": { "tools": {} },
-                "serverInfo": { "name": "ops-incidents", "version": "1.0.0" }
+                "serverInfo": { "name": "loops-incidents", "version": "1.0.0" }
             }),
         ))),
         _ => Ok(Json(JsonRpcResponse::error(

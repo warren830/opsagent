@@ -118,7 +118,7 @@ mod tests {
             service_id: Some(svc_id),
             actor: serde_json::json!({"type": "system", "display_name": "argocd"}),
             occurred_at: Utc.with_ymd_and_hms(2026, 5, 1, 12, 0, 0).unwrap(),
-            summary: "Deploy ops-backend to prod".to_string(),
+            summary: "Deploy loops-backend to prod".to_string(),
             payload: serde_json::json!({"revision": "abc123"}),
             correlation_id: Some("corr-1".to_string()),
             source: SOURCE_ARGOCD.to_string(),

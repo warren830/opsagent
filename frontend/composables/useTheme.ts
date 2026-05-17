@@ -16,7 +16,7 @@
 
 export type ThemeId = 'light' | 'aurora'
 
-const COOKIE_KEY = 'ops.theme'
+const COOKIE_KEY = 'loops.theme'
 const DEFAULT_THEME: ThemeId = 'light'
 
 export const useTheme = () => {

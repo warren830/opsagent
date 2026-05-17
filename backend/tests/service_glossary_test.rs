@@ -1,10 +1,10 @@
 mod helpers;
 
 use sqlx::PgPool;
-use ops::middleware::auth::AuthUser;
-use ops::services::glossary;
-use ops::models::glossary::{CreateGlossaryRequest, UpdateGlossaryRequest};
-use ops::error::AppError;
+use loops::middleware::auth::AuthUser;
+use loops::services::glossary;
+use loops::models::glossary::{CreateGlossaryRequest, UpdateGlossaryRequest};
+use loops::error::AppError;
 use uuid::Uuid;
 
 fn super_admin() -> AuthUser {

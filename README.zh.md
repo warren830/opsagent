@@ -13,9 +13,9 @@
 
 ---
 
-## Ops 是什么？
+## Loops 是什么？
 
-Ops 是一个全栈基础设施运维平台，把 AI agent 放在 SRE 工作流的中心。你的团队不再需要在 Grafana 标签页、kubectl 窗口和 runbook 之间反复切换——直接和一个 Claude 驱动的 agent 对话，它实时访问你的多云资产清单、可观测性栈和发布流水线。
+Loops 是一个全栈基础设施运维平台，把 AI agent 放在 SRE 工作流的中心。你的团队不再需要在 Grafana 标签页、kubectl 窗口和 runbook 之间反复切换——直接和一个 Claude 驱动的 agent 对话，它实时访问你的多云资产清单、可观测性栈和发布流水线。
 
 这不是一个"chat 套壳"。Agent 会对着你的真实环境执行真实工具——`kubectl`、AWS SDK、PromQL、LogQL、Argo Rollouts API——边执行边把推理过程流式输出，破坏性操作走审批闸门。
 

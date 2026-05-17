@@ -1,10 +1,10 @@
 mod helpers;
 
 use sqlx::PgPool;
-use ops::middleware::auth::AuthUser;
-use ops::services::knowledge;
-use ops::models::knowledge::{CreateKnowledgeRequest, UpdateKnowledgeRequest};
-use ops::error::AppError;
+use loops::middleware::auth::AuthUser;
+use loops::services::knowledge;
+use loops::models::knowledge::{CreateKnowledgeRequest, UpdateKnowledgeRequest};
+use loops::error::AppError;
 use uuid::Uuid;
 
 /// Seed a user in the DB and return an AuthUser with the real user_id.

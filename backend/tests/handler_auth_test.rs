@@ -7,8 +7,8 @@ mod helpers;
 
 use axum::{Router, http::StatusCode, routing::get};
 use helpers::http::{body_json, call, get as http_get, test_state, token_member, token_expired, with_auth};
-use ops::AppState;
-use ops::handlers;
+use loops::AppState;
+use loops::handlers;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -53,7 +53,7 @@ async fn me_rejects_expired_token(pool: PgPool) {
 #[sqlx::test(migrations = "src/migrations")]
 async fn me_rejects_token_signed_with_wrong_secret(pool: PgPool) {
     use jsonwebtoken::{EncodingKey, Header, encode};
-    use ops::middleware::auth::Claims;
+    use loops::middleware::auth::Claims;
     let now = chrono::Utc::now().timestamp() as usize;
     let bad = encode(
         &Header::default(),

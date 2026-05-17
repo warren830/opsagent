@@ -1,10 +1,10 @@
 mod helpers;
 
 use sqlx::PgPool;
-use ops::middleware::auth::AuthUser;
-use ops::services::channel;
-use ops::models::channel::{CreateChannelRequest, UpdateChannelRequest};
-use ops::error::AppError;
+use loops::middleware::auth::AuthUser;
+use loops::services::channel;
+use loops::models::channel::{CreateChannelRequest, UpdateChannelRequest};
+use loops::error::AppError;
 use uuid::Uuid;
 
 fn super_admin() -> AuthUser {
@@ -167,7 +167,7 @@ async fn test_update_other_tenant_forbidden(pool: PgPool) {
     }
 
     // Verify data unchanged in DB
-    let unchanged = sqlx::query_as::<_, ops::models::channel::Channel>(
+    let unchanged = sqlx::query_as::<_, loops::models::channel::Channel>(
         "SELECT * FROM channels WHERE id = $1",
     )
     .bind(channel_id)

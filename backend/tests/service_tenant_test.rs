@@ -1,10 +1,10 @@
 mod helpers;
 
 use sqlx::PgPool;
-use ops::middleware::auth::AuthUser;
-use ops::services::tenant;
-use ops::error::AppError;
-use ops::models::tenant::{CreateTenantRequest, UpdateTenantRequest};
+use loops::middleware::auth::AuthUser;
+use loops::services::tenant;
+use loops::error::AppError;
+use loops::models::tenant::{CreateTenantRequest, UpdateTenantRequest};
 use uuid::Uuid;
 
 // helper to create a test super_admin AuthUser

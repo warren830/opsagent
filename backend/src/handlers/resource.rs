@@ -19,8 +19,8 @@ const SCREENER_CHINA_REPO: &str = "https://github.com/lijh-aws-tools/service-scr
 
 /// Resolve screener base directory.
 /// 1. SCREENER_DIR env var (explicit override)
-/// 2. PROJECT_ROOT/.ops/screener (local dev + Docker COPY)
-/// 3. fallback: cwd/.ops/screener
+/// 2. PROJECT_ROOT/.loops/screener (local dev + Docker COPY)
+/// 3. fallback: cwd/.loops/screener
 fn screener_dir() -> std::path::PathBuf {
     if let Ok(dir) = std::env::var("SCREENER_DIR") {
         return std::path::PathBuf::from(dir);
@@ -28,8 +28,8 @@ fn screener_dir() -> std::path::PathBuf {
     // In Docker: WORKDIR is /app, .ops/ is copied alongside binary
     // Local dev: run from project root or backend/
     let candidates = [
-        std::path::PathBuf::from(".ops/screener"),    // cwd = project root
-        std::path::PathBuf::from("../.ops/screener"), // cwd = backend/
+        std::path::PathBuf::from(".loops/screener"),    // cwd = project root
+        std::path::PathBuf::from("../.loops/screener"), // cwd = backend/
     ];
     for c in &candidates {
         if c.exists() {
@@ -37,7 +37,7 @@ fn screener_dir() -> std::path::PathBuf {
         }
     }
     // Default: project root relative
-    std::path::PathBuf::from(".ops/screener")
+    std::path::PathBuf::from(".loops/screener")
 }
 
 fn is_china_region(region: &str) -> bool {
@@ -230,7 +230,7 @@ async fn build_account_env(
             "--role-arn",
             role_arn,
             "--role-session-name",
-            "ops-screener",
+            "loops-screener",
             "--duration-seconds",
             "3600",
             "--output",

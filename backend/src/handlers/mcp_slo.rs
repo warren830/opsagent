@@ -141,7 +141,7 @@ pub async fn handle(
                 "protocolVersion": "2024-11-05",
                 "capabilities": { "tools": {} },
                 "serverInfo": {
-                    "name": "ops-slo",
+                    "name": "loops-slo",
                     "version": "1.0.0"
                 }
             }),

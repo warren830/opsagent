@@ -1,6 +1,6 @@
 version: 0.2
 
-# CodeBuild build spec for Ops — builds and pushes the backend + frontend
+# CodeBuild build spec for Loops — builds and pushes the backend + frontend
 # images to ECR, targeting linux/arm64 (Graviton node pool).
 #
 # Required env vars (set on the CodeBuild project):

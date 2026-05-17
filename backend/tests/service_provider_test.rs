@@ -1,10 +1,10 @@
 mod helpers;
 
 use sqlx::PgPool;
-use ops::middleware::auth::AuthUser;
-use ops::services::provider;
-use ops::models::provider::{CreateProviderRequest, UpdateProviderRequest};
-use ops::error::AppError;
+use loops::middleware::auth::AuthUser;
+use loops::services::provider;
+use loops::models::provider::{CreateProviderRequest, UpdateProviderRequest};
+use loops::error::AppError;
 use uuid::Uuid;
 
 fn super_admin() -> AuthUser {

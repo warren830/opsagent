@@ -559,7 +559,7 @@ async fn build_aws_env_vars(state: &AppState, auth_user: &AuthUser) -> Vec<(Stri
             && !arn.is_empty()
         {
             env_vars.push(("AWS_ROLE_ARN".to_string(), arn));
-            env_vars.push(("AWS_ROLE_SESSION_NAME".to_string(), "ops-chat".to_string()));
+            env_vars.push(("AWS_ROLE_SESSION_NAME".to_string(), "loops-chat".to_string()));
         }
         if let Some(prof) = profile
             && !prof.is_empty()
@@ -631,7 +631,7 @@ async fn build_mcp_config(
                 } else {
                     serde_json::json!({})
                 };
-                if srv.name.starts_with("ops-")
+                if srv.name.starts_with("loops-")
                     && let Some(token) = api_token
                     && let Some(obj_map) = merged_headers.as_object_mut()
                 {

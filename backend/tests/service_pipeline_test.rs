@@ -1,10 +1,10 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use ops::error::AppError;
-use ops::middleware::auth::AuthUser;
-use ops::models::pipeline::CreatePipelineRepoRequest;
-use ops::services::pipeline;
+use loops::error::AppError;
+use loops::middleware::auth::AuthUser;
+use loops::models::pipeline::CreatePipelineRepoRequest;
+use loops::services::pipeline;
 
 fn super_admin() -> AuthUser {
     AuthUser {
@@ -134,7 +134,7 @@ async fn test_update_own_tenant(pool: PgPool) {
         &pool,
         &user,
         repo.id,
-        ops::models::pipeline::UpdatePipelineRepoRequest {
+        loops::models::pipeline::UpdatePipelineRepoRequest {
             name: Some("Updated".to_string()),
             repository: None,
             token_secret_arn: None,
@@ -181,7 +181,7 @@ async fn test_update_other_tenant_forbidden(pool: PgPool) {
         &pool,
         &user2,
         repo.id,
-        ops::models::pipeline::UpdatePipelineRepoRequest {
+        loops::models::pipeline::UpdatePipelineRepoRequest {
             name: Some("Hacked".to_string()),
             repository: None,
             token_secret_arn: None,
@@ -232,7 +232,7 @@ async fn test_update_not_found(pool: PgPool) {
         &pool,
         &admin,
         Uuid::new_v4(),
-        ops::models::pipeline::UpdatePipelineRepoRequest {
+        loops::models::pipeline::UpdatePipelineRepoRequest {
             name: Some("Ghost".to_string()),
             repository: None,
             token_secret_arn: None,

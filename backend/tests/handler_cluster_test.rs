@@ -10,7 +10,7 @@ use helpers::http::{
     body_json, call, delete, get as http_get, json_request, test_state, token_member, token_super_admin,
     token_tenant_admin, with_auth,
 };
-use ops::handlers;
+use loops::handlers;
 use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;

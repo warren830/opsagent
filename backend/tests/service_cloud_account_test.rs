@@ -1,10 +1,10 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use ops::error::AppError;
-use ops::middleware::auth::AuthUser;
-use ops::models::cloud_account::{CreateCloudAccountRequest, UpdateCloudAccountRequest};
-use ops::services::cloud_account;
+use loops::error::AppError;
+use loops::middleware::auth::AuthUser;
+use loops::models::cloud_account::{CreateCloudAccountRequest, UpdateCloudAccountRequest};
+use loops::services::cloud_account;
 
 fn super_admin() -> AuthUser {
     AuthUser {

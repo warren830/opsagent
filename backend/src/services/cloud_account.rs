@@ -168,7 +168,7 @@ async fn store_static_credentials(
     let client = aws_sdk_secretsmanager::Client::new(&config);
 
     let secret_name = format!(
-        "ops/cloud-accounts/{}/{}/{}",
+        "loops/cloud-accounts/{}/{}/{}",
         provider,
         account_id,
         uuid::Uuid::new_v4()

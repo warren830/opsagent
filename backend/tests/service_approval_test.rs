@@ -3,9 +3,9 @@ mod helpers;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use ops::error::AppError;
-use ops::middleware::auth::AuthUser;
-use ops::services::approval;
+use loops::error::AppError;
+use loops::middleware::auth::AuthUser;
+use loops::services::approval;
 
 // ── Auth helpers ────────────────────────────────────────────────────
 

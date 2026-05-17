@@ -4,9 +4,9 @@
 
 use axum::{Router, body::Body, http::Request, response::Response};
 use jsonwebtoken::{EncodingKey, Header, encode};
-use ops::config::{AppConfig, Environment};
-use ops::middleware::auth::{Claims, auth_middleware};
-use ops::AppState;
+use loops::config::{AppConfig, Environment};
+use loops::middleware::auth::{Claims, auth_middleware};
+use loops::AppState;
 use serde::Serialize;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -42,7 +42,7 @@ pub fn test_state(pool: PgPool) -> AppState {
     AppState {
         pool,
         config: test_config(),
-        rca_registry: Arc::new(ops::services::rca::RcaRegistry::new()),
+        rca_registry: Arc::new(loops::services::rca::RcaRegistry::new()),
     }
 }
 

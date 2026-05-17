@@ -1,10 +1,10 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use ops::error::AppError;
-use ops::middleware::auth::AuthUser;
-use ops::models::cluster::{CreateClusterRequest, UpdateClusterRequest};
-use ops::services::cluster;
+use loops::error::AppError;
+use loops::middleware::auth::AuthUser;
+use loops::models::cluster::{CreateClusterRequest, UpdateClusterRequest};
+use loops::services::cluster;
 
 fn super_admin() -> AuthUser {
     AuthUser {

@@ -155,7 +155,7 @@ pub async fn spawn_war_room(
                 incident.detection_source,
             );
             let labels = Some(vec![
-                "ops-incident".to_string(),
+                "loops-incident".to_string(),
                 format!("sev-{}", incident.severity.trim_start_matches("sev")),
             ]);
             match client.create_issue(&summary, &description, None, labels).await {

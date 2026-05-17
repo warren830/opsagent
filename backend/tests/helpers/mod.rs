@@ -4,7 +4,7 @@ pub mod http;
 use uuid::Uuid;
 
 /// A minimal representation of AuthUser for testing service functions.
-/// Mirrors the fields from `ops::middleware::auth::AuthUser`.
+/// Mirrors the fields from `loops::middleware::auth::AuthUser`.
 #[derive(Debug, Clone)]
 pub struct TestAuthUser {
     pub user_id: Uuid,
@@ -14,8 +14,8 @@ pub struct TestAuthUser {
 }
 
 impl TestAuthUser {
-    pub fn super_admin() -> ops::middleware::auth::AuthUser {
-        ops::middleware::auth::AuthUser {
+    pub fn super_admin() -> loops::middleware::auth::AuthUser {
+        loops::middleware::auth::AuthUser {
             user_id: Uuid::new_v4(),
             role: "super_admin".to_string(),
             tenant_id: None,
@@ -23,8 +23,8 @@ impl TestAuthUser {
         }
     }
 
-    pub fn member(tenant_id: Uuid) -> ops::middleware::auth::AuthUser {
-        ops::middleware::auth::AuthUser {
+    pub fn member(tenant_id: Uuid) -> loops::middleware::auth::AuthUser {
+        loops::middleware::auth::AuthUser {
             user_id: Uuid::new_v4(),
             role: "member".to_string(),
             tenant_id: Some(tenant_id),
@@ -32,8 +32,8 @@ impl TestAuthUser {
         }
     }
 
-    pub fn tenant_admin(tenant_id: Uuid) -> ops::middleware::auth::AuthUser {
-        ops::middleware::auth::AuthUser {
+    pub fn tenant_admin(tenant_id: Uuid) -> loops::middleware::auth::AuthUser {
+        loops::middleware::auth::AuthUser {
             user_id: Uuid::new_v4(),
             role: "tenant_admin".to_string(),
             tenant_id: Some(tenant_id),

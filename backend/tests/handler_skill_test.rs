@@ -7,8 +7,8 @@ use axum::{Router, http::StatusCode, routing::{get, post, put}};
 use helpers::http::{
     body_json, call, delete, get as http_get, issue_token, json_request, test_config, with_auth,
 };
-use ops::AppState;
-use ops::handlers;
+use loops::AppState;
+use loops::handlers;
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ fn state_with_tmpdir(pool: PgPool) -> AppState {
     AppState {
         pool,
         config,
-        rca_registry: Arc::new(ops::services::rca::RcaRegistry::new()),
+        rca_registry: Arc::new(loops::services::rca::RcaRegistry::new()),
     }
 }
 

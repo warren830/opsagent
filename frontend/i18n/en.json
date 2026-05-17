@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "Ops",
+    "name": "Loops",
     "description": "AI-powered multi-cloud operations platform"
   },
   "nav": {
@@ -42,7 +42,7 @@
       "knowledge": "Knowledge",
       "tools": "Tools",
       "telemetry": "Telemetry",
-      "ops": "Ops"
+      "ops": "Loops"
     }
   },
   "auth": {
@@ -50,7 +50,7 @@
     "logout": "Logout",
     "username": "Username",
     "password": "Password",
-    "loginTitle": "Sign in to Ops",
+    "loginTitle": "Sign in to Loops",
     "loginDescription": "Enter your credentials",
     "loginButton": "Sign in",
     "loginError": "Invalid username or password",
@@ -200,7 +200,7 @@
     "modeCloud": "Cloud",
     "roleArn": "Role ARN",
     "roleArnHint": "arn:aws:iam::ACCOUNT_ID:role/ROLE_NAME",
-    "roleArnDesc": "The IAM Role that Ops will assume to access this account",
+    "roleArnDesc": "The IAM Role that Loops will assume to access this account",
     "profile": "AWS Profile",
     "profileHint": "e.g. default, dev, prod",
     "profileDesc": "AWS CLI profile name from ~/.aws/credentials",
@@ -219,9 +219,9 @@
     "testFailed": "Connection failed",
     "setupGuide": "Setup Guide",
     "setupGuideTitle": "How to Configure AWS Role ARN",
-    "setupGuideDesc": "Create a cross-account IAM Role so Ops can securely access your AWS resources via AssumeRole.",
+    "setupGuideDesc": "Create a cross-account IAM Role so Loops can securely access your AWS resources via AssumeRole.",
     "guideStep1": "Create IAM Role",
-    "guideStep1Desc": "Run this command in the target account. Replace {'<'}OPS_ACCOUNT{'>'} with the account ID where Ops is deployed.",
+    "guideStep1Desc": "Run this command in the target account. Replace {'<'}OPS_ACCOUNT{'>'} with the account ID where Loops is deployed.",
     "guideStep1Tip": "For tighter security, add an ExternalId condition to the trust policy to prevent confused deputy attacks.",
     "guideStep2": "Attach Permissions",
     "guideStep2Desc": "Grant the role read-only access. Add more policies as needed for your use case.",
@@ -229,7 +229,7 @@
     "guideStep3": "Copy Role ARN",
     "guideStep3Desc": "Paste the output into the Role ARN field above, e.g. ",
     "guideSecurityTitle": "Security Best Practices",
-    "guideSecurityTip1": "Use the least-privilege principle — only grant permissions Ops actually needs",
+    "guideSecurityTip1": "Use the least-privilege principle — only grant permissions Loops actually needs",
     "guideSecurityTip2": "Regularly audit the role's access with IAM Access Analyzer",
     "guideSecurityTip3": "Consider adding ExternalId and session duration limits for production environments",
     "guideAwsDocs": "AWS IAM Documentation",
@@ -851,7 +851,7 @@
     "usingTool": "Using tool: {tool}",
     "newChat": "New Chat",
     "history": "Chat History",
-    "welcome": "Your AI ops copilot — ready when you are.",
+    "welcome": "Your AI loops copilot — ready when you are.",
     "slashHint": "Type / for commands",
     "slashClear": "Clear conversation",
     "slashNew": "Start new chat",

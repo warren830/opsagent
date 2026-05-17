@@ -1,8 +1,8 @@
 mod helpers;
 
 use sqlx::PgPool;
-use ops::middleware::auth::AuthUser;
-use ops::services::dashboard;
+use loops::middleware::auth::AuthUser;
+use loops::services::dashboard;
 use uuid::Uuid;
 
 fn super_admin() -> AuthUser {
