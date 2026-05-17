@@ -8,7 +8,6 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::AuthUser;
-use crate::models::channel::Channel;
 use crate::models::knowledge::{CreateKnowledgeRequest, KnowledgeFile, UpdateKnowledgeRequest};
 use crate::services;
 use crate::services::jira::JiraClient;

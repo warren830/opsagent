@@ -626,6 +626,41 @@ fn build_router(state: AppState) -> Router {
             "/api/services/overview/{id}",
             get(handlers::services_view::overview_one),
         )
+        // Notifications (real-time SSE + CRUD)
+        .route("/api/notifications", get(handlers::notification::list))
+        .route("/api/notifications/unread-count", get(handlers::notification::unread_count))
+        .route("/api/notifications/read-all", post(handlers::notification::mark_all_read))
+        .route("/api/notifications/{id}/read", post(handlers::notification::mark_read))
+        .route("/api/notifications/stream", get(handlers::notification::stream))
+        // MCP RCA endpoint (JSON-RPC for agent tool calls)
+        .route("/api/mcp/rca", post(handlers::mcp_rca::handle))
+        // Roles (RBAC)
+        .route("/api/roles", get(handlers::role::list).post(handlers::role::create))
+        .route("/api/roles/{id}", put(handlers::role::update).delete(handlers::role::delete))
+        // Provider assignments + test — TODO: implement in handlers/provider.rs
+        // .route("/api/providers/assignments", get(handlers::provider::tenant_assignment_counts))
+        // .route("/api/providers/{id}/test", post(handlers::provider::test_connection))
+        // .route("/api/providers/{id}/tenants", get(handlers::provider::list_provider_tenants).put(handlers::provider::assign_provider_tenants))
+        // Entra ID SSO Connections
+        .route(
+            "/api/entra-id-connections",
+            get(handlers::entra_id_connection::list).post(handlers::entra_id_connection::create),
+        )
+        .route(
+            "/api/entra-id-connections/{id}",
+            get(handlers::entra_id_connection::get)
+                .put(handlers::entra_id_connection::update)
+                .delete(handlers::entra_id_connection::delete),
+        )
+        // Entra ID Group Mappings
+        .route(
+            "/api/entra-group-mappings",
+            get(handlers::entra_group_mapping::list).post(handlers::entra_group_mapping::create),
+        )
+        .route(
+            "/api/entra-group-mappings/{id}",
+            put(handlers::entra_group_mapping::update).delete(handlers::entra_group_mapping::delete),
+        )
         .layer(axum_middleware::from_fn_with_state(
             jwt_secret,
             middleware::auth::auth_middleware,

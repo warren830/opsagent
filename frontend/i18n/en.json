@@ -29,6 +29,9 @@
     "catalog": "Service Catalog",
     "services": "Services",
     "settings": "Settings",
+    "notifications": "Notifications",
+    "entraConnections": "Entra SSO",
+    "groupMappings": "Group Mappings",
     "selectTheme": "Select theme",
     "expandAll": "Expand All",
     "collapseAll": "Collapse All",
@@ -101,7 +104,8 @@
     "knowledge": "Tenant Knowledge",
     "createSuccess": "Tenant created successfully",
     "updateSuccess": "Tenant updated successfully",
-    "deleteSuccess": "Tenant deleted successfully"
+    "deleteSuccess": "Tenant deleted successfully",
+    "noTenants": "No tenants yet"
   },
   "user": {
     "title": "User Management",
@@ -361,7 +365,11 @@
     "permissionDefault": "Read-only (Recommended)",
     "permissionReadWrite": "Read-Write (CWD)",
     "permissionBypass": "Full Access",
-    "permissionHint": "Read-only: no file writes. Read-Write: can edit files in workspace. Full Access: unrestricted."
+    "permissionHint": "Read-only: no file writes. Read-Write: can edit files in workspace. Full Access: unrestricted.",
+    "assignToTenants": "Assign Tenants",
+    "assignToTenantsHint": "Select tenants that can use this model",
+    "testSuccess": "Connection test succeeded",
+    "testFail": "Connection test failed"
   },
   "glossary": {
     "title": "Glossary",
@@ -873,7 +881,9 @@
     "close": "Close",
     "open": "Open",
     "refresh": "Refresh",
-    "confirmDelete": "Are you sure? This action cannot be undone."
+    "confirmDelete": "Are you sure? This action cannot be undone.",
+    "requiredFields": "Please fill in all required fields",
+    "noPermission": "You do not have permission to access this page"
   },
   "incident": {
     "title": "Incidents",
@@ -1139,5 +1149,66 @@
       "budgetTitle": "Budget remaining (last 90d)",
       "burnsTitle": "Recent burn events"
     }
+  },
+  "role": {
+    "superAdmin": "Super Admin",
+    "tenantAdmin": "Tenant Admin",
+    "user": "User",
+    "readonly": "Read Only"
+  },
+  "entraConnection": {
+    "title": "Entra ID SSO Connections",
+    "description": "Manage Microsoft Entra ID (formerly Azure AD) single sign-on integrations",
+    "create": "New Connection",
+    "edit": "Edit Connection",
+    "createDescription": "Configure a new Entra ID SSO connection",
+    "editDescription": "Modify an existing Entra ID SSO connection",
+    "name": "Connection Name",
+    "namePlaceholder": "e.g. Corporate Azure AD",
+    "entraTenantId": "Azure Tenant ID",
+    "entraTenantIdPlaceholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "clientId": "Application (Client) ID",
+    "clientIdPlaceholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "clientSecret": "Client Secret",
+    "clientSecretPlaceholder": "Enter client secret value",
+    "clientSecretEditPlaceholder": "Leave blank to keep current secret",
+    "clientSecretHint": "Leave blank to keep the existing secret unchanged",
+    "defaultRole": "Default Role",
+    "allowedDomains": "Allowed Domains",
+    "allowedDomainsPlaceholder": "example.com",
+    "allowedDomainsHint": "Only users with these email domains can sign in via SSO. Leave empty to allow all.",
+    "autoProvision": "Auto-provision Users",
+    "autoProvisionHint": "Automatically create user accounts on first SSO login",
+    "autoProvisionOn": "Auto-create",
+    "autoProvisionOff": "Manual only",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "createSuccess": "SSO connection created",
+    "updateSuccess": "SSO connection updated",
+    "deleteSuccess": "SSO connection deleted",
+    "deleteTitle": "Delete SSO Connection",
+    "confirmDelete": "Delete this SSO connection? Users who signed in through it will no longer be able to use SSO."
+  },
+  "groupMapping": {
+    "title": "Entra Group Mappings",
+    "description": "Map Azure AD groups to system roles for automatic permission assignment",
+    "create": "New Mapping",
+    "edit": "Edit Mapping",
+    "createDescription": "Configure a new group → role mapping",
+    "editDescription": "Modify an existing group mapping",
+    "groupId": "Group Object ID",
+    "groupIdPlaceholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "groupIdHint": "Find the Object ID in Azure Portal → Azure AD → Groups → Overview",
+    "groupName": "Group Display Name",
+    "groupNamePlaceholder": "e.g. Ops-Admins",
+    "role": "Mapped Role",
+    "tenantId": "Tenant ID (optional)",
+    "tenantIdPlaceholder": "Leave blank for global scope",
+    "tenantIdHint": "Restrict this mapping to a specific tenant",
+    "createSuccess": "Group mapping created",
+    "updateSuccess": "Group mapping updated",
+    "deleteSuccess": "Group mapping deleted",
+    "deleteTitle": "Delete Group Mapping",
+    "confirmDelete": "Delete this group mapping? Members of this group will lose the associated role permissions."
   }
 }

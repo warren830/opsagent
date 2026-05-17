@@ -29,6 +29,9 @@
     "catalog": "服务目录",
     "services": "服务",
     "settings": "设置",
+    "notifications": "通知中心",
+    "entraConnections": "Entra SSO",
+    "groupMappings": "群组映射",
     "selectTheme": "选择主题",
     "expandAll": "展开全部",
     "collapseAll": "收拢全部",
@@ -101,7 +104,8 @@
     "knowledge": "租户知识库",
     "createSuccess": "租户创建成功",
     "updateSuccess": "租户更新成功",
-    "deleteSuccess": "租户删除成功"
+    "deleteSuccess": "租户删除成功",
+    "noTenants": "暂无租户"
   },
   "user": {
     "title": "用户管理",
@@ -361,7 +365,11 @@
     "permissionDefault": "只读模式（推荐）",
     "permissionReadWrite": "读写模式（工作目录）",
     "permissionBypass": "完全访问",
-    "permissionHint": "只读：禁止写文件。读写：可编辑工作目录内文件。完全访问：无限制。"
+    "permissionHint": "只读：禁止写文件。读写：可编辑工作目录内文件。完全访问：无限制。",
+    "assignToTenants": "分配租户",
+    "assignToTenantsHint": "选择可使用此模型的租户",
+    "testSuccess": "连接测试成功",
+    "testFail": "连接测试失败"
   },
   "glossary": {
     "title": "术语表",
@@ -872,7 +880,9 @@
     "close": "关闭",
     "open": "打开",
     "refresh": "刷新",
-    "confirmDelete": "确认删除？此操作不可撤销。"
+    "confirmDelete": "确认删除？此操作不可撤销。",
+    "requiredFields": "请填写所有必填字段",
+    "noPermission": "您没有权限访问此页面"
   },
   "incident": {
     "title": "事件作战室",
@@ -1138,5 +1148,66 @@
       "budgetTitle": "预算剩余（近 90d）",
       "burnsTitle": "最近的燃烧事件"
     }
+  },
+  "role": {
+    "superAdmin": "超级管理员",
+    "tenantAdmin": "租户管理员",
+    "user": "普通用户",
+    "readonly": "只读"
+  },
+  "entraConnection": {
+    "title": "Entra ID SSO 连接",
+    "description": "管理 Microsoft Entra ID（原 Azure AD）单点登录集成",
+    "create": "新建连接",
+    "edit": "编辑连接",
+    "createDescription": "配置新的 Entra ID SSO 连接",
+    "editDescription": "修改现有 Entra ID SSO 连接",
+    "name": "连接名称",
+    "namePlaceholder": "例：企业 Azure AD",
+    "entraTenantId": "Azure Tenant ID",
+    "entraTenantIdPlaceholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "clientId": "应用程序（客户端）ID",
+    "clientIdPlaceholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "clientSecret": "客户端密钥",
+    "clientSecretPlaceholder": "输入客户端密钥值",
+    "clientSecretEditPlaceholder": "留空则不更新密钥",
+    "clientSecretHint": "留空则保留原密钥不变",
+    "defaultRole": "默认角色",
+    "allowedDomains": "允许的域名",
+    "allowedDomainsPlaceholder": "example.com",
+    "allowedDomainsHint": "仅允许这些邮件域名的用户通过 SSO 登录，留空则不限制",
+    "autoProvision": "自动创建用户",
+    "autoProvisionHint": "用户首次 SSO 登录时自动在系统中创建账号",
+    "autoProvisionOn": "自动创建",
+    "autoProvisionOff": "不自动创建",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "createSuccess": "SSO 连接已创建",
+    "updateSuccess": "SSO 连接已更新",
+    "deleteSuccess": "SSO 连接已删除",
+    "deleteTitle": "删除 SSO 连接",
+    "confirmDelete": "确认删除此 SSO 连接？已通过该连接登录的用户将无法继续使用 SSO。"
+  },
+  "groupMapping": {
+    "title": "Entra 群组映射",
+    "description": "将 Azure AD 群组映射到系统角色，实现自动权限分配",
+    "create": "新建映射",
+    "edit": "编辑映射",
+    "createDescription": "配置新的群组 → 角色映射",
+    "editDescription": "修改现有群组映射",
+    "groupId": "群组 Object ID",
+    "groupIdPlaceholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "groupIdHint": "在 Azure 门户 → Azure AD → 群组 → 概述中获取 Object ID",
+    "groupName": "群组显示名称",
+    "groupNamePlaceholder": "例：Ops-Admins",
+    "role": "映射角色",
+    "tenantId": "租户 ID（可选）",
+    "tenantIdPlaceholder": "留空则全局生效",
+    "tenantIdHint": "指定该映射仅对特定租户生效",
+    "createSuccess": "群组映射已创建",
+    "updateSuccess": "群组映射已更新",
+    "deleteSuccess": "群组映射已删除",
+    "deleteTitle": "删除群组映射",
+    "confirmDelete": "确认删除此群组映射？该群组成员将失去对应的角色权限。"
   }
 }

@@ -6,6 +6,7 @@ import {
   GitBranch, Activity, AlertTriangle, AlertOctagon, Settings, Target,
   ChevronDown, MessageSquare, PanelLeftClose, PanelLeftOpen,
   ChevronsUpDown, ChevronsDownUp, Layers, Component as ComponentIcon,
+  Bell, Shield,
 } from 'lucide-vue-next'
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
@@ -53,6 +54,7 @@ const navGroups = computed<NavGroup[]>(() => {
       items: [
         { label: t('nav.users'), to: '/users', icon: Users, superAdminOnly: true },
         { label: t('nav.tenants'), to: '/tenants', icon: Building2, superAdminOnly: true },
+        { label: t('nav.notifications'), to: '/notifications', icon: Bell },
       ],
     },
     {
@@ -72,6 +74,8 @@ const navGroups = computed<NavGroup[]>(() => {
       items: [
         { label: t('nav.channels'), to: '/channels', icon: Radio },
         { label: t('nav.providers'), to: '/providers', icon: Brain },
+        { label: t('nav.entraConnections'), to: '/settings/entra-connections', icon: Shield, superAdminOnly: true },
+        { label: t('nav.groupMappings'), to: '/settings/group-mappings', icon: Users, superAdminOnly: true },
       ],
     },
     {

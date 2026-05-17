@@ -2,6 +2,7 @@
 import { LogOut, Menu } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Avatar } from '@/components/ui/avatar'
+import NotificationBell from '@/components/layout/NotificationBell.vue'
 
 const authStore = useAuthStore()
 const { t } = useI18n()
@@ -42,6 +43,9 @@ async function handleLogout() {
           {{ authStore.user.username }}
         </span>
       </div>
+
+      <!-- Notifications -->
+      <NotificationBell v-if="authStore.isAuthenticated" />
 
       <!-- Language switch -->
       <LayoutLangSwitch />

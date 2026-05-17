@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Pencil, Trash2, Star } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Star, Building2, Zap, CheckCircle2, XCircle, Loader2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,8 +38,21 @@ interface ProviderType {
   label: string
 }
 
+interface Tenant {
+  id: string
+  name: string
+  slug: string
+}
+
+interface TenantAssignment {
+  tenant_id: string
+  tenant_name: string
+  is_default: boolean
+}
+
 const providers = ref<Provider[]>([])
 const providerTypes = ref<ProviderType[]>([])
+const tenantCounts = ref<Record<string, number>>({})
 const loading = ref(true)
 const saving = ref(false)
 
@@ -47,6 +60,10 @@ const showFormDialog = ref(false)
 const editingProvider = ref<Provider | null>(null)
 const showDeleteDialog = ref(false)
 const deletingProvider = ref<Provider | null>(null)
+
+// Test connection state per provider
+const testingId = ref<string | null>(null)
+const testResults = ref<Record<string, 'ok' | 'fail'>>({})
 
 const form = ref({
   name: '',
@@ -117,9 +134,20 @@ async function fetchTypes() {
   } catch { /* ignore */ }
 }
 
+async function fetchTenantCounts() {
+  try {
+    const data = await api.get<[string, number][]>('/api/providers/assignments')
+    const map: Record<string, number> = {}
+    for (const [pid, count] of data) map[pid] = count
+    tenantCounts.value = map
+  } catch { /* ignore - endpoint may not be available */ }
+}
+
 onMounted(() => {
   fetchProviders()
   fetchTypes()
+  fetchTenantCounts()
+  fetchAllTenants()
 })
 
 function getProviderLabel(type: string): string {
@@ -129,6 +157,10 @@ function getProviderLabel(type: string): string {
 
 function getModelId(p: Provider): string {
   return (p.config.model as string) || '-'
+}
+
+function getTenantCount(p: Provider): number {
+  return tenantCounts.value[p.id] || 0
 }
 
 function openCreate() {
@@ -176,7 +208,6 @@ function selectModel(modelId: string) {
   showModelDropdown.value = false
 }
 
-// Close model dropdown when clicking outside
 function onModelInputBlur() {
   setTimeout(() => { showModelDropdown.value = false }, 150)
 }
@@ -216,6 +247,7 @@ async function saveProvider() {
     toast.success(t('common.success'))
     showFormDialog.value = false
     await fetchProviders()
+    await fetchTenantCounts()
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : t('common.error')
     toast.error(msg)
@@ -232,9 +264,85 @@ async function deleteProvider() {
     showDeleteDialog.value = false
     deletingProvider.value = null
     await fetchProviders()
+    await fetchTenantCounts()
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : t('common.error')
     toast.error(msg)
+  }
+}
+
+// ─── Test Connection ────────────────────────────────────────────────
+
+async function testConnection(p: Provider) {
+  if (testingId.value) return
+  testingId.value = p.id
+  delete testResults.value[p.id]
+  try {
+    // Try dedicated test endpoint first; fall back to a lightweight list call
+    await api.post(`/api/providers/${p.id}/test`, {})
+    testResults.value[p.id] = 'ok'
+    toast.success(t('provider.testSuccess'))
+  } catch {
+    testResults.value[p.id] = 'fail'
+    toast.error(t('provider.testFail'))
+  } finally {
+    testingId.value = null
+    // Auto-clear result after 8 seconds
+    setTimeout(() => { delete testResults.value[p.id] }, 8000)
+  }
+}
+
+// ─── Tenant Assignment ─────────────────────────────────────────────
+
+const allTenants = ref<Tenant[]>([])
+const showTenantsDialog = ref(false)
+const assigningProvider = ref<Provider | null>(null)
+const assignedTenantIds = ref<string[]>([])
+const savingTenants = ref(false)
+
+async function fetchAllTenants() {
+  try {
+    allTenants.value = await api.get<Tenant[]>('/api/tenants')
+  } catch { /* ignore */ }
+}
+
+function isTenantAssigned(id: string): boolean {
+  return assignedTenantIds.value.includes(id)
+}
+
+async function openTenantAssign(p: Provider) {
+  assigningProvider.value = p
+  assignedTenantIds.value = []
+  try {
+    const data = await api.get<TenantAssignment[]>(`/api/providers/${p.id}/tenants`)
+    assignedTenantIds.value = data.map(a => a.tenant_id)
+  } catch { /* ignore */ }
+  showTenantsDialog.value = true
+}
+
+function toggleTenant(id: string) {
+  if (assignedTenantIds.value.includes(id)) {
+    assignedTenantIds.value = assignedTenantIds.value.filter(t => t !== id)
+  } else {
+    assignedTenantIds.value = [...assignedTenantIds.value, id]
+  }
+}
+
+async function saveTenantAssignment() {
+  if (!assigningProvider.value) return
+  savingTenants.value = true
+  try {
+    await api.put(`/api/providers/${assigningProvider.value.id}/tenants`, {
+      tenant_ids: [...assignedTenantIds.value],
+    })
+    toast.success(t('common.success'))
+    showTenantsDialog.value = false
+    await fetchTenantCounts()
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : t('common.error')
+    toast.error(msg)
+  } finally {
+    savingTenants.value = false
   }
 }
 </script>
@@ -286,7 +394,7 @@ async function deleteProvider() {
         />
 
         <!-- Name + provider badge -->
-        <div class="flex items-center gap-2 mb-2">
+        <div class="flex items-center gap-2 mb-2 pr-5">
           <span class="text-sm font-medium text-foreground truncate">{{ p.name }}</span>
           <Badge variant="secondary" class="text-[10px] shrink-0">{{ getProviderLabel(p.provider_type) }}</Badge>
         </div>
@@ -296,15 +404,37 @@ async function deleteProvider() {
 
         <!-- Meta row -->
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3 text-[10px] text-muted-foreground/60">
-            <span v-if="p.config.region">{{ p.config.region }}</span>
+          <div class="flex items-center gap-2 flex-wrap text-[10px] text-muted-foreground/60">
+            <span v-if="p.config.region" class="font-mono">{{ p.config.region }}</span>
             <Badge
               :variant="permBadgeVariant(p.config.permission_mode)"
               class="text-[9px] px-1.5 py-0"
             >{{ permBadgeLabel(p.config.permission_mode) }}</Badge>
-            <span v-if="p.is_default" class="text-primary/80 font-medium">{{ t('provider.default') }}</span>
+            <!-- Tenant count button -->
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-5 px-1.5 text-[10px] gap-1"
+              @click="openTenantAssign(p)"
+            >
+              <Building2 class="h-3 w-3" />
+              {{ getTenantCount(p) }} {{ getTenantCount(p) === 1 ? 'tenant' : 'tenants' }}
+            </Button>
           </div>
           <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <!-- Test connection -->
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              :disabled="testingId === p.id"
+              :class="testResults[p.id] === 'ok' ? 'text-green-500' : testResults[p.id] === 'fail' ? 'text-destructive' : ''"
+              @click="testConnection(p)"
+            >
+              <Loader2 v-if="testingId === p.id" class="h-3 w-3 animate-spin" />
+              <CheckCircle2 v-else-if="testResults[p.id] === 'ok'" class="h-3 w-3" />
+              <XCircle v-else-if="testResults[p.id] === 'fail'" class="h-3 w-3" />
+              <Zap v-else class="h-3 w-3" />
+            </Button>
             <Button variant="ghost" size="icon-sm" @click="openEdit(p)">
               <Pencil class="h-3 w-3" />
             </Button>
@@ -313,6 +443,11 @@ async function deleteProvider() {
             </Button>
           </div>
         </div>
+
+        <!-- Test result inline hint -->
+        <p v-if="testResults[p.id]" class="text-[10px] mt-1.5" :class="testResults[p.id] === 'ok' ? 'text-green-500' : 'text-destructive'">
+          {{ testResults[p.id] === 'ok' ? t('provider.testSuccess') : t('provider.testFail') }}
+        </p>
       </div>
     </div>
 
@@ -436,6 +571,50 @@ async function deleteProvider() {
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Tenant Assignment Dialog -->
+    <Dialog :open="showTenantsDialog" @update:open="(val) => { showTenantsDialog = val }">
+      <DialogContent class="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{{ t('provider.assignToTenants') }}</DialogTitle>
+          <DialogDescription>{{ assigningProvider?.name }} — {{ t('provider.assignToTenantsHint') }}</DialogDescription>
+        </DialogHeader>
+
+        <div v-if="allTenants.length === 0" class="py-4 text-center text-xs text-muted-foreground">
+          {{ t('tenant.noTenants') }}
+        </div>
+
+        <div v-else class="space-y-0.5 max-h-[50vh] overflow-y-auto -mx-1">
+          <button
+            v-for="tenant in allTenants"
+            :key="tenant.id"
+            type="button"
+            class="flex items-center justify-between w-full rounded-md px-3 py-2.5 hover:bg-secondary/40 transition-colors cursor-pointer"
+            @click="toggleTenant(tenant.id)"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="text-xs font-medium text-foreground">{{ tenant.name }}</span>
+              <code class="rounded bg-secondary/60 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">{{ tenant.slug }}</code>
+            </div>
+            <Switch
+              :checked="isTenantAssigned(tenant.id)"
+              class="pointer-events-none"
+            />
+          </button>
+        </div>
+
+        <div v-if="assignedTenantIds.length > 0" class="text-[10px] text-muted-foreground/60 pt-1">
+          {{ assignedTenantIds.length }} {{ assignedTenantIds.length === 1 ? 'tenant' : 'tenants' }} selected
+        </div>
+
+        <DialogFooter class="gap-1.5 pt-1">
+          <Button type="button" variant="outline" size="sm" @click="showTenantsDialog = false">{{ t('common.cancel') }}</Button>
+          <Button size="sm" :disabled="savingTenants" @click="saveTenantAssignment">
+            {{ savingTenants ? t('common.loading') : t('common.save') }}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
 
