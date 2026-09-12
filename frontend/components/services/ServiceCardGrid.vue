@@ -1,14 +1,18 @@
 <script setup lang="ts">
 /**
  * Top-level grid view: orchestrates filtering, sorting and System grouping.
- * Collapsed state is persisted to localStorage per-tenant (simple string
- * key; no user-scoping since the app is single-session).
+ *
+ * Filter state lives in the route query (see docs/services-url-filters.md) so
+ * a refresh or a shared link reproduces the exact view. Collapsed state is
+ * persisted to localStorage per-tenant (simple string key; no user-scoping
+ * since the app is single-session).
  */
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import ServiceCard from './ServiceCard.vue'
-import ServiceFilterBar, { type ServiceFilters } from './ServiceFilterBar.vue'
+import ServiceFilterBar from './ServiceFilterBar.vue'
 import SystemGroupHeader from './SystemGroupHeader.vue'
 import { applyFilters, groupBySystem, sortComponents } from './cardRegistry'
+import { useServiceFilterQuery } from '@/composables/useServiceFilterQuery'
 import type {
   ComponentOverview,
   ServicesOverviewResponse,
@@ -22,13 +26,14 @@ const props = defineProps<{
 
 const STORAGE_KEY = 'services.collapsedSystems'
 
-const filters = ref<ServiceFilters>({
-  search: '',
-  systemId: 'all',
-  lifecycle: 'all',
-  runtime: 'all',
-  health: 'all',
-  sort: 'health',
+const allComponents = computed<ComponentOverview[]>(() => props.data?.components ?? [])
+const allSystems = computed<SystemSummary[]>(() => props.data?.systems ?? [])
+
+const { filters, setFilters } = useServiceFilterQuery({
+  knownSystemIds: computed(() => allSystems.value.map(s => s.id)),
+  // Until the overview payload lands we cannot tell a stale `?system=` id from
+  // a valid one, so the selection is kept as-is.
+  systemsReady: computed(() => props.data != null),
 })
 
 const collapsed = reactive<Record<string, boolean>>(loadCollapsed())
@@ -51,9 +56,6 @@ watch(collapsed, (v) => {
     // storage disabled / quota — non-fatal.
   }
 }, { deep: true })
-
-const allComponents = computed<ComponentOverview[]>(() => props.data?.components ?? [])
-const allSystems = computed<SystemSummary[]>(() => props.data?.systems ?? [])
 
 const filtered = computed(() =>
   applyFilters(allComponents.value, {
@@ -87,7 +89,7 @@ const { t } = useI18n()
       :filters="filters"
       :systems="allSystems"
       :total="filtered.length"
-      @update:filters="(v) => filters = v"
+      @update:filters="setFilters"
     />
 
     <!-- Loading skeletons -->
