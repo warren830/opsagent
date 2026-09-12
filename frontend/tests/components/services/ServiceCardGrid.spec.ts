@@ -6,9 +6,12 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyFilters,
-  sortComponents,
+  buildServiceGrid,
   groupBySystem,
+  resolveSortKey,
+  sortComponents,
 } from '~/components/services/cardRegistry'
+import { parseServiceFilters, serviceFiltersToQuery } from '~/composables/serviceFilterQuery'
 import type {
   ComponentOverview,
   HealthStatus,
@@ -148,5 +151,129 @@ describe('ServiceCardGrid pipeline', () => {
     groupBySystem(sortComponents(filtered, 'health'), systems)
     expect(components).toEqual(snapshot)
     expect(systems).toEqual(systemsSnapshot)
+  })
+})
+
+/**
+ * The grid now reads its filter state from the route query. These cases drive
+ * the exact pipeline the SFC runs (parse query → applyFilters → sortComponents
+ * → groupBySystem) so a URL is proven to reproduce a view.
+ */
+describe('ServiceCardGrid pipeline driven by the route query', () => {
+  const systems: SystemSummary[] = [
+    { id: 'sys-p', name: 'payments', display_name: 'Payments', component_count: 4, health_summary: { healthy: 0, warning: 0, critical: 0 } },
+    { id: 'sys-o', name: 'orders', display_name: 'Orders', component_count: 2, health_summary: { healthy: 0, warning: 0, critical: 0 } },
+  ]
+
+  const components: ComponentOverview[] = [
+    comp('pay-healthy', 'healthy', 'sys-p', 'eks'),
+    comp('pay-critical', 'critical', 'sys-p', 'lambda'),
+    comp('pay-warning', 'warning', 'sys-p', 'rds'),
+    comp('ord-critical', 'critical', 'sys-o', 'ec2'),
+    comp('free-unknown', 'unknown', null, 'external'),
+  ]
+
+  const parseOptions = { knownSystemIds: systems.map(s => s.id), systemsReady: true }
+
+  function render(query: Record<string, string | null | (string | null)[]>) {
+    const filters = parseServiceFilters(query, parseOptions)
+    // Starts from the full overview payload, exactly like the SFC's
+    // `allComponents` computed — the URL narrows the view, never the request.
+    const filtered = applyFilters(components, filters)
+    const sorted = sortComponents(filtered, filters.sort as 'health' | 'name' | 'incidents')
+    return { filters, visible: sorted, groups: groupBySystem(sorted, systems) }
+  }
+
+  it('an empty query renders the default view', () => {
+    const { filters, visible, groups } = render({})
+    expect(filters.sort).toBe('health')
+    expect(visible).toHaveLength(components.length)
+    expect(groups.map(g => g.system.id)).toEqual(['sys-p', 'sys-o', null])
+  })
+
+  it('intersects system + runtime + health from the URL', () => {
+    const { visible } = render({ system: 'sys-p', runtime: 'lambda', health: 'critical' })
+    expect(visible.map(c => c.id)).toEqual(['pay-critical'])
+  })
+
+  it('an over-constrained URL yields an empty grid, not an error', () => {
+    const { visible, groups } = render({ system: 'sys-o', runtime: 'eks' })
+    expect(visible).toEqual([])
+    expect(groups).toEqual([])
+  })
+
+  it('search from the URL narrows by name', () => {
+    const { visible } = render({ q: 'ord-' })
+    expect(visible.map(c => c.id)).toEqual(['ord-critical'])
+  })
+
+  it('sort from the URL reorders the cards inside each group', () => {
+    expect(render({ sort: 'name' }).groups[0].components.map(c => c.id)).toEqual([
+      'pay-critical', 'pay-healthy', 'pay-warning',
+    ])
+    expect(render({ sort: 'health' }).groups[0].components.map(c => c.id)).toEqual([
+      'pay-critical', 'pay-warning', 'pay-healthy',
+    ])
+  })
+
+  it('group badges count only the cards the URL leaves visible', () => {
+    const { groups } = render({ health: 'critical' })
+    expect(groups.map(g => g.system.id)).toEqual(['sys-p', 'sys-o'])
+    for (const g of groups) {
+      expect(g.healthSummary.critical).toBe(g.components.length)
+      expect(g.healthSummary.warning).toBe(0)
+      expect(g.healthSummary.healthy).toBe(0)
+      expect(g.healthSummary.unknown ?? 0).toBe(0)
+    }
+  })
+
+  it('unsupported URL values fall back to defaults instead of hiding cards', () => {
+    const { visible } = render({ health: 'degraded', runtime: ['eks', 'rds'], sort: 'owner' })
+    expect(visible).toHaveLength(components.length)
+  })
+
+  it('an unknown system id resets to all systems once data is loaded', () => {
+    const { filters, visible } = render({ system: 'sys-deleted' })
+    expect(filters.systemId).toBe('all')
+    expect(visible).toHaveLength(components.length)
+  })
+
+  it('a rendered view round-trips through the URL', () => {
+    const first = render({ system: 'sys-p', health: 'warning', sort: 'name' })
+    const second = render(serviceFiltersToQuery(first.filters))
+    expect(second.visible.map(c => c.id)).toEqual(first.visible.map(c => c.id))
+    expect(second.filters).toEqual(first.filters)
+  })
+
+  it('buildServiceGrid is the pipeline the grid renders', () => {
+    const filters = parseServiceFilters({ health: 'critical', sort: 'name' }, parseOptions)
+    const view = buildServiceGrid(components, systems, filters)
+    const manual = render({ health: 'critical', sort: 'name' })
+
+    expect(view.visible.map(c => c.id)).toEqual(manual.visible.map(c => c.id))
+    expect(view.total).toBe(manual.visible.length)
+    expect(view.groups.map(g => g.system.id)).toEqual(manual.groups.map(g => g.system.id))
+  })
+
+  it('buildServiceGrid reports counts for the visible cards only', () => {
+    const view = buildServiceGrid(
+      components,
+      systems,
+      parseServiceFilters({ system: 'sys-p' }, parseOptions),
+    )
+    expect(view.total).toBe(3)
+    expect(view.groups).toHaveLength(1)
+    expect(view.groups[0].components).toHaveLength(3)
+    expect(view.groups[0].healthSummary).toEqual({ healthy: 1, warning: 1, critical: 1, unknown: 0 })
+  })
+
+  it.each([
+    ['name', 'name'],
+    ['incidents', 'incidents'],
+    ['health', 'health'],
+    ['bogus', 'health'],
+    [undefined, 'health'],
+  ] as const)('resolveSortKey(%s) → %s', (input, expected) => {
+    expect(resolveSortKey(input)).toBe(expected)
   })
 })

@@ -1,14 +1,18 @@
 <script setup lang="ts">
 /**
  * Top-level grid view: orchestrates filtering, sorting and System grouping.
- * Collapsed state is persisted to localStorage per-tenant (simple string
- * key; no user-scoping since the app is single-session).
+ *
+ * Filter state lives in the route query (see docs/services-url-filters.md) so
+ * a refresh or a shared link reproduces the exact view. Collapsed state is
+ * persisted to localStorage per-tenant (simple string key; no user-scoping
+ * since the app is single-session).
  */
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import ServiceCard from './ServiceCard.vue'
-import ServiceFilterBar, { type ServiceFilters } from './ServiceFilterBar.vue'
+import ServiceFilterBar from './ServiceFilterBar.vue'
 import SystemGroupHeader from './SystemGroupHeader.vue'
-import { applyFilters, groupBySystem, sortComponents } from './cardRegistry'
+import { buildServiceGrid } from './cardRegistry'
+import { usePayloadAuthority, useServiceFilterQuery } from '@/composables/useServiceFilterQuery'
 import type {
   ComponentOverview,
   ServicesOverviewResponse,
@@ -22,13 +26,17 @@ const props = defineProps<{
 
 const STORAGE_KEY = 'services.collapsedSystems'
 
-const filters = ref<ServiceFilters>({
-  search: '',
-  systemId: 'all',
-  lifecycle: 'all',
-  runtime: 'all',
-  health: 'all',
-  sort: 'health',
+const allComponents = computed<ComponentOverview[]>(() => props.data?.components ?? [])
+const allSystems = computed<SystemSummary[]>(() => props.data?.systems ?? [])
+
+const { filters, setFilters } = useServiceFilterQuery({
+  knownSystemIds: computed(() => allSystems.value.map(s => s.id)),
+  // A `?system=` id may only be checked while the catalog on hand is
+  // authoritative. `props.data` can be a payload from an earlier visit at setup
+  // (the page starts its fetch in onMounted, after this) and it goes stale again
+  // for the duration of every background refresh, so a system created since the
+  // last completed poll must not be mistaken for a nonexistent one.
+  systemsReady: usePayloadAuthority(() => props.data, () => props.loading),
 })
 
 const collapsed = reactive<Record<string, boolean>>(loadCollapsed())
@@ -52,22 +60,7 @@ watch(collapsed, (v) => {
   }
 }, { deep: true })
 
-const allComponents = computed<ComponentOverview[]>(() => props.data?.components ?? [])
-const allSystems = computed<SystemSummary[]>(() => props.data?.systems ?? [])
-
-const filtered = computed(() =>
-  applyFilters(allComponents.value, {
-    search: filters.value.search,
-    systemId: filters.value.systemId,
-    lifecycle: filters.value.lifecycle,
-    runtime: filters.value.runtime,
-    health: filters.value.health,
-  }),
-)
-
-const sorted = computed(() => sortComponents(filtered.value, filters.value.sort as 'health' | 'name' | 'incidents'))
-
-const grouped = computed(() => groupBySystem(sorted.value, allSystems.value))
+const grid = computed(() => buildServiceGrid(allComponents.value, allSystems.value, filters.value))
 
 function toggleSystem(id: string | null) {
   const key = id ?? '__ungrouped'
@@ -86,8 +79,8 @@ const { t } = useI18n()
     <ServiceFilterBar
       :filters="filters"
       :systems="allSystems"
-      :total="filtered.length"
-      @update:filters="(v) => filters = v"
+      :total="grid.total"
+      @update:filters="setFilters"
     />
 
     <!-- Loading skeletons -->
@@ -97,7 +90,7 @@ const { t } = useI18n()
 
     <!-- Empty -->
     <div
-      v-else-if="filtered.length === 0"
+      v-else-if="grid.total === 0"
       class="rounded-lg border border-dashed border-border/50 py-16 text-center space-y-2"
     >
       <p class="text-xs text-muted-foreground">{{ t('services.emptyTitle') }}</p>
@@ -106,7 +99,7 @@ const { t } = useI18n()
 
     <!-- Grouped grid -->
     <div v-else class="space-y-6">
-      <section v-for="g in grouped" :key="g.system.id ?? '__ungrouped'">
+      <section v-for="g in grid.groups" :key="g.system.id ?? '__ungrouped'">
         <SystemGroupHeader
           :system="g.system.id == null
             ? { id: null, name: t('services.ungrouped'), display_name: null }

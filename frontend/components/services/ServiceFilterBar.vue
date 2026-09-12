@@ -4,16 +4,11 @@ import { Input } from '@/components/ui/input'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import {
+  DEFAULT_SERVICE_FILTERS,
+  type ServiceFilters,
+} from '@/composables/serviceFilterQuery'
 import type { SystemSummary } from '@/composables/useServicesOverview'
-
-export interface ServiceFilters {
-  search: string
-  systemId: string          // 'all' or uuid or 'none' (components without system)
-  lifecycle: string         // 'all' | production | experimental | deprecated | retired
-  runtime: string           // 'all' | eks | ec2 | rds | lambda | external | generic
-  health: string            // 'all' | critical | warning | unknown | healthy
-  sort: string              // 'health' | 'name' | 'incidents'
-}
 
 const props = defineProps<{
   filters: ServiceFilters
@@ -46,7 +41,7 @@ const { t } = useI18n()
 
     <Select
       :model-value="filters.systemId"
-      @update:model-value="(v) => update('systemId', String(v ?? 'all'))"
+      @update:model-value="(v) => update('systemId', String(v ?? DEFAULT_SERVICE_FILTERS.systemId))"
     >
       <SelectTrigger class="w-40 h-8 text-xs">
         <SelectValue :placeholder="t('services.filterBySystem')" />
@@ -62,7 +57,7 @@ const { t } = useI18n()
 
     <Select
       :model-value="filters.lifecycle"
-      @update:model-value="(v) => update('lifecycle', String(v ?? 'all'))"
+      @update:model-value="(v) => update('lifecycle', String(v ?? DEFAULT_SERVICE_FILTERS.lifecycle))"
     >
       <SelectTrigger class="w-36 h-8 text-xs">
         <SelectValue :placeholder="t('catalog.lifecycleAll')" />
@@ -78,7 +73,7 @@ const { t } = useI18n()
 
     <Select
       :model-value="filters.runtime"
-      @update:model-value="(v) => update('runtime', String(v ?? 'all'))"
+      @update:model-value="(v) => update('runtime', String(v ?? DEFAULT_SERVICE_FILTERS.runtime))"
     >
       <SelectTrigger class="w-36 h-8 text-xs">
         <SelectValue :placeholder="t('services.filterByRuntime')" />
@@ -96,7 +91,7 @@ const { t } = useI18n()
 
     <Select
       :model-value="filters.health"
-      @update:model-value="(v) => update('health', String(v ?? 'all'))"
+      @update:model-value="(v) => update('health', String(v ?? DEFAULT_SERVICE_FILTERS.health))"
     >
       <SelectTrigger class="w-36 h-8 text-xs">
         <SelectValue :placeholder="t('services.filterByHealth')" />
@@ -112,7 +107,7 @@ const { t } = useI18n()
 
     <Select
       :model-value="filters.sort"
-      @update:model-value="(v) => update('sort', String(v ?? 'health'))"
+      @update:model-value="(v) => update('sort', String(v ?? DEFAULT_SERVICE_FILTERS.sort))"
     >
       <SelectTrigger class="w-36 h-8 text-xs">
         <SelectValue />
