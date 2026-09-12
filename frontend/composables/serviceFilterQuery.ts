@@ -278,3 +278,14 @@ export function isSearchOnlyChange(previous: ServiceFilters, next: ServiceFilter
     && previous.sort === next.sort
   )
 }
+
+/**
+ * Whether a `?system=` id may be validated against the client's system list.
+ *
+ * Only a *completed* response qualifies. A cached payload with a fetch still in
+ * flight is a stale list: validating a freshly selected system against it would
+ * erase a perfectly valid selection before the fresh data arrives.
+ */
+export function areSystemsValidatable(hasData: boolean, isLoading: boolean): boolean {
+  return hasData && !isLoading
+}

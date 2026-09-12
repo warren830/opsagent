@@ -12,6 +12,7 @@ import ServiceCard from './ServiceCard.vue'
 import ServiceFilterBar from './ServiceFilterBar.vue'
 import SystemGroupHeader from './SystemGroupHeader.vue'
 import { applyFilters, groupBySystem, sortComponents } from './cardRegistry'
+import { areSystemsValidatable } from '@/composables/serviceFilterQuery'
 import { useServiceFilterQuery } from '@/composables/useServiceFilterQuery'
 import type {
   ComponentOverview,
@@ -31,9 +32,10 @@ const allSystems = computed<SystemSummary[]>(() => props.data?.systems ?? [])
 
 const { filters, setFilters } = useServiceFilterQuery({
   knownSystemIds: computed(() => allSystems.value.map(s => s.id)),
-  // Until the overview payload lands we cannot tell a stale `?system=` id from
-  // a valid one, so the selection is kept as-is.
-  systemsReady: computed(() => props.data != null),
+  // A `?system=` id may only be checked against a *completed* response. While a
+  // refresh is in flight `data` still holds the previous payload, and matching a
+  // freshly selected system against that stale list would erase it.
+  systemsReady: computed(() => areSystemsValidatable(props.data != null, props.loading)),
 })
 
 const collapsed = reactive<Record<string, boolean>>(loadCollapsed())

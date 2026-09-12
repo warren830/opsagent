@@ -35,12 +35,30 @@ the cards actually visible.
   default. Values are matched case-sensitively; `?runtime=EKS` is not accepted.
   An invalid URL is rewritten to its canonical form on load.
 - **`system` survives loading.** The id is data-dependent, so it cannot be
-  validated until the overview payload arrives. Until then the selection is kept
-  as-is; once the systems are known, an id that no longer exists resets to `all`.
+  validated until the overview payload arrives. Only a *completed* response
+  counts: during a background refresh `data` still holds the previous payload,
+  and checking a freshly selected system against that stale list would erase it.
+  Once a completed response is on hand, an id that no longer exists resets to
+  `all`.
 - **Search does not flood history.** Typing is debounced (300 ms) and written
   with `replace`, so it collapses into the current history entry. Picking a value
   from a dropdown uses `push`, so browser back/forward walks the filter history
   and updates both the controls and the grid.
+- **A later navigation always wins.** Back/Forward or any other navigation that
+  lands while typing is still debounced supersedes it: the pending write is
+  dropped and the URL is adopted. Only the *commit of an older write the page
+  itself issued* is ignored, and only while a newer one of its own is still in
+  flight — that is the one case where a route event is genuinely stale.
+- **Refused navigations are reconciled.** Vue Router reports an aborted,
+  cancelled or duplicated navigation by resolving with a failure rather than
+  throwing, so writes are awaited. A write that loses a race is retried against
+  the fresh route (which keeps whatever cancelled it); if it still cannot land,
+  the URL is adopted so the controls and the address bar never disagree.
+- **Leaving the page wins over pending writes.** A departure may sit in an async
+  guard or a lazy chunk for a while. Pending writes are dropped the moment one
+  starts — waiting for unmount is too late, and a debounce firing in that window
+  would cancel the user's navigation. If the departure is then refused, the
+  dropped selection is written back.
 - **Other params and the hash are preserved.** Anything the page does not own
   (`?tab=`, `?ref=`, …) and the `#fragment` are carried through untouched.
 
