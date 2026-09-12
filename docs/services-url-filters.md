@@ -35,11 +35,15 @@ the cards actually visible.
   default. Values are matched case-sensitively; `?runtime=EKS` is not accepted.
   An invalid URL is rewritten to its canonical form on load.
 - **`system` survives loading.** The id is data-dependent, so it cannot be
-  validated until the overview payload arrives. Only a *completed* response
-  counts: during a background refresh `data` still holds the previous payload,
-  and checking a freshly selected system against that stale list would erase it.
-  Once a completed response is on hand, an id that no longer exists resets to
-  `all`.
+  validated until an authoritative response arrives *for this page visit*.
+  Neither `data != null` nor `loading === false` can tell that moment apart:
+  `useServicesOverview` keeps its response in module state that outlives the
+  page, and the page only starts its fetch in `onMounted` — after the grid's
+  setup. So on a repeat visit the grid starts out looking at a cached list with
+  nothing loading. Freshness is therefore tracked by payload *arrival*: the id is
+  only checked once a response object the grid did not start with shows up, which
+  also means a failed refresh never counts as confirmation. Once such a response
+  arrives, an id it does not know resets to `all`.
 - **Search does not flood history.** Typing is debounced (300 ms) and written
   with `replace`, so it collapses into the current history entry. Picking a value
   from a dropdown uses `push`, so browser back/forward walks the filter history
@@ -67,9 +71,9 @@ the cards actually visible.
 | File | Role |
 |------|------|
 | `frontend/composables/serviceFilterQuery.ts` | Pure filter ⇄ query codec: parsing, validation, default stripping, merging. No Vue imports. |
-| `frontend/composables/useServiceFilterQuery.ts` | Binds that codec to `vue-router`: restore on load, write on change, react to back/forward. |
-| `frontend/components/services/ServiceCardGrid.vue` | Consumes `filters` / `setFilters` and feeds the existing filter → sort → group pipeline. |
-| `frontend/components/services/cardRegistry.ts` | Unchanged filtering/sorting/grouping helpers. |
+| `frontend/composables/useServiceFilterQuery.ts` | Binds that codec to `vue-router`: restore on load, write on change, react to back/forward, reconcile refused navigations. Also exports `usePayloadSeenSinceSetup`, the freshness signal that gates `?system=` validation. |
+| `frontend/components/services/ServiceCardGrid.vue` | Wires `filters` / `setFilters` to the filter bar and renders `buildServiceGrid`. |
+| `frontend/components/services/cardRegistry.ts` | Filtering / sorting / grouping helpers, plus `buildServiceGrid` — the whole read pipeline in one call. |
 
 Reusing the filters elsewhere (for example to build a deep link in an alert
 notification) only needs the pure module:

@@ -6,8 +6,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyFilters,
-  sortComponents,
+  buildServiceGrid,
   groupBySystem,
+  resolveSortKey,
+  sortComponents,
 } from '~/components/services/cardRegistry'
 import { parseServiceFilters, serviceFiltersToQuery } from '~/composables/serviceFilterQuery'
 import type {
@@ -241,5 +243,37 @@ describe('ServiceCardGrid pipeline driven by the route query', () => {
     const second = render(serviceFiltersToQuery(first.filters))
     expect(second.visible.map(c => c.id)).toEqual(first.visible.map(c => c.id))
     expect(second.filters).toEqual(first.filters)
+  })
+
+  it('buildServiceGrid is the pipeline the grid renders', () => {
+    const filters = parseServiceFilters({ health: 'critical', sort: 'name' }, parseOptions)
+    const view = buildServiceGrid(components, systems, filters)
+    const manual = render({ health: 'critical', sort: 'name' })
+
+    expect(view.visible.map(c => c.id)).toEqual(manual.visible.map(c => c.id))
+    expect(view.total).toBe(manual.visible.length)
+    expect(view.groups.map(g => g.system.id)).toEqual(manual.groups.map(g => g.system.id))
+  })
+
+  it('buildServiceGrid reports counts for the visible cards only', () => {
+    const view = buildServiceGrid(
+      components,
+      systems,
+      parseServiceFilters({ system: 'sys-p' }, parseOptions),
+    )
+    expect(view.total).toBe(3)
+    expect(view.groups).toHaveLength(1)
+    expect(view.groups[0].components).toHaveLength(3)
+    expect(view.groups[0].healthSummary).toEqual({ healthy: 1, warning: 1, critical: 1, unknown: 0 })
+  })
+
+  it.each([
+    ['name', 'name'],
+    ['incidents', 'incidents'],
+    ['health', 'health'],
+    ['bogus', 'health'],
+    [undefined, 'health'],
+  ] as const)('resolveSortKey(%s) → %s', (input, expected) => {
+    expect(resolveSortKey(input)).toBe(expected)
   })
 })

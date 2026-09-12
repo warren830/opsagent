@@ -11,9 +11,8 @@ import { computed, reactive, watch } from 'vue'
 import ServiceCard from './ServiceCard.vue'
 import ServiceFilterBar from './ServiceFilterBar.vue'
 import SystemGroupHeader from './SystemGroupHeader.vue'
-import { applyFilters, groupBySystem, sortComponents } from './cardRegistry'
-import { areSystemsValidatable } from '@/composables/serviceFilterQuery'
-import { useServiceFilterQuery } from '@/composables/useServiceFilterQuery'
+import { buildServiceGrid } from './cardRegistry'
+import { usePayloadSeenSinceSetup, useServiceFilterQuery } from '@/composables/useServiceFilterQuery'
 import type {
   ComponentOverview,
   ServicesOverviewResponse,
@@ -32,10 +31,11 @@ const allSystems = computed<SystemSummary[]>(() => props.data?.systems ?? [])
 
 const { filters, setFilters } = useServiceFilterQuery({
   knownSystemIds: computed(() => allSystems.value.map(s => s.id)),
-  // A `?system=` id may only be checked against a *completed* response. While a
-  // refresh is in flight `data` still holds the previous payload, and matching a
-  // freshly selected system against that stale list would erase it.
-  systemsReady: computed(() => areSystemsValidatable(props.data != null, props.loading)),
+  // A `?system=` id may only be checked once a response has actually arrived for
+  // this visit. `props.data` can already hold a *cached* payload at setup — the
+  // page starts its fetch in onMounted, after this — and matching a freshly
+  // selected system against that stale list would erase it.
+  systemsReady: usePayloadSeenSinceSetup(() => props.data),
 })
 
 const collapsed = reactive<Record<string, boolean>>(loadCollapsed())
@@ -59,19 +59,7 @@ watch(collapsed, (v) => {
   }
 }, { deep: true })
 
-const filtered = computed(() =>
-  applyFilters(allComponents.value, {
-    search: filters.value.search,
-    systemId: filters.value.systemId,
-    lifecycle: filters.value.lifecycle,
-    runtime: filters.value.runtime,
-    health: filters.value.health,
-  }),
-)
-
-const sorted = computed(() => sortComponents(filtered.value, filters.value.sort as 'health' | 'name' | 'incidents'))
-
-const grouped = computed(() => groupBySystem(sorted.value, allSystems.value))
+const grid = computed(() => buildServiceGrid(allComponents.value, allSystems.value, filters.value))
 
 function toggleSystem(id: string | null) {
   const key = id ?? '__ungrouped'
@@ -90,7 +78,7 @@ const { t } = useI18n()
     <ServiceFilterBar
       :filters="filters"
       :systems="allSystems"
-      :total="filtered.length"
+      :total="grid.total"
       @update:filters="setFilters"
     />
 
@@ -101,7 +89,7 @@ const { t } = useI18n()
 
     <!-- Empty -->
     <div
-      v-else-if="filtered.length === 0"
+      v-else-if="grid.total === 0"
       class="rounded-lg border border-dashed border-border/50 py-16 text-center space-y-2"
     >
       <p class="text-xs text-muted-foreground">{{ t('services.emptyTitle') }}</p>
@@ -110,7 +98,7 @@ const { t } = useI18n()
 
     <!-- Grouped grid -->
     <div v-else class="space-y-6">
-      <section v-for="g in grouped" :key="g.system.id ?? '__ungrouped'">
+      <section v-for="g in grid.groups" :key="g.system.id ?? '__ungrouped'">
         <SystemGroupHeader
           :system="g.system.id == null
             ? { id: null, name: t('services.ungrouped'), display_name: null }

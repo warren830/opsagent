@@ -42,6 +42,15 @@ export const HEALTH_ORDER: Record<HealthStatus, number> = {
 
 export type SortKey = 'health' | 'name' | 'incidents'
 
+export const SORT_KEYS: readonly SortKey[] = ['health', 'name', 'incidents']
+
+/** Normalise any value to a supported sort key. Unknown values sort by health. */
+export function resolveSortKey(sort: unknown): SortKey {
+  return typeof sort === 'string' && (SORT_KEYS as readonly string[]).includes(sort)
+    ? (sort as SortKey)
+    : 'health'
+}
+
 export function sortComponents(list: ComponentOverview[], sort: SortKey): ComponentOverview[] {
   const copy = [...list]
   switch (sort) {
@@ -175,4 +184,29 @@ function summariseHealth(list: ComponentOverview[]): SystemSummary['health_summa
   const h = { healthy: 0, warning: 0, critical: 0, unknown: 0 }
   for (const c of list) h[c.health]++
   return h
+}
+
+export interface ServiceGridView {
+  /** Components passing the filters, in display order. */
+  visible: ComponentOverview[]
+  /** Those components grouped by system, with per-group health counts. */
+  groups: GroupedSystem[]
+  /** Count reported next to the filter bar. */
+  total: number
+}
+
+/**
+ * The grid's whole read pipeline in one call: filter → sort → group.
+ *
+ * Exported so the rendered view can be asserted end-to-end (including group
+ * counts) without duplicating the wiring in a test harness.
+ */
+export function buildServiceGrid(
+  components: ComponentOverview[],
+  systems: SystemSummary[],
+  filters: ServiceFilterState & { sort?: unknown },
+): ServiceGridView {
+  const filtered = applyFilters(components, filters)
+  const visible = sortComponents(filtered, resolveSortKey(filters.sort))
+  return { visible, groups: groupBySystem(visible, systems), total: filtered.length }
 }

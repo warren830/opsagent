@@ -16,7 +16,8 @@
  * `@vitejs/plugin-vue`.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { computed, defineComponent, h, nextTick, ref } from 'vue'
+import { defineComponent, h, nextTick, ref } from 'vue'
+import type { Ref } from 'vue'
 import {
   RouterView,
   createMemoryHistory,
@@ -28,6 +29,7 @@ import {
 import { flushPromises, mount } from '@vue/test-utils'
 import {
   SEARCH_QUERY_DEBOUNCE_MS,
+  usePayloadSeenSinceSetup,
   useServiceFilterQuery,
   type UseServiceFilterQueryOptions,
   type UseServiceFilterQueryReturn,
@@ -202,23 +204,21 @@ describe('useServiceFilterQuery', () => {
   })
 
   describe('system validation against a loading list', () => {
-    it('keeps a newly selected system while a refresh is in flight', async () => {
-      // Cached payload present, fresh fetch in flight — the list is stale.
-      const hasData = ref(true)
-      const loading = ref(true)
+    it('keeps a newly selected system until an authoritative list arrives', async () => {
+      const ready = ref(false)
       const ids = ref<string[]>(['sys-old'])
       const { api, router, replaces, unmount } = await setup('/services?system=sys-new', {
         knownSystemIds: ids,
-        systemsReady: computed(() => hasData.value && !loading.value),
+        systemsReady: ready,
       })
 
       expect(api().filters.value.systemId).toBe('sys-new')
       expect(router.currentRoute.value.query).toEqual({ system: 'sys-new' })
       expect(replaces).toHaveLength(0)
 
-      // Fresh response confirms the system.
+      // The authoritative response confirms the system.
       ids.value = ['sys-old', 'sys-new']
-      loading.value = false
+      ready.value = true
       await flushPromises()
 
       expect(api().filters.value.systemId).toBe('sys-new')
@@ -226,17 +226,16 @@ describe('useServiceFilterQuery', () => {
       unmount()
     })
 
-    it('drops the system only once a completed response disowns it', async () => {
-      const hasData = ref(true)
-      const loading = ref(true)
+    it('drops the system only once an authoritative list disowns it', async () => {
+      const ready = ref(false)
       const ids = ref<string[]>(['sys-old'])
       const { api, router, unmount } = await setup('/services?system=sys-gone', {
         knownSystemIds: ids,
-        systemsReady: computed(() => hasData.value && !loading.value),
+        systemsReady: ready,
       })
       expect(api().filters.value.systemId).toBe('sys-gone')
 
-      loading.value = false
+      ready.value = true
       await flushPromises()
 
       expect(api().filters.value.systemId).toBe('all')
@@ -244,26 +243,85 @@ describe('useServiceFilterQuery', () => {
       unmount()
     })
 
-    it('keeps a selection made during loading across the next poll', async () => {
-      const loading = ref(false)
+    it('keeps a selection made before the list is authoritative', async () => {
+      const ready = ref(false)
       const ids = ref<string[]>(['sys-p'])
       const { api, unmount } = await setup('/services', {
         knownSystemIds: ids,
-        systemsReady: computed(() => !loading.value),
+        systemsReady: ready,
       })
-      // A poll starts, then the user picks a system the cached list lacks.
-      loading.value = true
-      await nextTick()
       api().patchFilters({ systemId: 'sys-fresh' })
       await flushPromises()
       expect(api().filters.value.systemId).toBe('sys-fresh')
 
-      // The poll finishes and confirms it.
+      // The response that finally arrives confirms it.
       ids.value = ['sys-p', 'sys-fresh']
-      loading.value = false
+      ready.value = true
       await flushPromises()
       expect(api().filters.value.systemId).toBe('sys-fresh')
       unmount()
+    })
+  })
+
+  describe('usePayloadSeenSinceSetup', () => {
+    /** Mounts the tracker over a ref, returning both sides. */
+    function track(initial: unknown) {
+      const source = ref(initial)
+      let seen: Ref<boolean> | null = null
+      const wrapper = mount(
+        defineComponent({
+          setup() {
+            seen = usePayloadSeenSinceSetup(() => source.value)
+            return () => h('div')
+          },
+        }),
+      )
+      return { source, seen: () => seen as Ref<boolean>, unmount: () => wrapper.unmount() }
+    }
+
+    it('a cached payload present at setup is not authority', async () => {
+      const cached = { systems: [], components: [] }
+      const t = track(cached)
+      expect(t.seen().value).toBe(false)
+      await nextTick()
+      expect(t.seen().value).toBe(false)
+      t.unmount()
+    })
+
+    it('latches once a payload it did not start with arrives', async () => {
+      const t = track({ systems: [], components: [] })
+      t.source.value = { systems: [], components: [] } // distinct object
+      await nextTick()
+      expect(t.seen().value).toBe(true)
+      t.unmount()
+    })
+
+    it('a cold start latches on the first payload', async () => {
+      const t = track(null)
+      expect(t.seen().value).toBe(false)
+      t.source.value = { systems: [], components: [] }
+      await nextTick()
+      expect(t.seen().value).toBe(true)
+      t.unmount()
+    })
+
+    it('re-assigning the same object is not a new response', async () => {
+      const cached = { systems: [], components: [] }
+      const t = track(cached)
+      t.source.value = cached
+      await nextTick()
+      expect(t.seen().value).toBe(false)
+      t.unmount()
+    })
+
+    it('stays latched across later payloads', async () => {
+      const t = track(null)
+      t.source.value = { systems: [], components: [] }
+      await nextTick()
+      t.source.value = null
+      await nextTick()
+      expect(t.seen().value).toBe(true)
+      t.unmount()
     })
   })
 

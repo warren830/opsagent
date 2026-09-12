@@ -10,7 +10,6 @@ import {
   RUNTIME_FILTER_VALUES,
   SERVICE_FILTER_QUERY_KEYS,
   SORT_FILTER_VALUES,
-  areSystemsValidatable,
   isCanonicalServiceFilterQuery,
   isSearchOnlyChange,
   mergeServiceFiltersIntoQuery,
@@ -283,22 +282,5 @@ describe('signatures and equality', () => {
     expect(isSearchOnlyChange(filters(), filters())).toBe(false)
     expect(isSearchOnlyChange(filters(), filters({ search: 'api', health: 'critical' }))).toBe(false)
     expect(isSearchOnlyChange(filters(), filters({ health: 'critical' }))).toBe(false)
-  })
-})
-
-describe('areSystemsValidatable', () => {
-  it('requires a completed response', () => {
-    expect(areSystemsValidatable(true, false)).toBe(true)
-  })
-
-  it('refuses a cached list while a refresh is in flight', () => {
-    // The stale-list trap: data is present but does not describe the systems
-    // the user may have just selected.
-    expect(areSystemsValidatable(true, true)).toBe(false)
-  })
-
-  it('refuses an absent list', () => {
-    expect(areSystemsValidatable(false, true)).toBe(false)
-    expect(areSystemsValidatable(false, false)).toBe(false)
   })
 })

@@ -62,15 +62,46 @@ export interface UseServiceFilterQueryOptions {
   /** Ids of the systems the client knows about, for validating `?system=`. */
   knownSystemIds?: MaybeRefOrGetter<readonly string[] | null | undefined>
   /**
-   * `true` only once a *completed* overview response is on hand. While a fetch
-   * is in flight the `?system=` id cannot be checked against a stale list, so
-   * the selection is kept.
+   * `true` only once an **authoritative** response has arrived for this page
+   * visit — see `usePayloadSeenSinceSetup`, which is how callers should derive
+   * it.
+   *
+   * A cached payload is not authority, and neither is `loading === false`:
+   * `useServicesOverview` keeps its response in module state that outlives the
+   * page, and the page only starts its fetch in `onMounted`, i.e. *after* the
+   * grid's setup. At that moment a stale list looks exactly like a completed
+   * load, and validating against it erases a perfectly valid `?system=` id.
    */
   systemsReady?: MaybeRefOrGetter<boolean>
   /** Override the search debounce; `0` writes synchronously. */
   searchDebounceMs?: number
   /** Override how often a refused write is retried before adopting the URL. */
   maxWriteRetries?: number
+}
+
+/**
+ * Reports whether a payload this instance did not start with has arrived.
+ *
+ * The only trustworthy "the data is authoritative now" signal available to a
+ * child of the Services page is the *arrival of a payload object it did not
+ * start with*. Presence and loading flags cannot express it: module-level
+ * caches survive navigation, so on a repeat visit the child's setup sees a
+ * non-null payload with `loading === false` before this visit's fetch has even
+ * started.
+ *
+ * Latches on the first new payload and stays `true`; a failed refresh leaves
+ * the previous payload in place and therefore never counts as confirmation.
+ */
+export function usePayloadSeenSinceSetup(payload: MaybeRefOrGetter<unknown>): Ref<boolean> {
+  const baseline = toValue(payload)
+  const seen = ref(false)
+  watch(
+    () => toValue(payload),
+    (current) => {
+      if (!seen.value && current != null && current !== baseline) seen.value = true
+    },
+  )
+  return seen
 }
 
 export interface UseServiceFilterQueryReturn {
