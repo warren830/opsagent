@@ -35,8 +35,8 @@
  * The composable owns no data fetching and widens no authorization scope: it
  * only reshuffles client-side state the grid already had in memory.
  */
-import { getCurrentInstance, onMounted, onScopeDispose, ref, toValue, watch } from 'vue'
-import type { MaybeRefOrGetter, Ref } from 'vue'
+import { computed, getCurrentInstance, onMounted, onScopeDispose, ref, toValue, watch } from 'vue'
+import type { ComputedRef, MaybeRefOrGetter, Ref } from 'vue'
 import { NavigationFailureType, isNavigationFailure, useRoute, useRouter } from 'vue-router'
 import {
   DEFAULT_SERVICE_FILTERS,
@@ -62,15 +62,15 @@ export interface UseServiceFilterQueryOptions {
   /** Ids of the systems the client knows about, for validating `?system=`. */
   knownSystemIds?: MaybeRefOrGetter<readonly string[] | null | undefined>
   /**
-   * `true` only once an **authoritative** response has arrived for this page
-   * visit — see `usePayloadSeenSinceSetup`, which is how callers should derive
-   * it.
+   * `true` only while the catalog in hand is **authoritative** — see
+   * `usePayloadAuthority`, which is how callers should derive it.
    *
-   * A cached payload is not authority, and neither is `loading === false`:
-   * `useServicesOverview` keeps its response in module state that outlives the
-   * page, and the page only starts its fetch in `onMounted`, i.e. *after* the
-   * grid's setup. At that moment a stale list looks exactly like a completed
-   * load, and validating against it erases a perfectly valid `?system=` id.
+   * Neither a non-null payload nor `loading === false` says that, and neither
+   * does "some response arrived once". `useServicesOverview` keeps its response
+   * in module state that outlives the page and polls in the background, so the
+   * list on hand may predate both this page visit and the request currently in
+   * flight. Validating a `?system=` id against such a list erases a perfectly
+   * valid selection.
    */
   systemsReady?: MaybeRefOrGetter<boolean>
   /** Override the search debounce; `0` writes synchronously. */
@@ -80,28 +80,49 @@ export interface UseServiceFilterQueryOptions {
 }
 
 /**
- * Reports whether a payload this instance did not start with has arrived.
+ * Reports whether the payload currently in hand may be treated as the complete
+ * catalog.
  *
- * The only trustworthy "the data is authoritative now" signal available to a
- * child of the Services page is the *arrival of a payload object it did not
- * start with*. Presence and loading flags cannot express it: module-level
- * caches survive navigation, so on a repeat visit the child's setup sees a
- * non-null payload with `loading === false` before this visit's fetch has even
- * started.
+ * Two boundaries make a payload authoritative, and both are needed:
  *
- * Latches on the first new payload and stays `true`; a failed refresh leaves
- * the previous payload in place and therefore never counts as confirmation.
+ *  - **Setup.** `useServicesOverview` caches its response in module state, and
+ *    the page only starts a fetch in `onMounted` — after a child's `setup`. So a
+ *    child can begin life looking at a payload from an *earlier visit* with
+ *    nothing loading. Only a payload object it did not start with counts.
+ *  - **Every refresh.** Polling reopens the same gap: while a refresh is in
+ *    flight, the list on hand predates the response being fetched, so a system
+ *    created since then would look nonexistent. A starting load therefore
+ *    invalidates authority until *that* load answers with a new payload.
+ *
+ * A refresh that fails keeps the previous payload, so no new payload arrives and
+ * authority is not restored — a pending selection survives untouched.
  */
-export function usePayloadSeenSinceSetup(payload: MaybeRefOrGetter<unknown>): Ref<boolean> {
-  const baseline = toValue(payload)
-  const seen = ref(false)
+export function usePayloadAuthority(
+  payload: MaybeRefOrGetter<unknown>,
+  loading: MaybeRefOrGetter<boolean> = () => false,
+): ComputedRef<boolean> {
+  /** Payload the in-flight (or most recent) load started from. */
+  let generationStart = toValue(payload)
+  const answered = ref(false)
+
   watch(
     () => toValue(payload),
     (current) => {
-      if (!seen.value && current != null && current !== baseline) seen.value = true
+      if (current != null && current !== generationStart) answered.value = true
     },
   )
-  return seen
+
+  watch(
+    () => toValue(loading),
+    (isLoading, wasLoading) => {
+      if (!isLoading || wasLoading) return
+      // A load just started: whatever is on hand predates its response.
+      generationStart = toValue(payload)
+      answered.value = false
+    },
+  )
+
+  return computed(() => answered.value && !toValue(loading))
 }
 
 export interface UseServiceFilterQueryReturn {

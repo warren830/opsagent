@@ -12,7 +12,7 @@ import ServiceCard from './ServiceCard.vue'
 import ServiceFilterBar from './ServiceFilterBar.vue'
 import SystemGroupHeader from './SystemGroupHeader.vue'
 import { buildServiceGrid } from './cardRegistry'
-import { usePayloadSeenSinceSetup, useServiceFilterQuery } from '@/composables/useServiceFilterQuery'
+import { usePayloadAuthority, useServiceFilterQuery } from '@/composables/useServiceFilterQuery'
 import type {
   ComponentOverview,
   ServicesOverviewResponse,
@@ -31,11 +31,12 @@ const allSystems = computed<SystemSummary[]>(() => props.data?.systems ?? [])
 
 const { filters, setFilters } = useServiceFilterQuery({
   knownSystemIds: computed(() => allSystems.value.map(s => s.id)),
-  // A `?system=` id may only be checked once a response has actually arrived for
-  // this visit. `props.data` can already hold a *cached* payload at setup — the
-  // page starts its fetch in onMounted, after this — and matching a freshly
-  // selected system against that stale list would erase it.
-  systemsReady: usePayloadSeenSinceSetup(() => props.data),
+  // A `?system=` id may only be checked while the catalog on hand is
+  // authoritative. `props.data` can be a payload from an earlier visit at setup
+  // (the page starts its fetch in onMounted, after this) and it goes stale again
+  // for the duration of every background refresh, so a system created since the
+  // last completed poll must not be mistaken for a nonexistent one.
+  systemsReady: usePayloadAuthority(() => props.data, () => props.loading),
 })
 
 const collapsed = reactive<Record<string, boolean>>(loadCollapsed())

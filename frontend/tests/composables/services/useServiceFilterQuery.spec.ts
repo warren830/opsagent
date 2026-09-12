@@ -17,7 +17,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { defineComponent, h, nextTick, ref } from 'vue'
-import type { Ref } from 'vue'
+import type { ComputedRef } from 'vue'
 import {
   RouterView,
   createMemoryHistory,
@@ -29,7 +29,7 @@ import {
 import { flushPromises, mount } from '@vue/test-utils'
 import {
   SEARCH_QUERY_DEBOUNCE_MS,
-  usePayloadSeenSinceSetup,
+  usePayloadAuthority,
   useServiceFilterQuery,
   type UseServiceFilterQueryOptions,
   type UseServiceFilterQueryReturn,
@@ -263,65 +263,132 @@ describe('useServiceFilterQuery', () => {
     })
   })
 
-  describe('usePayloadSeenSinceSetup', () => {
-    /** Mounts the tracker over a ref, returning both sides. */
-    function track(initial: unknown) {
+  describe('usePayloadAuthority', () => {
+    /** Mounts the tracker over payload + loading refs, returning all sides. */
+    function track(initial: unknown, initialLoading = false) {
       const source = ref(initial)
-      let seen: Ref<boolean> | null = null
+      const loading = ref(initialLoading)
+      let authoritative: ComputedRef<boolean> | null = null
       const wrapper = mount(
         defineComponent({
           setup() {
-            seen = usePayloadSeenSinceSetup(() => source.value)
+            authoritative = usePayloadAuthority(() => source.value, () => loading.value)
             return () => h('div')
           },
         }),
       )
-      return { source, seen: () => seen as Ref<boolean>, unmount: () => wrapper.unmount() }
+      return {
+        source,
+        loading,
+        value: () => (authoritative as ComputedRef<boolean>).value,
+        unmount: () => wrapper.unmount(),
+      }
     }
 
-    it('a cached payload present at setup is not authority', async () => {
-      const cached = { systems: [], components: [] }
-      const t = track(cached)
-      expect(t.seen().value).toBe(false)
+    const response = () => ({ systems: [], components: [] })
+
+    it('a payload present at setup is not authority', async () => {
+      const t = track(response())
+      expect(t.value()).toBe(false)
       await nextTick()
-      expect(t.seen().value).toBe(false)
+      expect(t.value()).toBe(false)
       t.unmount()
     })
 
-    it('latches once a payload it did not start with arrives', async () => {
-      const t = track({ systems: [], components: [] })
-      t.source.value = { systems: [], components: [] } // distinct object
+    it('a payload the instance did not start with grants authority', async () => {
+      const t = track(response())
+      t.source.value = response() // distinct object
       await nextTick()
-      expect(t.seen().value).toBe(true)
+      expect(t.value()).toBe(true)
       t.unmount()
     })
 
-    it('a cold start latches on the first payload', async () => {
+    it('a cold start grants authority on the first payload', async () => {
       const t = track(null)
-      expect(t.seen().value).toBe(false)
-      t.source.value = { systems: [], components: [] }
+      expect(t.value()).toBe(false)
+      t.source.value = response()
       await nextTick()
-      expect(t.seen().value).toBe(true)
+      expect(t.value()).toBe(true)
       t.unmount()
     })
 
     it('re-assigning the same object is not a new response', async () => {
-      const cached = { systems: [], components: [] }
+      const cached = response()
       const t = track(cached)
       t.source.value = cached
       await nextTick()
-      expect(t.seen().value).toBe(false)
+      expect(t.value()).toBe(false)
       t.unmount()
     })
 
-    it('stays latched across later payloads', async () => {
+    it('a starting refresh revokes authority until that refresh answers', async () => {
       const t = track(null)
-      t.source.value = { systems: [], components: [] }
+      t.source.value = response()
       await nextTick()
-      t.source.value = null
+      expect(t.value()).toBe(true)
+
+      // Poll N+1 begins: the list on hand predates its response.
+      t.loading.value = true
       await nextTick()
-      expect(t.seen().value).toBe(true)
+      expect(t.value()).toBe(false)
+
+      t.source.value = response()
+      t.loading.value = false
+      await nextTick()
+      expect(t.value()).toBe(true)
       t.unmount()
+    })
+
+    it('a refresh that keeps its old payload never regains authority', async () => {
+      const t = track(null)
+      const first = response()
+      t.source.value = first
+      await nextTick()
+      expect(t.value()).toBe(true)
+
+      t.loading.value = true
+      await nextTick()
+      // Failure path: payload untouched, loading clears.
+      t.loading.value = false
+      await nextTick()
+      expect(t.value()).toBe(false)
+
+      // Only the next successful poll restores it.
+      t.loading.value = true
+      await nextTick()
+      t.source.value = response()
+      t.loading.value = false
+      await nextTick()
+      expect(t.value()).toBe(true)
+      t.unmount()
+    })
+
+    it('a payload arriving before loading clears is not authority yet', async () => {
+      const t = track(null, true)
+      t.source.value = response()
+      await nextTick()
+      expect(t.value()).toBe(false)
+      t.loading.value = false
+      await nextTick()
+      expect(t.value()).toBe(true)
+      t.unmount()
+    })
+
+    it('defaults to no loading signal when none is supplied', async () => {
+      const source = ref<unknown>(null)
+      let authoritative: ComputedRef<boolean> | null = null
+      const wrapper = mount(
+        defineComponent({
+          setup() {
+            authoritative = usePayloadAuthority(() => source.value)
+            return () => h('div')
+          },
+        }),
+      )
+      source.value = { systems: [], components: [] }
+      await nextTick()
+      expect((authoritative as ComputedRef<boolean>).value).toBe(true)
+      wrapper.unmount()
     })
   })
 
