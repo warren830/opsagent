@@ -87,4 +87,66 @@ describe('ServiceCardGrid pipeline', () => {
     expect(groups).toHaveLength(1)
     expect(groups[0].system.id).toBeNull()
   })
+
+  it('defaults (health="all") render every component, same as omitting health', () => {
+    const withAll = applyFilters(components, {
+      search: '', systemId: 'all', lifecycle: 'all', runtime: 'all', health: 'all',
+    })
+    const withoutHealth = applyFilters(components, {
+      search: '', systemId: 'all', lifecycle: 'all', runtime: 'all',
+    })
+    expect(withAll.map(c => c.id)).toEqual(withoutHealth.map(c => c.id))
+    expect(withAll).toHaveLength(components.length)
+  })
+
+  it('health filter narrows the grid and group badges match the visible cards', () => {
+    const filtered = applyFilters(components, {
+      search: '', systemId: 'all', lifecycle: 'all', runtime: 'all', health: 'critical',
+    })
+    const sorted = sortComponents(filtered, 'health')
+    const groups = groupBySystem(sorted, systems)
+
+    expect(groups.map(g => g.system.id)).toEqual(['sys-p', 'sys-o'])
+    expect(groups[0].components.map(c => c.id)).toEqual(['pay-critical'])
+    expect(groups[1].components.map(c => c.id)).toEqual(['ord-critical'])
+
+    for (const g of groups) {
+      const s = g.healthSummary
+      expect(s.critical).toBe(g.components.length)
+      expect(s.warning).toBe(0)
+      expect(s.healthy).toBe(0)
+      expect(s.unknown ?? 0).toBe(0)
+    }
+  })
+
+  it.each([
+    ['critical', ['pay-critical', 'ord-critical']],
+    ['warning', ['pay-warning']],
+    ['unknown', ['free-unknown']],
+    ['healthy', ['pay-healthy']],
+  ] as const)('health="%s" selects the expected cards', (health, expected) => {
+    const filtered = applyFilters(components, {
+      search: '', systemId: 'all', lifecycle: 'all', runtime: 'all', health,
+    })
+    expect(sortComponents(filtered, 'name').map(c => c.id).sort()).toEqual([...expected].sort())
+  })
+
+  it('health combined with runtime can produce an empty grid', () => {
+    const filtered = applyFilters(components, {
+      search: '', systemId: 'all', lifecycle: 'all', runtime: 'eks', health: 'critical',
+    })
+    expect(filtered).toEqual([])
+    expect(groupBySystem(filtered, systems)).toEqual([])
+  })
+
+  it('health filtering leaves the source overview data untouched', () => {
+    const snapshot = JSON.parse(JSON.stringify(components))
+    const systemsSnapshot = JSON.parse(JSON.stringify(systems))
+    const filtered = applyFilters(components, {
+      search: '', systemId: 'all', lifecycle: 'all', runtime: 'all', health: 'warning',
+    })
+    groupBySystem(sortComponents(filtered, 'health'), systems)
+    expect(components).toEqual(snapshot)
+    expect(systems).toEqual(systemsSnapshot)
+  })
 })

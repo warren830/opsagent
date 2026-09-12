@@ -27,6 +27,7 @@ const filters = ref<ServiceFilters>({
   systemId: 'all',
   lifecycle: 'all',
   runtime: 'all',
+  health: 'all',
   sort: 'health',
 })
 
@@ -60,6 +61,7 @@ const filtered = computed(() =>
     systemId: filters.value.systemId,
     lifecycle: filters.value.lifecycle,
     runtime: filters.value.runtime,
+    health: filters.value.health,
   }),
 )
 
