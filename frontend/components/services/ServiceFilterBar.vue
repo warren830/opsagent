@@ -11,6 +11,7 @@ export interface ServiceFilters {
   systemId: string          // 'all' or uuid or 'none' (components without system)
   lifecycle: string         // 'all' | production | experimental | deprecated | retired
   runtime: string           // 'all' | eks | ec2 | rds | lambda | external | generic
+  health: string            // 'all' | critical | warning | unknown | healthy
   sort: string              // 'health' | 'name' | 'incidents'
 }
 
@@ -90,6 +91,22 @@ const { t } = useI18n()
         <SelectItem value="lambda">Lambda</SelectItem>
         <SelectItem value="external">External</SelectItem>
         <SelectItem value="generic">Generic</SelectItem>
+      </SelectContent>
+    </Select>
+
+    <Select
+      :model-value="filters.health"
+      @update:model-value="(v) => update('health', String(v ?? 'all'))"
+    >
+      <SelectTrigger class="w-36 h-8 text-xs">
+        <SelectValue :placeholder="t('services.filterByHealth')" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">{{ t('services.allHealth') }}</SelectItem>
+        <SelectItem value="critical">{{ t('services.healthCritical') }}</SelectItem>
+        <SelectItem value="warning">{{ t('services.healthWarning') }}</SelectItem>
+        <SelectItem value="unknown">{{ t('services.healthUnknown') }}</SelectItem>
+        <SelectItem value="healthy">{{ t('services.healthHealthy') }}</SelectItem>
       </SelectContent>
     </Select>
 

@@ -5,6 +5,7 @@ import {
   applyFilters,
   groupBySystem,
   HEALTH_ORDER,
+  HEALTH_FILTER_VALUES,
 } from '~/components/services/cardRegistry'
 import type {
   ComponentOverview,
@@ -118,6 +119,80 @@ describe('applyFilters', () => {
     const got = applyFilters(list, { search: 'order', systemId: 'sys-p', lifecycle: 'production', runtime: 'eks' })
     expect(got.map(c => c.id)).toEqual(['1'])
   })
+
+  it('omitting health behaves like "all" (backwards compatible)', () => {
+    const got = applyFilters(list, { search: '', systemId: 'all', lifecycle: 'all', runtime: 'all' })
+    expect(got.map(c => c.id)).toEqual(['1', '2', '3', '4'])
+  })
+})
+
+describe('applyFilters — health', () => {
+  const list: ComponentOverview[] = [
+    make({ id: 'c1', name: 'checkout-api', health: 'critical', system_id: 'sys-p', runtime: { kind: 'eks' } }),
+    make({ id: 'w1', name: 'warn-worker', health: 'warning', system_id: 'sys-p', runtime: { kind: 'ec2' } }),
+    make({ id: 'u1', name: 'unknown-fn', health: 'unknown', system_id: 'sys-x', runtime: { kind: 'lambda' } }),
+    make({ id: 'h1', name: 'happy-db', health: 'healthy', system_id: null, runtime: { kind: 'rds' } }),
+    make({ id: 'c2', name: 'cart-api', health: 'critical', lifecycle: 'experimental', system_id: 'sys-x', runtime: { kind: 'eks' } }),
+  ]
+
+  const base = { search: '', systemId: 'all', lifecycle: 'all', runtime: 'all' }
+
+  it('health="all" keeps every component', () => {
+    expect(applyFilters(list, { ...base, health: 'all' }).map(c => c.id))
+      .toEqual(['c1', 'w1', 'u1', 'h1', 'c2'])
+  })
+
+  it.each([
+    ['critical', ['c1', 'c2']],
+    ['warning', ['w1']],
+    ['unknown', ['u1']],
+    ['healthy', ['h1']],
+  ] as const)('health="%s" keeps only that status', (health, expected) => {
+    expect(applyFilters(list, { ...base, health }).map(c => c.id)).toEqual([...expected])
+  })
+
+  it('exposes the selectable filter values including the "all" default', () => {
+    expect(HEALTH_FILTER_VALUES).toEqual(['all', 'critical', 'warning', 'unknown', 'healthy'])
+  })
+
+  it('intersects with search', () => {
+    expect(applyFilters(list, { ...base, search: 'api', health: 'critical' }).map(c => c.id))
+      .toEqual(['c1', 'c2'])
+  })
+
+  it('intersects with system, lifecycle and runtime', () => {
+    expect(applyFilters(list, {
+      search: '',
+      systemId: 'sys-x',
+      lifecycle: 'experimental',
+      runtime: 'eks',
+      health: 'critical',
+    }).map(c => c.id)).toEqual(['c2'])
+  })
+
+  it('intersects with systemId="none"', () => {
+    expect(applyFilters(list, { ...base, systemId: 'none', health: 'healthy' }).map(c => c.id))
+      .toEqual(['h1'])
+    expect(applyFilters(list, { ...base, systemId: 'none', health: 'critical' })).toEqual([])
+  })
+
+  it('returns an empty array when no component matches the health filter', () => {
+    const onlyHealthy = [make({ id: 'only', health: 'healthy' })]
+    expect(applyFilters(onlyHealthy, { ...base, health: 'critical' })).toEqual([])
+  })
+
+  it('returns an empty array when health contradicts another filter', () => {
+    expect(applyFilters(list, { ...base, runtime: 'rds', health: 'critical' })).toEqual([])
+  })
+
+  it('does not mutate the input list or its members', () => {
+    const snapshot = JSON.parse(JSON.stringify(list))
+    const before = [...list]
+    applyFilters(list, { ...base, health: 'critical' })
+    expect(list).toEqual(snapshot)
+    expect(list).toHaveLength(before.length)
+    expect(list.map(c => c.id)).toEqual(before.map(c => c.id))
+  })
 })
 
 describe('groupBySystem', () => {
@@ -160,5 +235,67 @@ describe('groupBySystem', () => {
     const groups = groupBySystem(components, [])
     expect(groups).toHaveLength(1)
     expect(groups[0].healthSummary).toEqual({ healthy: 1, warning: 0, critical: 2, unknown: 0 })
+  })
+
+  it('derives known-system health summary from the given components, not the backend totals', () => {
+    // Backend claims sys-p has 1 healthy + 1 critical; we only pass the critical one.
+    const components: ComponentOverview[] = [
+      make({ id: 'crit', system_id: 'sys-p', health: 'critical' }),
+    ]
+    const groups = groupBySystem(components, systems)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].system.id).toBe('sys-p')
+    expect(groups[0].healthSummary).toEqual({ healthy: 0, warning: 0, critical: 1, unknown: 0 })
+    // Explicitly diverges from the unfiltered SystemSummary.
+    expect(groups[0].healthSummary).not.toEqual(systems[0].health_summary)
+  })
+
+  it('keeps badge totals in sync with component count after a health filter', () => {
+    const components: ComponentOverview[] = [
+      make({ id: 'p-crit', system_id: 'sys-p', health: 'critical' }),
+      make({ id: 'p-warn', system_id: 'sys-p', health: 'warning' }),
+      make({ id: 'p-ok', system_id: 'sys-p', health: 'healthy' }),
+      make({ id: 'x-unknown', system_id: 'sys-x', health: 'unknown' }),
+    ]
+    const filtered = applyFilters(components, {
+      search: '', systemId: 'all', lifecycle: 'all', runtime: 'all', health: 'critical',
+    })
+    const groups = groupBySystem(filtered, systems)
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0].system.id).toBe('sys-p')
+    expect(groups[0].components).toHaveLength(1)
+    const s = groups[0].healthSummary
+    const badgeTotal = s.critical + s.warning + s.healthy + (s.unknown ?? 0)
+    expect(badgeTotal).toBe(groups[0].components.length)
+  })
+
+  it('preserves system name / display_name / ordering metadata', () => {
+    const components: ComponentOverview[] = [
+      make({ id: 'x1', system_id: 'sys-x', health: 'unknown' }),
+      make({ id: 'p1', system_id: 'sys-p', health: 'critical' }),
+      make({ id: 'free', system_id: null, health: 'healthy' }),
+    ]
+    const groups = groupBySystem(components, systems)
+    // Backend order is preserved (sys-p declared first), ungrouped last.
+    expect(groups.map(g => g.system.id)).toEqual(['sys-p', 'sys-x', null])
+    expect(groups[0].system).toEqual({ id: 'sys-p', name: 'payments', display_name: 'Payments' })
+    expect(groups[1].system).toEqual({ id: 'sys-x', name: 'misc', display_name: null })
+  })
+
+  it('does not mutate the inputs', () => {
+    const components: ComponentOverview[] = [
+      make({ id: 'p1', system_id: 'sys-p', health: 'critical' }),
+      make({ id: 'free', system_id: null, health: 'warning' }),
+    ]
+    const componentsSnapshot = JSON.parse(JSON.stringify(components))
+    const systemsSnapshot = JSON.parse(JSON.stringify(systems))
+
+    groupBySystem(components, systems)
+
+    expect(components).toEqual(componentsSnapshot)
+    expect(systems).toEqual(systemsSnapshot)
+    // The backend summary object itself is untouched.
+    expect(systems[0].health_summary).toEqual({ healthy: 1, warning: 0, critical: 1 })
   })
 })

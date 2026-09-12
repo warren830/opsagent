@@ -71,11 +71,27 @@ function displayName(c: ComponentOverview): string {
   return c.display_name || c.name
 }
 
+/**
+ * Health filter value. 'all' (the default) disables the health predicate so
+ * pre-existing callers that omit the field keep their current behaviour.
+ */
+export type HealthFilter = 'all' | HealthStatus
+
+export const HEALTH_FILTER_VALUES: readonly HealthFilter[] = [
+  'all',
+  'critical',
+  'warning',
+  'unknown',
+  'healthy',
+]
+
 export interface ServiceFilterState {
   search: string
   systemId: string     // 'all' | uuid | 'none'
   lifecycle: string
   runtime: string
+  /** Optional; treated as 'all' when omitted. */
+  health?: HealthFilter | string
 }
 
 export function applyFilters(
@@ -83,6 +99,7 @@ export function applyFilters(
   filters: ServiceFilterState,
 ): ComponentOverview[] {
   const q = filters.search.trim().toLowerCase()
+  const health = filters.health ?? 'all'
   return components.filter((c) => {
     if (filters.systemId === 'none' && c.system_id) return false
     if (filters.systemId !== 'all' && filters.systemId !== 'none' && c.system_id !== filters.systemId) return false
@@ -91,6 +108,7 @@ export function applyFilters(
       const kind = c.runtime?.kind ?? 'generic'
       if (kind !== filters.runtime) return false
     }
+    if (health !== 'all' && c.health !== health) return false
     if (!q) return true
     return (
       c.name.toLowerCase().includes(q)
@@ -111,6 +129,12 @@ export interface GroupedSystem {
  * Group components by their system_id. Components without a system_id end
  * up in an "ungrouped" bucket keyed by null. Within each group components
  * are already expected to be sorted (caller's responsibility).
+ *
+ * Health summaries are always derived from the components actually passed
+ * in — never from the backend's unfiltered `SystemSummary.health_summary` —
+ * so the group badges stay consistent with whatever filters produced
+ * `components`. System identity/ordering metadata still comes from
+ * `systems`. Neither input array nor its members are mutated.
  */
 export function groupBySystem(
   components: ComponentOverview[],
@@ -131,7 +155,7 @@ export function groupBySystem(
     if (list.length === 0) continue
     orderedSystems.push({
       system: { id: s.id, name: s.name, display_name: s.display_name },
-      healthSummary: s.health_summary,
+      healthSummary: summariseHealth(list),
       components: list,
     })
   }

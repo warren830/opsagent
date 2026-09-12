@@ -16,11 +16,11 @@
  *  - Non-center Components navigate via NuxtLink → /services/:id.
  *  - MiniMap enabled so dense 2-hop graphs stay navigable.
  */
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, watch, nextTick, defineComponent, h } from 'vue'
 import { VueFlow, useVueFlow, Position, Handle } from '@vue-flow/core'
 import { MiniMap } from '@vue-flow/minimap'
 import { Controls } from '@vue-flow/controls'
-import { RefreshCw, Loader2, Layers, Box, Cloud, Plug, Users2, Package } from 'lucide-vue-next'
+import { RefreshCw, Layers, Box, Cloud, Plug, Users2, Package } from 'lucide-vue-next'
 import dagre from '@dagrejs/dagre'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -58,21 +58,6 @@ interface EntityGraphEdge {
 interface EntityGraph {
   nodes: EntityGraphNode[]
   edges: EntityGraphEdge[]
-}
-
-// ─── Kind palette (Aurora tokens) ───────────────────────────────
-// Matches TopologyGraph.vue so navigating between catalog/graph and
-// services/dependencies feels like one visual system.
-const kindStyle: Record<string, { bg: string; border: string; text: string; icon: any }> = {
-  system:    { bg: 'hsl(280 60% 70% / 0.18)', border: 'hsl(280 60% 70% / 0.85)', text: 'hsl(280 60% 88%)', icon: Layers },
-  component: { bg: 'hsl(170 70% 60% / 0.18)', border: 'hsl(170 70% 60% / 0.85)', text: 'hsl(170 70% 85%)', icon: Box },
-  api:       { bg: 'hsl(35 90% 60% / 0.18)',  border: 'hsl(35 90% 60% / 0.85)',  text: 'hsl(35 90% 85%)',  icon: Plug },
-  resource:  { bg: 'hsl(235 75% 70% / 0.18)', border: 'hsl(235 75% 70% / 0.85)', text: 'hsl(235 75% 88%)', icon: Cloud },
-  group:     { bg: 'hsl(225 10% 55% / 0.18)', border: 'hsl(225 10% 55% / 0.85)', text: 'hsl(225 10% 85%)', icon: Users2 },
-}
-
-function getKindStyle(kind: string) {
-  return kindStyle[kind] || { ...kindStyle.group, icon: Package }
 }
 
 // ─── Edge palette by relation_type ──────────────────────────────
@@ -246,11 +231,11 @@ function onNodeClick(payload: { event: MouseEvent; node: { id: string; data?: an
  *
  * Kept in this file (not a separate .vue) to honour the 4-file limit the
  * dispatch brief enforces.
+ *
+ * Imports (vue / @vue-flow/core / lucide-vue-next) are declared once in the
+ * `<script setup>` block above — both blocks compile into the same module,
+ * so re-importing here would only create duplicates.
  */
-import { defineComponent, computed, h } from 'vue'
-import { Handle, Position } from '@vue-flow/core'
-import { Layers, Box, Cloud, Plug, Users2, Package } from 'lucide-vue-next'
-
 const iconMap: Record<string, any> = {
   system: Layers,
   component: Box,
