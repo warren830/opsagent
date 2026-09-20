@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo-full.png" alt="Loops" width="480" />
+  <img src="frontend/public/logo-full.png" alt="Loops" width="480" />
 </p>
 
 <p align="center">
